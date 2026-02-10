@@ -458,9 +458,29 @@ describe("MessageHandler commands", () => {
     expect(degradedNotice).toContain("quotio/gemini-3-pro-image-preview");
   });
 
-  it("routes audio input using audio capability", async () => {
+  it("does not send audio degradation notice when transcript is available", async () => {
+    ensureSessionModelForInput.mockResolvedValue({
+      ok: false,
+      modelRef: "quotio/gemini-3-flash-preview",
+      candidates: [],
+    });
+    transcribeInboundMessageMock.mockResolvedValue("transcribed audio content");
+
+    await handler.handle(createAudioMessage(""), channel);
+
+    const degradedNotice = send.mock.calls
+      .map((call) => (call[1] as { text?: string }).text || "")
+      .find((line) => line.includes("does not support audio input"));
+    expect(degradedNotice).toBeUndefined();
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips audio capability routing when transcript is available", async () => {
+    transcribeInboundMessageMock.mockResolvedValue("audio transcript");
+
     await handler.handle(createAudioMessage("listen this"), channel);
-    expect(ensureSessionModelForInput).toHaveBeenCalledWith(
+
+    expect(ensureSessionModelForInput).not.toHaveBeenCalledWith(
       expect.objectContaining({ input: "audio" }),
     );
   });

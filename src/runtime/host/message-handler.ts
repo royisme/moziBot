@@ -1475,11 +1475,7 @@ export class MessageHandler {
     return lines.join("\n\n").trim();
   }
 
-  private async buildRawTextWithTranscription(
-    message: InboundMessage,
-    rawText: string,
-  ): Promise<string> {
-    const transcript = await this.sttService.transcribeInboundMessage(message);
+  private buildRawTextWithTranscription(rawText: string, transcript: string | null): string {
     if (!transcript) {
       return rawText;
     }
@@ -1497,6 +1493,7 @@ export class MessageHandler {
     message: InboundMessage;
     channel: ChannelPlugin;
     peerId: string;
+    hasAudioTranscript: boolean;
   }): Promise<boolean> {
     const media = params.message.media || [];
     if (media.length === 0) {
@@ -1506,6 +1503,19 @@ export class MessageHandler {
       new Set(media.map((item) => this.mediaTypeToInput(item.type))),
     );
     for (const input of requiredInputs) {
+      if (input === "audio" && params.hasAudioTranscript) {
+        logger.info(
+          {
+            sessionKey: params.sessionKey,
+            agentId: params.agentId,
+            mediaCount: media.length,
+            input,
+          },
+          "Skipping audio capability degradation because transcript is available",
+        );
+        continue;
+      }
+
       const routed = await this.agentManager.ensureSessionModelForInput({
         sessionKey: params.sessionKey,
         agentId: params.agentId,
@@ -1881,12 +1891,16 @@ export class MessageHandler {
         }
       }
 
+      const transcript = await this.sttService.transcribeInboundMessage(message);
+      const hasAudioTranscript = typeof transcript === "string" && transcript.trim().length > 0;
+
       const capabilityOk = await this.checkInputCapability({
         sessionKey,
         agentId,
         message,
         channel,
         peerId,
+        hasAudioTranscript,
       });
       if (!capabilityOk) {
         return;
@@ -1909,7 +1923,7 @@ export class MessageHandler {
         },
       });
 
-      const textWithTranscription = await this.buildRawTextWithTranscription(message, text);
+      const textWithTranscription = this.buildRawTextWithTranscription(text, transcript);
       const promptText = this.buildPromptText({
         message,
         rawText: textWithTranscription,
