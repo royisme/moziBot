@@ -12,7 +12,7 @@ export class ConfigManager extends EventEmitter {
   constructor(configPath?: string) {
     super();
     this.configPath = resolveConfigPath(configPath);
-    this.config = this.loadSync();
+    this.config = {};
   }
 
   private loadSync(): MoziConfig {

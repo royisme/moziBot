@@ -12,7 +12,7 @@ export function replaceEnvVars(
     return config.replace(ENV_PATTERN, (_match, key) => {
       const value = env[key];
       if (value === undefined) {
-        throw new Error(`Environment variable ${key} is not set`);
+        return _match;
       }
       return value;
     });

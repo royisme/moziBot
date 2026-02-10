@@ -111,4 +111,14 @@ describe("config loader local .env support", () => {
     expect(result.success).toBe(true);
     expect(result.config?.models?.providers?.quotio?.apiKey).toBe("from-process");
   });
+
+  it("keeps unresolved env placeholder instead of hard failing", () => {
+    delete process.env[ENV_KEY];
+    const { configPath } = createConfigDir();
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.models?.providers?.quotio?.apiKey).toBe(`\${${ENV_KEY}}`);
+  });
 });
