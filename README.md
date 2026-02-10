@@ -129,9 +129,16 @@ OPENAI_API_KEY=sk-...
 TELEGRAM_BOT_TOKEN=...
 ```
 
-### Running
+### Running (Dev / Local)
 
-Start the Mozi runtime host:
+In local development, build first, then run the compiled CLI from `dist/`:
+
+```bash
+pnpm run build
+node dist/mozi.mjs runtime start
+```
+
+If `mozi` is globally installed or linked to your PATH, this is equivalent:
 
 ```bash
 mozi runtime start

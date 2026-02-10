@@ -88,11 +88,20 @@ Then add channel config in `config.jsonc`:
 
 ## 5) Start runtime
 
+Build first, then run the compiled CLI from `dist/`:
+
 ```bash
-mozi runtime start
+pnpm run build
+node dist/mozi.mjs runtime start
 ```
 
 Expected: runtime host starts, channel adapters connect (if enabled), and agent routing is ready.
+
+If `mozi` is globally installed or linked in PATH, you can also run:
+
+```bash
+mozi runtime start
+```
 
 ## 6) First-run checks
 
