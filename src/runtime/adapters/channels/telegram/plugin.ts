@@ -209,9 +209,10 @@ export class TelegramPlugin extends BaseChannelPlugin {
     }
 
     if (msg.voice) {
+      const downloadUrl = await this.getDownloadUrl(msg.voice.file_id);
       media.push({
         type: "voice",
-        url: msg.voice.file_id,
+        url: downloadUrl || msg.voice.file_id,
         mimeType: msg.voice.mime_type,
         caption: msg.caption,
         byteSize: msg.voice.file_size,
@@ -220,9 +221,10 @@ export class TelegramPlugin extends BaseChannelPlugin {
     }
 
     if (msg.audio) {
+      const downloadUrl = await this.getDownloadUrl(msg.audio.file_id);
       media.push({
         type: "audio",
-        url: msg.audio.file_id,
+        url: downloadUrl || msg.audio.file_id,
         filename: msg.audio.file_name,
         mimeType: msg.audio.mime_type,
         caption: msg.caption,
@@ -249,6 +251,16 @@ export class TelegramPlugin extends BaseChannelPlugin {
     }
 
     this.emitMessage(inbound);
+  }
+
+  private async getDownloadUrl(fileId: string): Promise<string | undefined> {
+    try {
+      const file = await this.bot.api.getFile(fileId);
+      return `https://api.telegram.org/file/bot${this.config.botToken}/${file.file_path}`;
+    } catch (error) {
+      logger.error({ error, fileId }, "Failed to get Telegram file URL");
+      return undefined;
+    }
   }
 
   private async handleCallback(ctx: Context): Promise<void> {
