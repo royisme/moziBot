@@ -1,0 +1,9 @@
+# Bun configuration file
+
+[install]
+# Prefer using lockfile
+lockfile = true
+
+[run]
+# Auto-install missing packages
+# install = true

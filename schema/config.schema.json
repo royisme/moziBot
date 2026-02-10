@@ -1,0 +1,1583 @@
+{
+  "$defs": {
+    "__schema0": {
+      "enum": [
+        "openai-responses",
+        "openai-completions",
+        "anthropic-messages",
+        "google-generative-ai"
+      ],
+      "type": "string"
+    },
+    "__schema1": {
+      "items": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "__schema10": {
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "additionalProperties": false,
+          "properties": {
+            "fallback": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "model": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "semantic": {
+          "additionalProperties": false,
+          "properties": {
+            "debounceSeconds": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "reversible": {
+              "type": "boolean"
+            },
+            "threshold": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "temporal": {
+          "additionalProperties": false,
+          "properties": {
+            "activeWindowHours": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dayBoundaryRollover": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "__schema11": {
+      "enum": ["off", "minimal", "low", "medium", "high", "xhigh"],
+      "type": "string"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "showThinking": {
+          "type": "boolean"
+        },
+        "showToolCalls": {
+          "enum": ["off", "summary"],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "hardClearPlaceholder": {
+          "type": "string"
+        },
+        "hardClearRatio": {
+          "type": "number"
+        },
+        "keepLastAssistants": {
+          "type": "number"
+        },
+        "minPrunableChars": {
+          "type": "number"
+        },
+        "protectedTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "softTrim": {
+          "additionalProperties": false,
+          "properties": {
+            "headChars": {
+              "type": "number"
+            },
+            "maxChars": {
+              "type": "number"
+            },
+            "tailChars": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "softTrimRatio": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "__schema14": {
+      "additionalProperties": false,
+      "properties": {
+        "contextPruning": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "exec": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "home": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "main": {
+          "type": "boolean"
+        },
+        "model": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subagents": {
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "systemPrompt": {
+          "type": "string"
+        },
+        "thinking": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema15": {
+      "enum": ["local-only", "remote-only", "local-first"],
+      "type": "string"
+    },
+    "__schema16": {
+      "additionalProperties": false,
+      "properties": {
+        "binPath": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "language": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "modelPath": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "const": "whisper.cpp",
+          "type": "string"
+        },
+        "threads": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "useCoreML": {
+          "type": "boolean"
+        },
+        "useMetal": {
+          "type": "boolean"
+        }
+      },
+      "required": ["provider", "modelPath"],
+      "type": "object"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "endpoint": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "model": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "enum": ["openai", "groq", "deepgram", "custom"],
+          "type": "string"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": ["provider"],
+      "type": "object"
+    },
+    "__schema18": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "effect": {
+          "enum": ["idle", "pulse", "orbit", "glow", "wave"],
+          "type": "string"
+        },
+        "intensity": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "__schema19": {
+      "additionalProperties": false,
+      "properties": {
+        "jobs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "channel": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": ["systemEvent", "agentTurn", "sendMessage"],
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "sessionKey": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": ["kind"],
+                "type": "object"
+              },
+              "schedule": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atMs": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "const": "at",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "atMs"],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "anchorMs": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "everyMs": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "const": "every",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "everyMs"],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "expr": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "cron",
+                        "type": "string"
+                      },
+                      "tz": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "expr"],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": ["id", "schedule", "payload"],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "__schema2": {
+      "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
+      "type": "string"
+    },
+    "__schema3": {
+      "enum": ["open", "allowlist"],
+      "type": "string"
+    },
+    "__schema4": {
+      "additionalProperties": false,
+      "properties": {
+        "historyLimit": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "__schema5": {
+      "additionalProperties": false,
+      "properties": {
+        "contextPruning": {
+          "$ref": "#/$defs/__schema13"
+        },
+        "contextTokens": {
+          "type": "number"
+        },
+        "exec": {
+          "$ref": "#/$defs/__schema8"
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/__schema10"
+        },
+        "model": {
+          "$ref": "#/$defs/__schema6"
+        },
+        "output": {
+          "$ref": "#/$defs/__schema12"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/__schema7"
+        },
+        "thinking": {
+          "$ref": "#/$defs/__schema11"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "__schema6": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "audio": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "audioFallbacks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "fallbacks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "file": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "fileFallbacks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "primary": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "video": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "videoFallbacks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "vision": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "visionFallbacks": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": ["primary"],
+          "type": "object"
+        }
+      ]
+    },
+    "__schema7": {
+      "additionalProperties": false,
+      "properties": {
+        "apple": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "enum": ["native", "vibebox"],
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "image": {
+              "type": "string"
+            },
+            "mounts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "network": {
+              "type": "string"
+            },
+            "vibebox": {
+              "additionalProperties": false,
+              "properties": {
+                "binPath": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "projectRoot": {
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": ["off", "apple-vm", "docker", "auto"],
+                  "type": "string"
+                },
+                "timeoutSeconds": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "workdir": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "autoBootstrapOnStart": {
+          "type": "boolean"
+        },
+        "docker": {
+          "additionalProperties": false,
+          "properties": {
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "image": {
+              "type": "string"
+            },
+            "mounts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "network": {
+              "type": "string"
+            },
+            "workdir": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "mode": {
+          "enum": ["off", "apple-vm", "docker"],
+          "type": "string"
+        },
+        "workspaceAccess": {
+          "enum": ["none", "ro", "rw"],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema8": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedSecrets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "__schema9": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "every": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$include": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "$schema": {
+      "type": "string"
+    },
+    "agents": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema14"
+      },
+      "properties": {
+        "defaults": {
+          "$ref": "#/$defs/__schema5"
+        }
+      },
+      "type": "object"
+    },
+    "channels": {
+      "additionalProperties": false,
+      "properties": {
+        "discord": {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "allowedChannels": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "allowedGuilds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "botToken": {
+              "type": "string"
+            },
+            "dmHistoryLimit": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dms": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema4"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "dmScope": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "dmScope": {
+          "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
+          "type": "string"
+        },
+        "localDesktop": {
+          "additionalProperties": false,
+          "properties": {
+            "allowOrigins": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "authToken": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "host": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "port": {
+              "exclusiveMinimum": 0,
+              "maximum": 65535,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "routing": {
+          "properties": {
+            "dmAgent": {
+              "type": "string"
+            },
+            "dmAgentId": {
+              "type": "string"
+            },
+            "groupAgent": {
+              "type": "string"
+            },
+            "groupAgentId": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "telegram": {
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "allowedChats": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "allowFrom": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "botToken": {
+              "type": "string"
+            },
+            "dmHistoryLimit": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dmPolicy": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "dms": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema4"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "dmScope": {
+              "$ref": "#/$defs/__schema2"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "groupPolicy": {
+              "$ref": "#/$defs/__schema3"
+            },
+            "groups": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "allowFrom": {
+                    "$ref": "#/$defs/__schema1"
+                  },
+                  "requireMention": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "polling": {
+              "additionalProperties": false,
+              "properties": {
+                "maxRetryTimeMs": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "retryInterval": {
+                  "anyOf": [
+                    {
+                      "enum": ["exponential", "quadratic"],
+                      "type": "string"
+                    },
+                    {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "silentRunnerErrors": {
+                  "type": "boolean"
+                },
+                "timeoutSeconds": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 60,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "streamMode": {
+              "enum": ["off", "partial", "full"],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "cron": {
+      "$ref": "#/$defs/__schema19"
+    },
+    "extensions": {
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deny": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "entries": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "config": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "installs": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "installedAt": {
+                "type": "string"
+              },
+              "source": {
+                "enum": ["npm", "path", "archive", "git"],
+                "type": "string"
+              },
+              "spec": {
+                "type": "string"
+              }
+            },
+            "required": ["source", "spec"],
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "load": {
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "mcpServers": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "args": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "command": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "timeout": {
+                "maximum": 120000,
+                "minimum": 1000,
+                "type": "integer"
+              }
+            },
+            "required": ["command"],
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "logging": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": ["fatal", "error", "warn", "info", "debug", "trace"],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "memory": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "default": "builtin",
+          "enum": ["builtin", "qmd"],
+          "type": "string"
+        },
+        "builtin": {
+          "additionalProperties": false,
+          "properties": {
+            "sync": {
+              "additionalProperties": false,
+              "properties": {
+                "forceOnFlush": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "intervalMinutes": {
+                  "default": 0,
+                  "type": "number"
+                },
+                "onSearch": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "onSessionStart": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "watch": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "watchDebounceMs": {
+                  "default": 1500,
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "citations": {
+          "default": "auto",
+          "enum": ["auto", "always", "never"],
+          "type": "string"
+        },
+        "persistence": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            },
+            "maxChars": {
+              "default": 4000,
+              "type": "number"
+            },
+            "maxMessages": {
+              "default": 12,
+              "type": "number"
+            },
+            "onNewReset": {
+              "default": true,
+              "type": "boolean"
+            },
+            "onOverflowCompaction": {
+              "default": true,
+              "type": "boolean"
+            },
+            "timeoutMs": {
+              "default": 1500,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "qmd": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "default": "qmd",
+              "type": "string"
+            },
+            "includeDefaultMemory": {
+              "default": true,
+              "type": "boolean"
+            },
+            "limits": {
+              "additionalProperties": false,
+              "properties": {
+                "maxInjectedChars": {
+                  "default": 4000,
+                  "type": "number"
+                },
+                "maxResults": {
+                  "default": 6,
+                  "type": "number"
+                },
+                "maxSnippetChars": {
+                  "default": 700,
+                  "type": "number"
+                },
+                "timeoutMs": {
+                  "default": 4000,
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "paths": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "pattern": {
+                    "default": "**/*.md",
+                    "type": "string"
+                  }
+                },
+                "required": ["path"],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "reliability": {
+              "additionalProperties": false,
+              "properties": {
+                "circuitBreakerThreshold": {
+                  "default": 3,
+                  "type": "number"
+                },
+                "circuitOpenMs": {
+                  "default": 30000,
+                  "type": "number"
+                },
+                "maxRetries": {
+                  "default": 2,
+                  "type": "number"
+                },
+                "retryBackoffMs": {
+                  "default": 500,
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "scope": {
+              "additionalProperties": false,
+              "properties": {
+                "default": {
+                  "default": "deny",
+                  "enum": ["allow", "deny"],
+                  "type": "string"
+                },
+                "rules": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "action": {
+                        "enum": ["allow", "deny"],
+                        "type": "string"
+                      },
+                      "match": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "channel": {
+                            "type": "string"
+                          },
+                          "chatType": {
+                            "enum": ["direct", "group", "channel"],
+                            "type": "string"
+                          },
+                          "keyPrefix": {
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "required": ["action"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "sessions": {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "exportDir": {
+                  "type": "string"
+                },
+                "retentionDays": {
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "update": {
+              "additionalProperties": false,
+              "properties": {
+                "debounceMs": {
+                  "default": 15000,
+                  "type": "number"
+                },
+                "embedInterval": {
+                  "default": "60m",
+                  "type": "string"
+                },
+                "interval": {
+                  "default": "5m",
+                  "type": "string"
+                },
+                "onBoot": {
+                  "default": true,
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "meta": {
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "models": {
+      "additionalProperties": false,
+      "properties": {
+        "providers": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "api": {
+                "$ref": "#/$defs/__schema0"
+              },
+              "apiKey": {
+                "type": "string"
+              },
+              "baseUrl": {
+                "type": "string"
+              },
+              "headers": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "models": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "api": {
+                      "$ref": "#/$defs/__schema0"
+                    },
+                    "contextWindow": {
+                      "exclusiveMinimum": 0,
+                      "type": "number"
+                    },
+                    "headers": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    },
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "input": {
+                      "items": {
+                        "enum": ["text", "image", "audio", "video", "file"],
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "maxTokens": {
+                      "exclusiveMinimum": 0,
+                      "type": "number"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "reasoning": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id"],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "paths": {
+      "additionalProperties": false,
+      "properties": {
+        "baseDir": {
+          "type": "string"
+        },
+        "logs": {
+          "type": "string"
+        },
+        "sessions": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "additionalProperties": false,
+          "properties": {
+            "defaultScope": {
+              "enum": ["global", "agent"],
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "masterKeyEnv": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "store": {
+              "enum": ["sqlite"],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "cron": {
+          "$ref": "#/$defs/__schema19"
+        },
+        "queue": {
+          "additionalProperties": false,
+          "properties": {
+            "collectWindowMs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxBacklog": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "mode": {
+              "enum": ["followup", "collect", "interrupt", "steer", "steer-backlog"],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "sanitizeToolSchema": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "skills": {
+      "additionalProperties": false,
+      "properties": {
+        "allowBundled": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dirs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "install": {
+          "additionalProperties": false,
+          "properties": {
+            "nodeManager": {
+              "enum": ["npm", "pnpm", "yarn"],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "installDir": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "voice": {
+      "additionalProperties": false,
+      "properties": {
+        "stt": {
+          "additionalProperties": false,
+          "properties": {
+            "local": {
+              "$ref": "#/$defs/__schema16"
+            },
+            "remote": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "strategy": {
+              "$ref": "#/$defs/__schema15"
+            }
+          },
+          "type": "object"
+        },
+        "ui": {
+          "additionalProperties": false,
+          "properties": {
+            "phaseMapping": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "$ref": "#/$defs/__schema18"
+                },
+                "executing": {
+                  "$ref": "#/$defs/__schema18"
+                },
+                "idle": {
+                  "$ref": "#/$defs/__schema18"
+                },
+                "listening": {
+                  "$ref": "#/$defs/__schema18"
+                },
+                "speaking": {
+                  "$ref": "#/$defs/__schema18"
+                },
+                "thinking": {
+                  "$ref": "#/$defs/__schema18"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "wake": {
+          "additionalProperties": false,
+          "properties": {
+            "activationMode": {
+              "enum": ["click", "wake-word", "hybrid"],
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "keywords": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sensitivity": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "type": "object",
+  "$id": "https://mozi.dev/schema/config.schema.json",
+  "title": "MoziConfig"
+}

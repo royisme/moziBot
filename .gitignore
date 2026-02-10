@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Runtime data
+data/*
+!data/.gitkeep
+*.db
+*.db-journal
+*.db-wal
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+pino-pretty.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Container build artifacts
+container/agent-runner/node_modules/
+container/agent-runner/dist/
+
+# Local-only work notes
+.works/
+
+# Legacy dev-docs
+dev-docs/
+
+# Session data (keep structure, ignore content)
+groups/*/logs/*
+!groups/*/logs/.gitkeep
+
+# Temporary files
+tmp/
+.tmp/
+*.tmp
+*.bun-build
+.bun-build/
+.serena
+.works
+.extLibs
+data
+*.log
+.pnpm-store

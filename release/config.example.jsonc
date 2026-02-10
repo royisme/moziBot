@@ -1,0 +1,73 @@
+{
+  "meta": { "version": "1.0.1" },
+  "paths": {
+    "skills": "~/.mozi/skills",
+  },
+  "models": {
+    "providers": {
+      "openai": {
+        "api": "openai-responses",
+        "apiKey": "${OPENAI_API_KEY}",
+        "models": [{ "id": "gpt-4o-mini" }],
+      },
+    },
+  },
+  "agents": {
+    "defaults": {
+      "model": "openai/gpt-4o-mini",
+      "sandbox": {
+        "mode": "off",
+        "autoBootstrapOnStart": true,
+      },
+    },
+    "mozi": {
+      "level": "primary",
+      "name": "Mozi",
+      "home": "~/.mozi/agents/mozi/home",
+      "workspace": "~/.mozi/agents/mozi/workspace",
+      "skills": ["web-search", "summarize", "freshness-check", "create-skills", "auth-config"],
+    },
+  },
+  "skills": {
+    "dirs": ["~/.mozi/skills"],
+    "installDir": "~/.mozi/skills",
+    "allowBundled": ["web-search", "summarize", "freshness-check", "create-skills", "auth-config"],
+    "install": {
+      "nodeManager": "pnpm",
+    },
+  },
+  "extensions": {
+    "enabled": true,
+    "entries": {
+      "web-tavily": {
+        "enabled": false,
+        "config": {
+          "apiKeyEnv": "TAVILY_API_KEY",
+        },
+      },
+      "brave-search": {
+        "enabled": false,
+        "config": {
+          "apiKeyEnv": "BRAVE_API_KEY",
+        },
+      },
+    },
+  },
+  "runtime": {
+    "queue": {
+      "mode": "steer-backlog",
+    },
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "botToken": "${TELEGRAM_BOT_TOKEN}",
+      "agentId": "mozi",
+    },
+    "discord": {
+      "enabled": false,
+      "botToken": "${DISCORD_BOT_TOKEN}",
+      "agentId": "mozi",
+    },
+  },
+}

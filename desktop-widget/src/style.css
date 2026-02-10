@@ -1,0 +1,67 @@
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.widget-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.orb-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.hud {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+  color: #d9e9ff;
+  font-size: 12px;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
+}
+
+.composer {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 5;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(10, 16, 26, 0.46);
+  backdrop-filter: blur(12px);
+  padding: 8px 10px;
+}
+
+.composer input {
+  width: 280px;
+  border: none;
+  outline: none;
+  color: #ecf4ff;
+  background: transparent;
+}
+
+.composer button {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(120deg, #3a8dff, #5b6dff);
+}

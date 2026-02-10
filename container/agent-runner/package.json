@@ -1,0 +1,10 @@
+{
+  "name": "@mozi/agent-runner",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "tsx": "^4.21.0",
+    "zod": "^3.24.1"
+  }
+}

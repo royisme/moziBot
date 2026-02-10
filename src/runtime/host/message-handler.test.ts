@@ -1,0 +1,809 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MoziConfig } from "../../config";
+import type { ChannelPlugin } from "../adapters/channels/plugin";
+import type { InboundMessage } from "../adapters/channels/types";
+import { MessageHandler } from "./message-handler";
+
+const ingestInboundMessageMock = vi.fn((..._args: unknown[]) => null);
+const transcribeInboundMessageMock = vi.fn<(..._args: unknown[]) => Promise<string | null>>(
+  async (..._args: unknown[]) => null,
+);
+
+vi.mock("../../multimodal/ingest", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../multimodal/ingest")>();
+  return {
+    ...actual,
+    ingestInboundMessage: (...args: Parameters<typeof actual.ingestInboundMessage>) =>
+      ingestInboundMessageMock(...args),
+  };
+});
+
+vi.mock("./stt-service", () => ({
+  SttService: class {
+    transcribeInboundMessage = (...args: unknown[]) => transcribeInboundMessageMock(...args);
+
+    updateConfig() {}
+  },
+}));
+
+function createConfig(): MoziConfig {
+  return {
+    models: {
+      providers: {
+        quotio: {
+          api: "openai-responses",
+          baseUrl: "https://example.invalid/v1",
+          apiKey: "test-key",
+          models: [{ id: "gemini-3-flash-preview" }],
+        },
+      },
+    },
+    agents: {
+      mozi: {
+        model: "quotio/gemini-3-flash-preview",
+      },
+    },
+  };
+}
+
+function createConfigWithTemporalLifecycle(overrides?: {
+  enabled?: boolean;
+  activeWindowHours?: number;
+  dayBoundaryRollover?: boolean;
+}): MoziConfig {
+  return {
+    ...createConfig(),
+    agents: {
+      defaults: {
+        lifecycle: {
+          temporal: {
+            enabled: overrides?.enabled ?? true,
+            activeWindowHours: overrides?.activeWindowHours ?? 12,
+            dayBoundaryRollover: overrides?.dayBoundaryRollover ?? true,
+          },
+        },
+      },
+      mozi: {
+        model: "quotio/gemini-3-flash-preview",
+      },
+    },
+  };
+}
+
+function createConfigWithSemanticLifecycle(overrides?: {
+  enabled?: boolean;
+  threshold?: number;
+  debounceSeconds?: number;
+  reversible?: boolean;
+}): MoziConfig {
+  return {
+    ...createConfig(),
+    models: {
+      providers: {
+        quotio: {
+          api: "openai-responses",
+          baseUrl: "https://example.invalid/v1",
+          apiKey: "test-key",
+          models: [{ id: "gemini-3-flash-preview" }, { id: "control-mini" }],
+        },
+      },
+    },
+    agents: {
+      defaults: {
+        lifecycle: {
+          semantic: {
+            enabled: overrides?.enabled ?? true,
+            threshold: overrides?.threshold ?? 0.8,
+            debounceSeconds: overrides?.debounceSeconds ?? 60,
+            reversible: overrides?.reversible ?? true,
+          },
+          control: {
+            model: "quotio/control-mini",
+          },
+        },
+      },
+      mozi: {
+        model: "quotio/gemini-3-flash-preview",
+      },
+    },
+  };
+}
+
+function createMessage(text: string): InboundMessage {
+  return {
+    id: "m-1",
+    channel: "telegram",
+    peerId: "chat-1",
+    peerType: "dm",
+    senderId: "u-1",
+    senderName: "tester",
+    text,
+    timestamp: new Date(),
+    raw: {},
+  };
+}
+
+function createMediaMessage(text: string): InboundMessage {
+  return {
+    ...createMessage(text),
+    media: [
+      {
+        type: "photo",
+        url: "https://example.invalid/image.png",
+      },
+    ],
+  };
+}
+
+function createAudioMessage(text: string): InboundMessage {
+  return {
+    ...createMessage(text),
+    media: [
+      {
+        type: "voice",
+        url: "voice-file-1",
+        mimeType: "audio/ogg",
+      },
+    ],
+  };
+}
+
+describe("MessageHandler commands", () => {
+  let handler: MessageHandler;
+  let channel: ChannelPlugin;
+  let send: ReturnType<typeof vi.fn>;
+  let restart: ReturnType<typeof vi.fn>;
+  let resetSession: ReturnType<typeof vi.fn>;
+  let setSessionModel: ReturnType<typeof vi.fn>;
+  let updateSessionMetadata: ReturnType<typeof vi.fn>;
+  let ensureSessionModelForInput: ReturnType<typeof vi.fn>;
+  let runPromptWithFallback: ReturnType<typeof vi.fn>;
+  let beginTyping: ReturnType<typeof vi.fn>;
+  let stopTyping: ReturnType<typeof vi.fn>;
+  let emitPhase: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    send = vi.fn(async () => "out-1");
+    restart = vi.fn(async () => {});
+    resetSession = vi.fn(() => {});
+    setSessionModel = vi.fn(() => {});
+    updateSessionMetadata = vi.fn(() => {});
+    ensureSessionModelForInput = vi.fn(async () => ({
+      ok: true as const,
+      modelRef: "quotio/gemini-3-flash-preview",
+      switched: false,
+    }));
+    runPromptWithFallback = vi.fn(async () => {});
+    stopTyping = vi.fn(async () => {});
+    beginTyping = vi.fn(async () => stopTyping);
+    emitPhase = vi.fn(async () => {});
+    ingestInboundMessageMock.mockClear();
+    transcribeInboundMessageMock.mockClear();
+
+    channel = {
+      id: "telegram",
+      name: "Telegram",
+      connect: async () => {},
+      disconnect: async () => {},
+      send,
+      beginTyping: beginTyping as unknown as (
+        peerId: string,
+      ) => Promise<(() => Promise<void> | void) | undefined>,
+      emitPhase: emitPhase as unknown as (
+        peerId: string,
+        phase: "idle" | "listening" | "thinking" | "speaking" | "executing" | "error",
+      ) => Promise<void>,
+      getStatus: () => "connected",
+      isConnected: () => true,
+      on: () => channel,
+      once: () => channel,
+      off: () => channel,
+      emit: () => true,
+      removeAllListeners: () => channel,
+    } as unknown as ChannelPlugin;
+
+    handler = new MessageHandler(createConfig(), {
+      runtimeControl: {
+        getStatus: () => ({ running: true, pid: 123, uptime: 42 }),
+        restart: restart as unknown as () => Promise<void>,
+      },
+    });
+
+    const h = handler as unknown as {
+      router: {
+        resolve: (
+          msg: InboundMessage,
+          defaultAgentId: string,
+        ) => {
+          agentId: string;
+          dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+        };
+      };
+      modelRegistry: {
+        get: (ref: string) => unknown;
+        list: () => Array<{ provider: string; id: string }>;
+        resolve: (ref: string) => { ref: string; spec: unknown } | undefined;
+        suggestRefs: (ref: string, limit?: number) => string[];
+      };
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        ensureSessionModelForInput: (params: {
+          sessionKey: string;
+          agentId: string;
+          input: "text" | "image" | "audio" | "video" | "file";
+        }) => Promise<
+          | { ok: true; modelRef: string; switched: boolean }
+          | { ok: false; modelRef: string; candidates: string[] }
+        >;
+        resetSession: (sessionKey: string) => void;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        getContextUsage: (sessionKey: string) => unknown;
+        getContextBreakdown: (sessionKey: string) => unknown;
+      };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+    };
+
+    h.router = {
+      resolve: () => ({ agentId: "mozi", dmScope: "per-channel-peer" }),
+    };
+    h.modelRegistry = {
+      get: (ref: string) => (ref === "quotio/gemini-3-flash-preview" ? {} : undefined),
+      list: () => [{ provider: "quotio", id: "gemini-3-flash-preview" }],
+      resolve: (ref: string) =>
+        ref === "quotio/gemini-3-flash-preview" || ref === "quotio/gemini-3-flash-perview"
+          ? { ref: "quotio/gemini-3-flash-preview", spec: {} }
+          : undefined,
+      suggestRefs: () => ["quotio/gemini-3-flash-preview"],
+    };
+    h.agentManager = {
+      resolveDefaultAgentId: () => "mozi",
+      getAgent: (async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      })) as unknown as (
+        sessionKey: string,
+        agentId: string,
+      ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>,
+      setSessionModel: setSessionModel as unknown as (sessionKey: string, modelRef: string) => void,
+      ensureSessionModelForInput: ensureSessionModelForInput as unknown as (params: {
+        sessionKey: string;
+        agentId: string;
+        input: "text" | "image" | "audio" | "video" | "file";
+      }) => Promise<
+        | { ok: true; modelRef: string; switched: boolean }
+        | { ok: false; modelRef: string; candidates: string[] }
+      >,
+      resetSession: resetSession as unknown as (sessionKey: string) => void,
+      ensureChannelContext: (async () => {}) as unknown as (params: unknown) => Promise<void>,
+      updateSessionContext: (() => {}) as unknown as (
+        sessionKey: string,
+        messages: unknown[],
+      ) => void,
+      updateSessionMetadata: updateSessionMetadata as unknown as (
+        sessionKey: string,
+        patch: unknown,
+      ) => void,
+      getContextUsage: (() => null) as unknown as (sessionKey: string) => unknown,
+      getContextBreakdown: (() => null) as unknown as (sessionKey: string) => unknown,
+    };
+    h.runPromptWithFallback = runPromptWithFallback as unknown as (
+      params: unknown,
+    ) => Promise<void>;
+  });
+
+  it("handles /status", async () => {
+    await handler.handle(createMessage("/status"), channel);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(ingestInboundMessageMock).not.toHaveBeenCalled();
+    expect(updateSessionMetadata).not.toHaveBeenCalled();
+    expect(beginTyping).not.toHaveBeenCalled();
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("🤖 Mozi");
+    expect(payload.text).toContain("🧠 Model: quotio/gemini-3-flash-preview");
+    expect(payload.text).toContain("⚙️ Runtime:");
+  });
+
+  it("handles /new by rotating current session segment", async () => {
+    await handler.handle(createMessage("/new"), channel);
+    expect(resetSession).toHaveBeenCalledTimes(1);
+    expect(resetSession.mock.calls[0]?.[1]).toBe("mozi");
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("rotated to a new session segment");
+  });
+
+  it("handles /models by showing available models", async () => {
+    await handler.handle(createMessage("/models"), channel);
+    expect(setSessionModel).not.toHaveBeenCalled();
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Available models:");
+    expect(payload.text).toContain("quotio/gemini-3-flash-preview");
+  });
+
+  it("handles /switch without args by showing current model", async () => {
+    await handler.handle(createMessage("/switch"), channel);
+    expect(setSessionModel).not.toHaveBeenCalled();
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Current model: quotio/gemini-3-flash-preview");
+  });
+
+  it("handles /switch with args by switching model", async () => {
+    await handler.handle(createMessage("/switch quotio/gemini-3-flash-preview"), channel);
+    expect(setSessionModel).toHaveBeenCalledTimes(1);
+    expect(setSessionModel.mock.calls[0]?.[1]).toBe("quotio/gemini-3-flash-preview");
+  });
+
+  it("handles /switch with typo by auto-correcting to closest model", async () => {
+    await handler.handle(createMessage("/switch quotio/gemini-3-flash-perview"), channel);
+    expect(setSessionModel).toHaveBeenCalledTimes(1);
+    expect(setSessionModel.mock.calls[0]?.[1]).toBe("quotio/gemini-3-flash-preview");
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("auto-corrected");
+  });
+
+  it("handles /switch unknown by returning suggestions", async () => {
+    const h = handler as unknown as {
+      modelRegistry: {
+        get: (ref: string) => unknown;
+        resolve: (ref: string) => unknown;
+        suggestRefs: (ref: string) => string[];
+        list: () => Array<{ provider: string; id: string }>;
+      };
+    };
+    h.modelRegistry = {
+      get: () => ({}),
+      resolve: () => undefined,
+      suggestRefs: () => ["quotio/gemini-3-flash-preview", "quotio/gemini-3-pro-preview"],
+      list: () => [{ provider: "quotio", id: "gemini-3-flash-preview" }],
+    };
+
+    await handler.handle(createMessage("/switch quotio/unknown-model"), channel);
+    expect(setSessionModel).not.toHaveBeenCalled();
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Model not found");
+    expect(payload.text).toContain("quotio/gemini-3-flash-preview");
+  });
+
+  it("handles /restart via runtime control callback", async () => {
+    await handler.handle(createMessage("/restart"), channel);
+    expect(restart).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Restarting runtime");
+  });
+
+  it("handles /setAuth when auth is disabled", async () => {
+    await handler.handle(createMessage("/setAuth TEST_KEY=abc"), channel);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Auth broker is disabled");
+  });
+
+  it("handles /checkAuth when auth is disabled", async () => {
+    await handler.handle(createMessage("/checkAuth TEST_KEY"), channel);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Auth broker is disabled");
+  });
+
+  it("ignores unknown slash commands", async () => {
+    await handler.handle(createMessage("/unknown"), channel);
+    expect(send).not.toHaveBeenCalled();
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("auto switches to vision model for media input", async () => {
+    ensureSessionModelForInput.mockResolvedValue({
+      ok: true,
+      modelRef: "quotio/gemini-3-pro-image-preview",
+      switched: true,
+    });
+
+    await handler.handle(createMediaMessage("look at this"), channel);
+
+    expect(ensureSessionModelForInput).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const switchedNotice = send.mock.calls
+      .map((call) => (call[1] as { text?: string }).text || "")
+      .find((line) => line.includes("auto-switched model"));
+    expect(switchedNotice).toContain("quotio/gemini-3-pro-image-preview");
+  });
+
+  it("degrades media input to text when no modality model is available", async () => {
+    ensureSessionModelForInput.mockResolvedValue({
+      ok: false,
+      modelRef: "quotio/gemini-3-flash-preview",
+      candidates: ["quotio/gemini-3-pro-image-preview"],
+    });
+
+    await handler.handle(createMediaMessage("look at this"), channel);
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const degradedNotice = send.mock.calls
+      .map((call) => (call[1] as { text?: string }).text || "")
+      .find((line) => line.includes("Continuing with text degradation"));
+    expect(degradedNotice).toContain("quotio/gemini-3-pro-image-preview");
+  });
+
+  it("routes audio input using audio capability", async () => {
+    await handler.handle(createAudioMessage("listen this"), channel);
+    expect(ensureSessionModelForInput).toHaveBeenCalledWith(
+      expect.objectContaining({ input: "audio" }),
+    );
+  });
+
+  it("injects voice transcript into prompt when available", async () => {
+    transcribeInboundMessageMock.mockResolvedValue("This is a voice transcript");
+
+    await handler.handle(createAudioMessage(""), channel);
+
+    const promptCall = runPromptWithFallback.mock.calls[0]?.[0] as { text: string };
+    expect(promptCall.text).toContain("This is a voice transcript");
+  });
+
+  it("allows concurrent invocations and delegates serialization to runtime kernel", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    runPromptWithFallback.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+    });
+
+    await Promise.all([
+      handler.handle(createMessage("hello A"), channel),
+      handler.handle(createMessage("hello B"), channel),
+    ]);
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(2);
+    expect(maxInFlight).toBe(2);
+  });
+
+  it("surfaces missing auth guidance when prompt fails with AUTH_MISSING", async () => {
+    runPromptWithFallback.mockRejectedValue(new Error("AUTH_MISSING OPENAI_API_KEY"));
+
+    await handler.handle(createMessage("hello"), channel);
+
+    const last = send.mock.calls.at(-1)?.[1] as { text: string };
+    expect(last.text).toContain("Missing authentication secret OPENAI_API_KEY");
+    expect(last.text).toContain("/setAuth set OPENAI_API_KEY=<value>");
+  });
+
+  it("starts and stops typing indicator for normal messages", async () => {
+    await handler.handle(createMessage("hello"), channel);
+
+    expect(beginTyping).toHaveBeenCalledTimes(1);
+    expect(beginTyping).toHaveBeenCalledWith("chat-1");
+    expect(stopTyping).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits phase transitions for normal prompt flow", async () => {
+    await handler.handle(createMessage("hello"), channel);
+
+    const phases = emitPhase.mock.calls.map((call) => call[1]);
+    expect(phases[0]).toBe("thinking");
+    expect(phases).toContain("speaking");
+    expect(phases[phases.length - 1]).toBe("idle");
+  });
+
+  it("session_rollover_temporal_expired", async () => {
+    const realHandler = new MessageHandler(createConfigWithTemporalLifecycle(), {
+      runtimeControl: {
+        getStatus: () => ({ running: true, pid: 123, uptime: 42 }),
+        restart: restart as unknown as () => Promise<void>,
+      },
+    });
+    const h = realHandler as unknown as {
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        resetSession: (sessionKey: string, agentId: string) => void;
+        ensureSessionModelForInput: (params: {
+          sessionKey: string;
+          agentId: string;
+          input: "text" | "image" | "audio" | "video" | "file";
+        }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+      };
+      sessions: {
+        getOrCreate: (sessionKey: string, agentId: string) => { createdAt?: number; updatedAt?: number };
+      };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+    };
+
+    const rotateSpy = vi.fn(() => {});
+    h.agentManager.resetSession = rotateSpy;
+    h.agentManager.resolveDefaultAgentId = () => "mozi";
+    h.agentManager.getAgent = (async () => ({
+      agent: { messages: [] },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+    ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+    h.agentManager.ensureSessionModelForInput = (async () => ({
+      ok: true,
+      modelRef: "quotio/gemini-3-flash-preview",
+      switched: false,
+    })) as unknown as (params: {
+      sessionKey: string;
+      agentId: string;
+      input: "text" | "image" | "audio" | "video" | "file";
+    }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+    h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
+      params: unknown,
+    ) => Promise<void>;
+    h.agentManager.updateSessionContext = (() => {}) as unknown as (
+      sessionKey: string,
+      messages: unknown[],
+    ) => void;
+    h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
+      sessionKey: string,
+      patch: unknown,
+    ) => void;
+    h.sessions.getOrCreate = () => ({ updatedAt: Date.now() - 13 * 60 * 60 * 1000 });
+    h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
+
+    await realHandler.handle(createMessage("hello"), channel);
+    expect(rotateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("session_rollover_temporal_within_window_noop", async () => {
+    const realHandler = new MessageHandler(createConfigWithTemporalLifecycle(), {
+      runtimeControl: {
+        getStatus: () => ({ running: true, pid: 123, uptime: 42 }),
+        restart: restart as unknown as () => Promise<void>,
+      },
+    });
+    const h = realHandler as unknown as {
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        resetSession: (sessionKey: string, agentId: string) => void;
+        ensureSessionModelForInput: (params: {
+          sessionKey: string;
+          agentId: string;
+          input: "text" | "image" | "audio" | "video" | "file";
+        }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+      };
+      sessions: {
+        getOrCreate: (sessionKey: string, agentId: string) => { createdAt?: number; updatedAt?: number };
+      };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+    };
+
+    const rotateSpy = vi.fn(() => {});
+    h.agentManager.resetSession = rotateSpy;
+    h.agentManager.resolveDefaultAgentId = () => "mozi";
+    h.agentManager.getAgent = (async () => ({
+      agent: { messages: [] },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+    ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+    h.agentManager.ensureSessionModelForInput = (async () => ({
+      ok: true,
+      modelRef: "quotio/gemini-3-flash-preview",
+      switched: false,
+    })) as unknown as (params: {
+      sessionKey: string;
+      agentId: string;
+      input: "text" | "image" | "audio" | "video" | "file";
+    }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+    h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
+      params: unknown,
+    ) => Promise<void>;
+    h.agentManager.updateSessionContext = (() => {}) as unknown as (
+      sessionKey: string,
+      messages: unknown[],
+    ) => void;
+    h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
+      sessionKey: string,
+      patch: unknown,
+    ) => void;
+    h.sessions.getOrCreate = () => ({ updatedAt: Date.now() - 2 * 60 * 60 * 1000 });
+    h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
+
+    await realHandler.handle(createMessage("hello"), channel);
+    expect(rotateSpy).toHaveBeenCalledTimes(0);
+  });
+
+  it("session_rollover_semantic_high_confidence", async () => {
+    const realHandler = new MessageHandler(
+      createConfigWithSemanticLifecycle({ threshold: 0.6, debounceSeconds: 0 }),
+      {
+        runtimeControl: {
+          getStatus: () => ({ running: true, pid: 123, uptime: 42 }),
+          restart: restart as unknown as () => Promise<void>,
+        },
+      },
+    );
+
+    const h = realHandler as unknown as {
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        resetSession: (sessionKey: string, agentId: string) => void;
+        ensureSessionModelForInput: (params: {
+          sessionKey: string;
+          agentId: string;
+          input: "text" | "image" | "audio" | "video" | "file";
+        }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        resolveLifecycleControlModel: (params: {
+          sessionKey: string;
+          agentId?: string;
+        }) => { modelRef: string; source: "session" | "agent" | "defaults" | "fallback" };
+      };
+      sessions: {
+        getOrCreate: (sessionKey: string, agentId: string) => {
+          createdAt?: number;
+          updatedAt?: number;
+          context?: unknown[];
+          metadata?: Record<string, unknown>;
+        };
+      };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+    };
+
+    const rotateSpy = vi.fn(() => {});
+    h.agentManager.resetSession = rotateSpy;
+    h.agentManager.resolveDefaultAgentId = () => "mozi";
+    h.agentManager.getAgent = (async () => ({
+      agent: { messages: [] },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+    ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+    h.agentManager.ensureSessionModelForInput = (async () => ({
+      ok: true,
+      modelRef: "quotio/gemini-3-flash-preview",
+      switched: false,
+    })) as unknown as (params: {
+      sessionKey: string;
+      agentId: string;
+      input: "text" | "image" | "audio" | "video" | "file";
+    }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+    h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
+      params: unknown,
+    ) => Promise<void>;
+    h.agentManager.updateSessionContext = (() => {}) as unknown as (
+      sessionKey: string,
+      messages: unknown[],
+    ) => void;
+    h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
+      sessionKey: string,
+      patch: unknown,
+    ) => void;
+    h.agentManager.resolveLifecycleControlModel = () => ({
+      modelRef: "quotio/control-mini",
+      source: "defaults",
+    });
+    h.sessions.getOrCreate = () => ({
+      updatedAt: Date.now(),
+      context: [{ role: "user", content: "debug docker issue" }],
+      metadata: {},
+    });
+    h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
+
+    await realHandler.handle(createMessage("design a marketing slogan for my app"), channel);
+    expect(rotateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("semantic_rollover_debounce", async () => {
+    const realHandler = new MessageHandler(
+      createConfigWithSemanticLifecycle({ threshold: 0.6, debounceSeconds: 120 }),
+      {
+        runtimeControl: {
+          getStatus: () => ({ running: true, pid: 123, uptime: 42 }),
+          restart: restart as unknown as () => Promise<void>,
+        },
+      },
+    );
+
+    const h = realHandler as unknown as {
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        resetSession: (sessionKey: string, agentId: string) => void;
+        ensureSessionModelForInput: (params: {
+          sessionKey: string;
+          agentId: string;
+          input: "text" | "image" | "audio" | "video" | "file";
+        }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        resolveLifecycleControlModel: (params: {
+          sessionKey: string;
+          agentId?: string;
+        }) => { modelRef: string; source: "session" | "agent" | "defaults" | "fallback" };
+      };
+      sessions: {
+        getOrCreate: (sessionKey: string, agentId: string) => {
+          createdAt?: number;
+          updatedAt?: number;
+          context?: unknown[];
+          metadata?: Record<string, unknown>;
+        };
+      };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+    };
+
+    const rotateSpy = vi.fn(() => {});
+    h.agentManager.resetSession = rotateSpy;
+    h.agentManager.resolveDefaultAgentId = () => "mozi";
+    h.agentManager.getAgent = (async () => ({
+      agent: { messages: [] },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+    ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+    h.agentManager.ensureSessionModelForInput = (async () => ({
+      ok: true,
+      modelRef: "quotio/gemini-3-flash-preview",
+      switched: false,
+    })) as unknown as (params: {
+      sessionKey: string;
+      agentId: string;
+      input: "text" | "image" | "audio" | "video" | "file";
+    }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
+    h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
+      params: unknown,
+    ) => Promise<void>;
+    h.agentManager.updateSessionContext = (() => {}) as unknown as (
+      sessionKey: string,
+      messages: unknown[],
+    ) => void;
+    h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
+      sessionKey: string,
+      patch: unknown,
+    ) => void;
+    h.agentManager.resolveLifecycleControlModel = () => ({
+      modelRef: "quotio/control-mini",
+      source: "defaults",
+    });
+    h.sessions.getOrCreate = () => ({
+      updatedAt: Date.now(),
+      context: [{ role: "user", content: "debug docker issue" }],
+      metadata: {
+        lifecycle: {
+          semantic: {
+            lastRotationAt: Date.now() - 10_000,
+            lastRotationType: "semantic",
+          },
+        },
+      },
+    });
+    h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
+
+    await realHandler.handle(createMessage("design a marketing slogan for my app"), channel);
+    expect(rotateSpy).toHaveBeenCalledTimes(0);
+  });
+});

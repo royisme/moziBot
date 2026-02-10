@@ -1,0 +1,86 @@
+import { describe, expect, it } from "vitest";
+import { validateManifest } from "./manifest";
+
+describe("validateManifest", () => {
+  const validManifest = {
+    id: "test-ext",
+    version: "1.0.0",
+    name: "Test Extension",
+    description: "A test extension",
+    tools: [
+      {
+        name: "test_tool",
+        label: "Test Tool",
+        description: "Does testing",
+        parameters: {},
+        execute: async () => ({
+          content: [{ type: "text", text: "ok" }],
+          details: {},
+        }),
+      },
+    ],
+  };
+
+  it("validates a correct manifest", () => {
+    const { manifest, diagnostics } = validateManifest(validManifest, "test");
+    expect(manifest).not.toBeNull();
+    expect(manifest?.id).toBe("test-ext");
+    expect(manifest?.version).toBe("1.0.0");
+    expect(manifest?.tools).toHaveLength(1);
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it("rejects null input", () => {
+    const { manifest, diagnostics } = validateManifest(null, "test");
+    expect(manifest).toBeNull();
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.level).toBe("error");
+  });
+
+  it("rejects missing id", () => {
+    const { manifest, diagnostics } = validateManifest({ ...validManifest, id: "" }, "test");
+    expect(manifest).toBeNull();
+    expect(diagnostics.some((d) => d.message.includes("id"))).toBe(true);
+  });
+
+  it("rejects missing version", () => {
+    const { manifest, diagnostics } = validateManifest({ ...validManifest, version: "" }, "test");
+    expect(manifest).toBeNull();
+    expect(diagnostics.some((d) => d.message.includes("version"))).toBe(true);
+  });
+
+  it("rejects missing name", () => {
+    const { manifest, diagnostics } = validateManifest({ ...validManifest, name: "" }, "test");
+    expect(manifest).toBeNull();
+    expect(diagnostics.some((d) => d.message.includes("name"))).toBe(true);
+  });
+
+  it("rejects missing tools", () => {
+    const { manifest, diagnostics } = validateManifest(
+      { id: "test", version: "1.0.0", name: "Test" },
+      "test",
+    );
+    expect(manifest).toBeNull();
+    expect(diagnostics.some((d) => d.message.includes("tools"))).toBe(true);
+  });
+
+  it("rejects tool without execute function", () => {
+    const { manifest, diagnostics } = validateManifest(
+      {
+        ...validManifest,
+        tools: [{ name: "bad_tool", label: "Bad", description: "Bad" }],
+      },
+      "test",
+    );
+    expect(manifest).toBeNull();
+    expect(diagnostics.some((d) => d.message.includes("execute"))).toBe(true);
+  });
+
+  it("preserves skillDirs when provided", () => {
+    const { manifest } = validateManifest(
+      { ...validManifest, skillDirs: ["/path/to/skills"] },
+      "test",
+    );
+    expect(manifest?.skillDirs).toEqual(["/path/to/skills"]);
+  });
+});
