@@ -62,6 +62,7 @@ describe("MessageHandler fallback behavior", () => {
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 
@@ -126,6 +127,7 @@ describe("MessageHandler fallback behavior", () => {
         }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 
@@ -193,6 +195,7 @@ describe("MessageHandler fallback behavior", () => {
         }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 
@@ -214,6 +217,79 @@ describe("MessageHandler fallback behavior", () => {
       agentId: "mozi",
       text: "hello",
     });
+
+    expect(primaryPrompt).toHaveBeenCalledTimes(1);
+    expect(fallbackPrompt).toHaveBeenCalledTimes(1);
+    expect(activeModel).toBe("quotio/fallback-model");
+    expect(updateSessionContext).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches to fallback model when prompt times out", async () => {
+    const handler = new MessageHandler(createConfig());
+
+    const primaryPrompt = vi.fn(async () => {
+      await new Promise(() => {});
+    });
+    const fallbackPrompt = vi.fn(async () => {});
+    const updateSessionContext = vi.fn(() => {});
+
+    const primaryAgent = {
+      prompt: primaryPrompt,
+      waitForIdle: vi.fn(async () => {}),
+      messages: [] as Array<{ role: string; content: string }>,
+    };
+    const fallbackAgent = {
+      prompt: fallbackPrompt,
+      waitForIdle: vi.fn(async () => {}),
+      messages: [{ role: "assistant", content: "ok" }],
+    };
+
+    let activeModel = "quotio/gemini-3-flash-preview";
+
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        sessionKey: string;
+        agentId: string;
+        text: string;
+      }) => Promise<void>;
+      agentManager: {
+        getAgentFallbacks: (agentId: string) => string[];
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{
+          agent: typeof primaryAgent | typeof fallbackAgent;
+          modelRef: string;
+        }>;
+        updateSessionContext: (sessionKey: string, messages: unknown) => void;
+        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
+      };
+    };
+
+    h.agentManager = {
+      getAgentFallbacks: () => ["quotio/fallback-model"],
+      getAgent: async () => ({
+        agent: activeModel === "quotio/gemini-3-flash-preview" ? primaryAgent : fallbackAgent,
+        modelRef: activeModel,
+      }),
+      updateSessionContext,
+      setSessionModel: (_sessionKey, modelRef) => {
+        activeModel = modelRef;
+      },
+      getContextUsage: () => null,
+    };
+
+    vi.useFakeTimers();
+    const run = h.runPromptWithFallback({
+      sessionKey: "s-timeout",
+      agentId: "mozi",
+      text: "hello",
+    });
+
+    await vi.advanceTimersByTimeAsync(60_100);
+    await run;
+    vi.useRealTimers();
 
     expect(primaryPrompt).toHaveBeenCalledTimes(1);
     expect(fallbackPrompt).toHaveBeenCalledTimes(1);
@@ -260,6 +336,7 @@ describe("MessageHandler fallback behavior", () => {
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 
@@ -337,6 +414,7 @@ describe("MessageHandler fallback behavior", () => {
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 
@@ -415,6 +493,7 @@ describe("MessageHandler fallback behavior", () => {
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: (sessionKey: string, modelRef: string) => void;
+        getContextUsage: (sessionKey: string) => unknown;
       };
     };
 

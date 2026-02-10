@@ -183,6 +183,7 @@ type ActivePromptAgent = {
 
 export class MessageHandler {
   private static readonly PROMPT_PROGRESS_LOG_INTERVAL_MS = 30_000;
+  private static readonly PROMPT_EXECUTION_TIMEOUT_MS = 60_000;
   private static readonly INTERRUPT_WAIT_TIMEOUT_MS = 5_000;
   private static readonly MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3;
   private sessions: SessionStore;
@@ -1062,7 +1063,12 @@ export class MessageHandler {
           });
         }
 
-        await agent.prompt(text);
+        await Promise.race([
+          agent.prompt(text),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error("Agent prompt timeout")), MessageHandler.PROMPT_EXECUTION_TIMEOUT_MS);
+          }),
+        ]);
 
         if (onStream && accumulatedText) {
           await onStream({ type: "agent_end", fullText: accumulatedText });

@@ -647,7 +647,7 @@ describe("MessageHandler commands", () => {
       sessionKey: string,
       patch: unknown,
     ) => void;
-    h.sessions.getOrCreate = () => ({ updatedAt: Date.now() - 2 * 60 * 60 * 1000 });
+    h.sessions.getOrCreate = () => ({ updatedAt: Date.now() });
     h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
 
     await realHandler.handle(createMessage("hello"), channel);
