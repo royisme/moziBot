@@ -89,4 +89,26 @@ describe("config loader local .env support", () => {
     expect(result.success).toBe(true);
     expect(result.config?.models?.providers?.quotio?.apiKey).toBe("from-process");
   });
+
+  it("loads .env.var from config directory for env placeholders", () => {
+    delete process.env[ENV_KEY];
+    const { dir, configPath } = createConfigDir();
+    fs.writeFileSync(path.join(dir, ".env.var"), `${ENV_KEY}=from-dotenv-var\n`, "utf-8");
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.models?.providers?.quotio?.apiKey).toBe("from-dotenv-var");
+  });
+
+  it("does not override existing process env with config-local .env.var", () => {
+    process.env[ENV_KEY] = "from-process";
+    const { dir, configPath } = createConfigDir();
+    fs.writeFileSync(path.join(dir, ".env.var"), `${ENV_KEY}=from-dotenv-var\n`, "utf-8");
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.models?.providers?.quotio?.apiKey).toBe("from-process");
+  });
 });

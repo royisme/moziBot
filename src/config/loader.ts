@@ -65,13 +65,18 @@ function applyConfigDefaults(raw: unknown): unknown {
 }
 
 function loadConfigLocalEnv(resolvedPath: string): void {
-  const envPath = path.join(path.dirname(resolvedPath), ".env");
-  if (!fs.existsSync(envPath)) {
-    return;
-  }
-  const result = loadDotEnv({ path: envPath, override: false, quiet: true });
-  if (result.error) {
-    throw result.error;
+  const configDir = path.dirname(resolvedPath);
+  const envFiles = [".env", ".env.var"];
+
+  for (const envFile of envFiles) {
+    const envPath = path.join(configDir, envFile);
+    if (!fs.existsSync(envPath)) {
+      continue;
+    }
+    const result = loadDotEnv({ path: envPath, override: false, quiet: true });
+    if (result.error) {
+      throw result.error;
+    }
   }
 }
 

@@ -396,20 +396,50 @@ describe("MessageHandler commands", () => {
   });
 
   it("auto switches to vision model for media input", async () => {
+    let activeModelRef = "quotio/gemini-3-flash-preview";
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+      };
+    };
+    h.agentManager.getAgent = (async () => ({
+      agent: { messages: [] },
+      modelRef: activeModelRef,
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+    ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+
     ensureSessionModelForInput.mockResolvedValue({
       ok: true,
       modelRef: "quotio/gemini-3-pro-image-preview",
       switched: true,
+    });
+    ensureSessionModelForInput.mockImplementation(async () => {
+      activeModelRef = "quotio/gemini-3-pro-image-preview";
+      return {
+        ok: true as const,
+        modelRef: "quotio/gemini-3-pro-image-preview",
+        switched: true,
+      };
     });
 
     await handler.handle(createMediaMessage("look at this"), channel);
 
     expect(ensureSessionModelForInput).toHaveBeenCalledTimes(1);
     expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    expect(ingestInboundMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelRef: "quotio/gemini-3-pro-image-preview",
+      }),
+    );
     const switchedNotice = send.mock.calls
       .map((call) => (call[1] as { text?: string }).text || "")
       .find((line) => line.includes("auto-switched model"));
-    expect(switchedNotice).toContain("quotio/gemini-3-pro-image-preview");
+    expect(switchedNotice).toBeUndefined();
   });
 
   it("degrades media input to text when no modality model is available", async () => {

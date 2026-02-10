@@ -209,19 +209,6 @@ export function persistInboundEnvelope(params: {
     created_at: envelope.createdAt,
   });
 
-  const parts = envelope.parts.map((part) => ({
-    id: part.id,
-    message_id: envelope.id,
-    idx: part.index,
-    role: part.role,
-    modality: part.modality,
-    text: part.modality === "text" ? part.text : null,
-    media_id: part.modality === "text" ? null : part.media.mediaId,
-    metadata_json: part.metadata ? JSON.stringify(part.metadata) : null,
-    created_at: envelope.createdAt,
-  }));
-  multimodal.createMessageParts(parts);
-
   for (const part of envelope.parts) {
     if (part.modality === "text") {
       continue;
@@ -250,6 +237,19 @@ export function persistInboundEnvelope(params: {
       created_at: envelope.createdAt,
     });
   }
+
+  const parts = envelope.parts.map((part) => ({
+    id: part.id,
+    message_id: envelope.id,
+    idx: part.index,
+    role: part.role,
+    modality: part.modality,
+    text: part.modality === "text" ? part.text : null,
+    media_id: part.modality === "text" ? null : part.media.mediaId,
+    metadata_json: part.metadata ? JSON.stringify(part.metadata) : null,
+    created_at: envelope.createdAt,
+  }));
+  multimodal.createMessageParts(parts);
 
   multimodal.createCapabilitySnapshot({
     id: `${envelope.id}:capability`,

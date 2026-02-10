@@ -1517,9 +1517,6 @@ export class MessageHandler {
             },
             "Input capability auto-switched model",
           );
-          await params.channel.send(params.peerId, {
-            text: `Detected ${this.describeInput(input)} input, auto-switched model: ${routed.modelRef}`,
-          });
         }
         continue;
       }
@@ -1878,6 +1875,17 @@ export class MessageHandler {
         }
       }
 
+      const capabilityOk = await this.checkInputCapability({
+        sessionKey,
+        agentId,
+        message,
+        channel,
+        peerId,
+      });
+      if (!capabilityOk) {
+        return;
+      }
+
       const currentAgent = await this.agentManager.getAgent(sessionKey, agentId);
       const modelSpec = this.modelRegistry.get(currentAgent.modelRef);
 
@@ -1901,17 +1909,6 @@ export class MessageHandler {
         rawText: textWithTranscription,
         ingestPlan,
       });
-
-      const capabilityOk = await this.checkInputCapability({
-        sessionKey,
-        agentId,
-        message,
-        channel,
-        peerId,
-      });
-      if (!capabilityOk) {
-        return;
-      }
 
       const stopTyping = await this.startTypingIndicator({
         channel,
