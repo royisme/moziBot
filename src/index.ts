@@ -3,10 +3,13 @@ import "./runtime/pi-package-dir";
 import { loadConfig } from "./config";
 import { logger } from "./logger";
 import { RuntimeHost } from "./runtime/host";
+import { registerProcessErrorHandlers } from "./runtime/host/process-error-handlers";
 import { initDb } from "./storage/db";
 import { APP_VERSION } from "./version";
 
 async function main() {
+  registerProcessErrorHandlers();
+
   const args = process.argv.slice(2);
   const isDaemon = args.includes("--daemon");
   const configArgIndex = args.indexOf("--config");

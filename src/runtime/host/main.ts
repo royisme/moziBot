@@ -1,5 +1,8 @@
 import "../pi-package-dir";
 import { RuntimeHost } from "./index";
+import { registerProcessErrorHandlers } from "./process-error-handlers";
+
+registerProcessErrorHandlers();
 
 const runtime = new RuntimeHost();
 
