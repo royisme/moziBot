@@ -56,8 +56,17 @@ vi.mock("grammy", () => {
 });
 
 vi.mock("@grammyjs/runner", () => ({
-  run: vi.fn().mockReturnValue({
-    stop: vi.fn().mockResolvedValue(undefined),
+  run: vi.fn().mockImplementation(() => {
+    let resolveTask: (() => void) | null = null;
+    const taskPromise = new Promise<void>((resolve) => {
+      resolveTask = resolve;
+    });
+    return {
+      stop: vi.fn().mockImplementation(async () => {
+        resolveTask?.();
+      }),
+      task: vi.fn().mockImplementation(() => taskPromise),
+    };
   }),
   sequentialize: vi.fn().mockReturnValue((_ctx: unknown, next: () => Promise<void>) => next()),
 }));
