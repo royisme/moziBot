@@ -40,20 +40,69 @@ describe("Agents schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts modality-specific model routing fields", () => {
+  it("rejects legacy modality-specific model fields", () => {
     const result = MoziConfigSchema.safeParse({
       agents: {
         defaults: {
           model: {
             primary: "openai/gpt-4o",
             vision: "openai/gpt-4o-vision",
-            visionFallbacks: ["openai/gpt-4o-mini-vision"],
-            audio: "openai/gpt-4o-audio",
-            audioFallbacks: ["openai/gpt-4o-mini-audio"],
-            video: "openai/gpt-4o-video",
-            videoFallbacks: ["openai/gpt-4o-mini-video"],
-            file: "openai/gpt-4o-file",
-            fileFallbacks: ["openai/gpt-4o-mini-file"],
+          },
+        },
+        mozi: { main: true },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects object model with legacy primary/fallbacks fields", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4o",
+            fallbacks: ["openai/gpt-4o-mini"],
+          },
+        },
+        mozi: { main: true },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts string model shorthand for default route", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          model: "openai/gpt-4o",
+        },
+        mozi: { main: true },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts unified model routes structure", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          model: {
+            routes: {
+              default: {
+                primary: "openai/gpt-4o",
+                fallbacks: ["openai/gpt-4o-mini"],
+              },
+              image: {
+                primary: "openai/gpt-4o-vision",
+                fallbacks: ["openai/gpt-4o-mini-vision"],
+              },
+              audio: {
+                primary: "openai/gpt-4o-audio",
+              },
+            },
           },
         },
         mozi: { main: true },

@@ -30,20 +30,35 @@ const OutputRenderSchema = z
   })
   .strict();
 
+const ModelRouteSchema = z
+  .object({
+    primary: z.string().min(1).optional(),
+    fallbacks: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const DefaultModelRouteSchema = z
+  .object({
+    primary: z.string().min(1),
+    fallbacks: z.array(z.string()).optional(),
+  })
+  .strict();
+
+const ModelRoutesSchema = z
+  .object({
+    default: DefaultModelRouteSchema,
+    image: ModelRouteSchema.optional(),
+    audio: ModelRouteSchema.optional(),
+    video: ModelRouteSchema.optional(),
+    file: ModelRouteSchema.optional(),
+  })
+  .strict();
+
 export const AgentModelSchema = z.union([
-  z.string(),
+  z.string().min(1),
   z
     .object({
-      primary: z.string().min(1),
-      fallbacks: z.array(z.string()).optional(),
-      vision: z.string().min(1).optional(),
-      visionFallbacks: z.array(z.string()).optional(),
-      audio: z.string().min(1).optional(),
-      audioFallbacks: z.array(z.string()).optional(),
-      video: z.string().min(1).optional(),
-      videoFallbacks: z.array(z.string()).optional(),
-      file: z.string().min(1).optional(),
-      fileFallbacks: z.array(z.string()).optional(),
+      routes: ModelRoutesSchema,
     })
     .strict(),
 ]);
