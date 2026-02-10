@@ -86,18 +86,23 @@ describe("SttService", () => {
   });
 
   it("uses local whisper.cpp in local-only mode", async () => {
-    mocks.execaMock.mockResolvedValue({ stdout: "hello from whisper" });
+    mocks.execaMock
+      .mockResolvedValueOnce({ stdout: "" })
+      .mockResolvedValueOnce({ stdout: "hello from whisper" });
     const service = new SttService(createConfig("local-only"));
 
     const transcript = await service.transcribeInboundMessage(createMessage());
 
     expect(transcript).toBe("hello from whisper");
-    expect(mocks.execaMock).toHaveBeenCalledTimes(1);
-    expect(mocks.execaMock.mock.calls[0]?.[0]).toBe("whisper-cli");
+    expect(mocks.execaMock).toHaveBeenCalledTimes(2);
+    expect(mocks.execaMock.mock.calls[1]?.[0]).toBe("whisper-cli");
   });
 
   it("falls back to remote in local-first mode", async () => {
-    mocks.execaMock.mockRejectedValue(new Error("local failed"));
+    mocks.execaMock
+      .mockResolvedValueOnce({ stdout: "" })
+      .mockRejectedValueOnce(new Error("local failed"))
+      .mockResolvedValueOnce({ stdout: "" });
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ text: "remote transcript" }), {
         status: 200,

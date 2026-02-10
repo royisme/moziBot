@@ -207,44 +207,59 @@ export class SttService {
   }
 
   private async prepareAudio(audio: MediaAttachment): Promise<PreparedAudio | null> {
-    if (audio.path) {
-      return {
-        filePath: audio.path,
-        mimeType: audio.mimeType ?? "audio/wav",
-      };
-    }
+    const dir = await mkdtemp(path.join(tmpdir(), "mozi-stt-"));
+    const cleanup = async () => {
+      await rm(dir, { recursive: true, force: true });
+    };
 
-    if (audio.buffer && audio.buffer.byteLength > 0) {
-      const dir = await mkdtemp(path.join(tmpdir(), "mozi-stt-"));
-      const filePath = path.join(dir, `input-${randomUUID()}`);
-      await writeFile(filePath, audio.buffer);
-      return {
-        filePath,
-        mimeType: audio.mimeType ?? "application/octet-stream",
-        cleanup: async () => {
-          await rm(dir, { recursive: true, force: true });
-        },
-      };
-    }
+    try {
+      let inputPath: string;
 
-    if (audio.url && /^https?:\/\//.test(audio.url)) {
-      const response = await fetch(audio.url);
-      if (!response.ok) {
+      if (audio.path) {
+        inputPath = audio.path;
+      } else if (audio.buffer && audio.buffer.byteLength > 0) {
+        inputPath = path.join(dir, `input-${randomUUID()}`);
+        await writeFile(inputPath, audio.buffer);
+      } else if (audio.url && /^https?:\/\//.test(audio.url)) {
+        const response = await fetch(audio.url);
+        if (!response.ok) {
+          await cleanup();
+          return null;
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        inputPath = path.join(dir, `input-${randomUUID()}`);
+        await writeFile(inputPath, Buffer.from(arrayBuffer));
+      } else {
+        await cleanup();
         return null;
       }
-      const arrayBuffer = await response.arrayBuffer();
-      const dir = await mkdtemp(path.join(tmpdir(), "mozi-stt-"));
-      const filePath = path.join(dir, `input-${randomUUID()}`);
-      await writeFile(filePath, Buffer.from(arrayBuffer));
-      return {
-        filePath,
-        mimeType: audio.mimeType ?? response.headers.get("content-type") ?? "application/octet-stream",
-        cleanup: async () => {
-          await rm(dir, { recursive: true, force: true });
-        },
-      };
-    }
 
-    return null;
+      const outputPath = path.join(dir, `output-${randomUUID()}.wav`);
+
+      // Convert to Whisper-compatible WAV (16kHz, mono, 16-bit PCM)
+      // This ensures consistent performance across different audio sources/formats
+      await execa("ffmpeg", [
+        "-i",
+        inputPath,
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        outputPath,
+        "-y",
+      ]);
+
+      return {
+        filePath: outputPath,
+        mimeType: "audio/wav",
+        cleanup,
+      };
+    } catch (error) {
+      logger.error({ error, audioUrl: audio.url }, "Failed to prepare or convert audio for STT");
+      await cleanup();
+      return null;
+    }
   }
 }
