@@ -48,6 +48,14 @@ mozi/
 - Mock external dependencies
 - Aim for 80% coverage on critical paths
 
+### Compatibility Policy (Development Stage)
+
+- Project is currently in active development stage
+- By default, DO NOT preserve backward compatibility unless explicitly requested
+- Prefer clean replacement over compatibility shims and dual-path logic
+- Refactors may remove legacy config fields/APIs directly when improving structure
+- If compatibility is required for a specific change, it must be explicitly stated in the task
+
 ### Git Workflow
 
 - Commit messages: conventional commits
