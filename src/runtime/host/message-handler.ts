@@ -1428,13 +1428,13 @@ export class MessageHandler {
   private modelConfigHint(input: "image" | "audio" | "video" | "file"): string {
     switch (input) {
       case "image":
-        return "agents.model.vision";
+        return "agents.model.routes.image";
       case "audio":
-        return "agents.model.audio";
+        return "agents.model.routes.audio";
       case "video":
-        return "agents.model.video";
+        return "agents.model.routes.video";
       case "file":
-        return "agents.model.file";
+        return "agents.model.routes.file";
     }
   }
 

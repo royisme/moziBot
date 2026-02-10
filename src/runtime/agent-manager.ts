@@ -77,16 +77,13 @@ export type AgentSandboxProbeReport = {
 };
 
 type AgentModelConfig = {
-  primary?: string;
-  fallbacks?: string[];
-  vision?: string;
-  visionFallbacks?: string[];
-  audio?: string;
-  audioFallbacks?: string[];
-  video?: string;
-  videoFallbacks?: string[];
-  file?: string;
-  fileFallbacks?: string[];
+  routes?: {
+    default?: { primary: string; fallbacks?: string[] };
+    image?: { primary?: string; fallbacks?: string[] };
+    audio?: { primary?: string; fallbacks?: string[] };
+    video?: { primary?: string; fallbacks?: string[] };
+    file?: { primary?: string; fallbacks?: string[] };
+  };
 };
 
 type AgentEntry = {
@@ -530,30 +527,18 @@ export class AgentManager {
       return undefined;
     }
     if (typeof raw === "string") {
-      return { primary: raw };
+      return {
+        routes: {
+          default: {
+            primary: raw,
+          },
+        },
+      };
     }
     if (typeof raw === "object") {
-      const primary = (raw as { primary?: string }).primary;
-      const fallbacks = (raw as { fallbacks?: string[] }).fallbacks;
-      const vision = (raw as { vision?: string }).vision;
-      const visionFallbacks = (raw as { visionFallbacks?: string[] }).visionFallbacks;
-      const audio = (raw as { audio?: string }).audio;
-      const audioFallbacks = (raw as { audioFallbacks?: string[] }).audioFallbacks;
-      const video = (raw as { video?: string }).video;
-      const videoFallbacks = (raw as { videoFallbacks?: string[] }).videoFallbacks;
-      const file = (raw as { file?: string }).file;
-      const fileFallbacks = (raw as { fileFallbacks?: string[] }).fileFallbacks;
+      const routes = (raw as { routes?: AgentModelConfig["routes"] }).routes;
       return {
-        primary,
-        fallbacks,
-        vision,
-        visionFallbacks,
-        audio,
-        audioFallbacks,
-        video,
-        videoFallbacks,
-        file,
-        fileFallbacks,
+        routes,
       };
     }
     return undefined;
@@ -561,12 +546,13 @@ export class AgentManager {
 
   private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
     const modelCfg = this.normalizeModelConfig(entry?.model);
-    if (modelCfg?.primary) {
-      return modelCfg.primary;
+    const modelRoutePrimary = modelCfg?.routes?.default?.primary;
+    if (modelRoutePrimary) {
+      return modelRoutePrimary;
     }
 
     const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    return defaults?.primary;
+    return defaults?.routes?.default?.primary;
   }
 
   private resolveThinkingLevel(entry?: AgentEntry): ThinkingLevel | undefined {
@@ -749,8 +735,16 @@ export class AgentManager {
   getAgentFallbacks(agentId: string): string[] {
     const entry = this.getAgentEntry(agentId);
     const modelCfg = this.normalizeModelConfig(entry?.model);
+    const modelRouteFallbacks = modelCfg?.routes?.default?.fallbacks;
+    if (modelRouteFallbacks !== undefined) {
+      return modelRouteFallbacks;
+    }
     const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    return modelCfg?.fallbacks ?? defaults?.fallbacks ?? [];
+    const defaultRouteFallbacks = defaults?.routes?.default?.fallbacks;
+    if (defaultRouteFallbacks !== undefined) {
+      return defaultRouteFallbacks;
+    }
+    return [];
   }
 
   resolveLifecycleControlModel(params: {
@@ -829,13 +823,13 @@ export class AgentManager {
     const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
     switch (modality) {
       case "image":
-        return modelCfg?.vision ?? defaults?.vision;
+        return modelCfg?.routes?.image?.primary ?? defaults?.routes?.image?.primary;
       case "audio":
-        return modelCfg?.audio ?? defaults?.audio;
+        return modelCfg?.routes?.audio?.primary ?? defaults?.routes?.audio?.primary;
       case "video":
-        return modelCfg?.video ?? defaults?.video;
+        return modelCfg?.routes?.video?.primary ?? defaults?.routes?.video?.primary;
       case "file":
-        return modelCfg?.file ?? defaults?.file;
+        return modelCfg?.routes?.file?.primary ?? defaults?.routes?.file?.primary;
     }
   }
 
@@ -848,13 +842,13 @@ export class AgentManager {
     const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
     switch (modality) {
       case "image":
-        return modelCfg?.visionFallbacks ?? defaults?.visionFallbacks ?? [];
+        return modelCfg?.routes?.image?.fallbacks ?? defaults?.routes?.image?.fallbacks ?? [];
       case "audio":
-        return modelCfg?.audioFallbacks ?? defaults?.audioFallbacks ?? [];
+        return modelCfg?.routes?.audio?.fallbacks ?? defaults?.routes?.audio?.fallbacks ?? [];
       case "video":
-        return modelCfg?.videoFallbacks ?? defaults?.videoFallbacks ?? [];
+        return modelCfg?.routes?.video?.fallbacks ?? defaults?.routes?.video?.fallbacks ?? [];
       case "file":
-        return modelCfg?.fileFallbacks ?? defaults?.fileFallbacks ?? [];
+        return modelCfg?.routes?.file?.fallbacks ?? defaults?.routes?.file?.fallbacks ?? [];
     }
   }
 

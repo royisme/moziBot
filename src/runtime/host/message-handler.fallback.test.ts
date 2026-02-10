@@ -17,8 +17,12 @@ function createConfig(): MoziConfig {
     agents: {
       mozi: {
         model: {
-          primary: "quotio/gemini-3-flash-preview",
-          fallbacks: ["quotio/fallback-model"],
+          routes: {
+            default: {
+              primary: "quotio/gemini-3-flash-preview",
+              fallbacks: ["quotio/fallback-model"],
+            },
+          },
         },
       },
     },
