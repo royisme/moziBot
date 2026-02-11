@@ -1,5 +1,6 @@
 import type { MoziConfig } from "../../config";
 import { loadConfig } from "../../config";
+import { resolveAgentModelRouting } from "../../config/model-routing";
 import { ModelRegistry } from "../../runtime/model-registry";
 import { ProviderRegistry } from "../../runtime/provider-registry";
 import { bootstrapSandboxes } from "../../runtime/sandbox/bootstrap";
@@ -39,8 +40,9 @@ export async function doctorConfig(configPath?: string, options: { fix?: boolean
   const modelRegistry = new ModelRegistry(config);
   const providerRegistry = new ProviderRegistry(config);
 
-  for (const { id, entry } of agentEntries) {
-    const modelRef = resolveAgentModelRef(config, entry);
+  for (const { id } of agentEntries) {
+    const routing = resolveAgentModelRouting(config, id);
+    const modelRef = routing.defaultModel.primary;
     if (!modelRef) {
       errors.push(`Agent ${id} has no model configured.`);
       continue;
@@ -53,6 +55,30 @@ export async function doctorConfig(configPath?: string, options: { fix?: boolean
     const apiKey = providerRegistry.resolveApiKey(spec.provider);
     if (!apiKey) {
       warnings.push(`Provider ${spec.provider} has no API key (agent ${id}).`);
+    }
+
+    const modalityEntries: Array<{ input: "image"; refs: string[] }> = [
+      {
+        input: "image",
+        refs: [routing.imageModel.primary, ...routing.imageModel.fallbacks].filter(
+          (ref): ref is string => Boolean(ref),
+        ),
+      },
+    ];
+
+    for (const modality of modalityEntries) {
+      for (const ref of modality.refs) {
+        const modSpec = modelRegistry.get(ref);
+        if (!modSpec) {
+          errors.push(`Agent ${id} ${modality.input} route references unknown model: ${ref}`);
+          continue;
+        }
+        if (!(modSpec.input ?? ["text"]).includes(modality.input)) {
+          warnings.push(
+            `Agent ${id} ${modality.input} route model ${ref} does not declare ${modality.input} input capability.`,
+          );
+        }
+      }
     }
   }
 
@@ -122,14 +148,8 @@ export async function doctorConfig(configPath?: string, options: { fix?: boolean
 type AgentEntry = {
   id: string;
   entry: {
-    model?: unknown;
     heartbeat?: { enabled?: boolean; every?: string; prompt?: string };
   };
-};
-
-type ModelConfig = {
-  primary?: string;
-  fallbacks?: string[];
 };
 
 function listAgentEntries(config: MoziConfig): AgentEntry[] {
@@ -137,30 +157,6 @@ function listAgentEntries(config: MoziConfig): AgentEntry[] {
   return Object.entries(agents)
     .filter(([key]) => key !== "defaults")
     .map(([id, entry]) => ({ id, entry: entry as AgentEntry["entry"] }));
-}
-
-function normalizeModelConfig(raw: unknown): ModelConfig | undefined {
-  if (!raw) {
-    return undefined;
-  }
-  if (typeof raw === "string") {
-    return { primary: raw };
-  }
-  if (typeof raw === "object") {
-    const primary = (raw as { primary?: string }).primary;
-    const fallbacks = (raw as { fallbacks?: string[] }).fallbacks;
-    return { primary, fallbacks };
-  }
-  return undefined;
-}
-
-function resolveAgentModelRef(config: MoziConfig, entry: AgentEntry["entry"]): string | undefined {
-  const modelCfg = normalizeModelConfig(entry.model);
-  if (modelCfg?.primary) {
-    return modelCfg.primary;
-  }
-  const defaults = normalizeModelConfig(config.agents?.defaults?.model);
-  return defaults?.primary;
 }
 
 function referencedAgents(channels: MoziConfig["channels"]): string[] {

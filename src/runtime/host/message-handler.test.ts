@@ -440,6 +440,10 @@ describe("MessageHandler commands", () => {
       .map((call) => (call[1] as { text?: string }).text || "")
       .find((line) => line.includes("auto-switched model"));
     expect(switchedNotice).toBeUndefined();
+    expect(setSessionModel).toHaveBeenCalledWith(
+      "agent:mozi:telegram:dm:chat-1",
+      "quotio/gemini-3-flash-preview",
+    );
   });
 
   it("degrades media input to text when no modality model is available", async () => {
@@ -456,6 +460,8 @@ describe("MessageHandler commands", () => {
       .map((call) => (call[1] as { text?: string }).text || "")
       .find((line) => line.includes("Continuing with text degradation"));
     expect(degradedNotice).toContain("quotio/gemini-3-pro-image-preview");
+    expect(degradedNotice).toContain("agents.mozi.imageModel");
+    expect(degradedNotice).toContain("agents.defaults.imageModel");
   });
 
   it("does not send audio degradation notice when transcript is available", async () => {

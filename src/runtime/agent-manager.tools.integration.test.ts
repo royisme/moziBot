@@ -336,7 +336,9 @@ describe("AgentManager tools", () => {
         defaults: {
           model: {
             primary: "openai/gpt-4o",
-            vision: "openai/gpt-4o-vision",
+          },
+          imageModel: {
+            primary: "openai/gpt-4o-vision",
           },
         },
         mozi: { main: true, home: homeDir, workspace: workspaceDir },
@@ -383,7 +385,9 @@ describe("AgentManager tools", () => {
         defaults: {
           model: {
             primary: "openai/gpt-4o",
-            vision: "openai/unknown-vision",
+          },
+          imageModel: {
+            primary: "openai/unknown-vision",
           },
         },
         mozi: { main: true, home: homeDir, workspace: workspaceDir },

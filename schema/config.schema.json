@@ -161,6 +161,9 @@
         "home": {
           "type": "string"
         },
+        "imageModel": {
+          "$ref": "#/$defs/__schema6"
+        },
         "lifecycle": {
           "$ref": "#/$defs/__schema10"
         },
@@ -463,6 +466,9 @@
         "heartbeat": {
           "$ref": "#/$defs/__schema9"
         },
+        "imageModel": {
+          "$ref": "#/$defs/__schema6"
+        },
         "lifecycle": {
           "$ref": "#/$defs/__schema10"
         },
@@ -490,32 +496,13 @@
     "__schema6": {
       "anyOf": [
         {
+          "minLength": 1,
           "type": "string"
         },
         {
           "additionalProperties": false,
           "properties": {
-            "audio": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "audioFallbacks": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
             "fallbacks": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "file": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "fileFallbacks": {
               "items": {
                 "type": "string"
               },
@@ -524,29 +511,8 @@
             "primary": {
               "minLength": 1,
               "type": "string"
-            },
-            "video": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "videoFallbacks": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "vision": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "visionFallbacks": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
             }
           },
-          "required": ["primary"],
           "type": "object"
         }
       ]

@@ -11,6 +11,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../config";
+import { resolveAgentModelRouting } from "../config/model-routing";
 import type { InboundMessage } from "./adapters/channels/types";
 import type { SandboxConfig } from "./sandbox/types";
 import type { SubagentRegistry } from "./subagent-registry";
@@ -76,16 +77,6 @@ export type AgentSandboxProbeReport = {
   result: SandboxProbeResult;
 };
 
-type AgentModelConfig = {
-  routes?: {
-    default?: { primary: string; fallbacks?: string[] };
-    image?: { primary?: string; fallbacks?: string[] };
-    audio?: { primary?: string; fallbacks?: string[] };
-    video?: { primary?: string; fallbacks?: string[] };
-    file?: { primary?: string; fallbacks?: string[] };
-  };
-};
-
 type AgentEntry = {
   name?: string;
   main?: boolean;
@@ -93,6 +84,7 @@ type AgentEntry = {
   workspace?: string;
   systemPrompt?: string;
   model?: unknown;
+  imageModel?: unknown;
   skills?: string[];
   tools?: string[];
   subagents?: { allow?: string[] };
@@ -527,37 +519,15 @@ export class AgentManager {
     return lines.join("\n");
   }
 
-  private normalizeModelConfig(raw: unknown): AgentModelConfig | undefined {
-    if (!raw) {
-      return undefined;
+  private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
+    const routing = resolveAgentModelRouting(this.config, agentId);
+    if (routing.defaultModel.primary) {
+      return routing.defaultModel.primary;
     }
-    if (typeof raw === "string") {
-      return {
-        routes: {
-          default: {
-            primary: raw,
-          },
-        },
-      };
-    }
-    if (typeof raw === "object") {
-      const routes = (raw as { routes?: AgentModelConfig["routes"] }).routes;
-      return {
-        routes,
-      };
+    if (entry?.model && typeof entry.model === "string") {
+      return entry.model;
     }
     return undefined;
-  }
-
-  private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
-    const modelCfg = this.normalizeModelConfig(entry?.model);
-    const modelRoutePrimary = modelCfg?.routes?.default?.primary;
-    if (modelRoutePrimary) {
-      return modelRoutePrimary;
-    }
-
-    const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    return defaults?.routes?.default?.primary;
   }
 
   private resolveThinkingLevel(entry?: AgentEntry): ThinkingLevel | undefined {
@@ -738,18 +708,8 @@ export class AgentManager {
   }
 
   getAgentFallbacks(agentId: string): string[] {
-    const entry = this.getAgentEntry(agentId);
-    const modelCfg = this.normalizeModelConfig(entry?.model);
-    const modelRouteFallbacks = modelCfg?.routes?.default?.fallbacks;
-    if (modelRouteFallbacks !== undefined) {
-      return modelRouteFallbacks;
-    }
-    const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    const defaultRouteFallbacks = defaults?.routes?.default?.fallbacks;
-    if (defaultRouteFallbacks !== undefined) {
-      return defaultRouteFallbacks;
-    }
-    return [];
+    const routing = resolveAgentModelRouting(this.config, agentId);
+    return routing.defaultModel.fallbacks;
   }
 
   resolveLifecycleControlModel(params: { sessionKey: string; agentId?: string }): {
@@ -820,38 +780,22 @@ export class AgentManager {
     agentId: string,
     modality: "image" | "audio" | "video" | "file",
   ): string | undefined {
-    const entry = this.getAgentEntry(agentId);
-    const modelCfg = this.normalizeModelConfig(entry?.model);
-    const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    switch (modality) {
-      case "image":
-        return modelCfg?.routes?.image?.primary ?? defaults?.routes?.image?.primary;
-      case "audio":
-        return modelCfg?.routes?.audio?.primary ?? defaults?.routes?.audio?.primary;
-      case "video":
-        return modelCfg?.routes?.video?.primary ?? defaults?.routes?.video?.primary;
-      case "file":
-        return modelCfg?.routes?.file?.primary ?? defaults?.routes?.file?.primary;
+    const routing = resolveAgentModelRouting(this.config, agentId);
+    if (modality !== "image") {
+      return undefined;
     }
+    return routing.imageModel.primary;
   }
 
   private getAgentModalityFallbacks(
     agentId: string,
     modality: "image" | "audio" | "video" | "file",
   ): string[] {
-    const entry = this.getAgentEntry(agentId);
-    const modelCfg = this.normalizeModelConfig(entry?.model);
-    const defaults = this.normalizeModelConfig(this.config.agents?.defaults?.model);
-    switch (modality) {
-      case "image":
-        return modelCfg?.routes?.image?.fallbacks ?? defaults?.routes?.image?.fallbacks ?? [];
-      case "audio":
-        return modelCfg?.routes?.audio?.fallbacks ?? defaults?.routes?.audio?.fallbacks ?? [];
-      case "video":
-        return modelCfg?.routes?.video?.fallbacks ?? defaults?.routes?.video?.fallbacks ?? [];
-      case "file":
-        return modelCfg?.routes?.file?.fallbacks ?? defaults?.routes?.file?.fallbacks ?? [];
+    const routing = resolveAgentModelRouting(this.config, agentId);
+    if (modality !== "image") {
+      return [];
     }
+    return routing.imageModel.fallbacks;
   }
 
   private resolveModalityRoutingCandidates(

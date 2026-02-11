@@ -1666,17 +1666,14 @@ export class MessageHandler {
     }
   }
 
-  private modelConfigHint(input: "image" | "audio" | "video" | "file"): string {
-    switch (input) {
-      case "image":
-        return "agents.model.routes.image";
-      case "audio":
-        return "agents.model.routes.audio";
-      case "video":
-        return "agents.model.routes.video";
-      case "file":
-        return "agents.model.routes.file";
+  private modelConfigHint(
+    agentId: string,
+    input: "image" | "audio" | "video" | "file",
+  ): string {
+    if (input === "image") {
+      return `agents.${agentId}.imageModel (or agents.defaults.imageModel)`;
     }
+    return "media understanding pipeline (transcription/description)";
   }
 
   private buildPromptText(params: {
@@ -1735,11 +1732,14 @@ export class MessageHandler {
     channel: ChannelPlugin;
     peerId: string;
     hasAudioTranscript: boolean;
-  }): Promise<boolean> {
+  }): Promise<{ ok: boolean; restoreModelRef?: string }> {
     const media = params.message.media || [];
     if (media.length === 0) {
-      return true;
+      return { ok: true };
     }
+    const currentBeforeRouting = await this.agentManager.getAgent(params.sessionKey, params.agentId);
+    const restoreModelRef = currentBeforeRouting.modelRef;
+    let switched = false;
     const requiredInputs = Array.from(
       new Set(media.map((item) => this.mediaTypeToInput(item.type))),
     );
@@ -1764,6 +1764,7 @@ export class MessageHandler {
       });
       if (routed.ok) {
         if (routed.switched) {
+          switched = true;
           logger.info(
             {
               sessionKey: params.sessionKey,
@@ -1783,7 +1784,7 @@ export class MessageHandler {
           ? `\nAvailable ${this.describeInput(input)} models:\n${routed.candidates.map((ref) => `- ${ref}`).join("\n")}`
           : "";
       await params.channel.send(params.peerId, {
-        text: `Current model ${routed.modelRef} does not support ${this.describeInput(input)} input. Continuing with text degradation. Configure ${this.modelConfigHint(input)} or manually /switch to a model that supports ${input}. ${suggestText}`,
+        text: `Current model ${routed.modelRef} does not support ${this.describeInput(input)} input. Continuing with text degradation. Configure ${this.modelConfigHint(params.agentId, input)} or manually /switch to a model that supports ${input}. ${suggestText}`,
       });
       logger.warn(
         {
@@ -1797,7 +1798,7 @@ export class MessageHandler {
         "Input capability degraded to text",
       );
     }
-    return true;
+    return { ok: true, restoreModelRef: switched ? restoreModelRef : undefined };
   }
 
   private async startTypingIndicator(params: {
@@ -2171,7 +2172,7 @@ export class MessageHandler {
       const transcript = await this.sttService.transcribeInboundMessage(message);
       const hasAudioTranscript = typeof transcript === "string" && transcript.trim().length > 0;
 
-      const capabilityOk = await this.checkInputCapability({
+      const capability = await this.checkInputCapability({
         sessionKey,
         agentId,
         message,
@@ -2179,7 +2180,7 @@ export class MessageHandler {
         peerId,
         hasAudioTranscript,
       });
-      if (!capabilityOk) {
+      if (!capability.ok) {
         return;
       }
 
@@ -2365,6 +2366,21 @@ export class MessageHandler {
           );
         }
       } finally {
+        if (capability.restoreModelRef) {
+          try {
+            await this.agentManager.setSessionModel(sessionKey, capability.restoreModelRef);
+          } catch (error) {
+            logger.warn(
+              {
+                err: error,
+                sessionKey,
+                agentId,
+                restoreModelRef: capability.restoreModelRef,
+              },
+              "Failed to restore pre-routing session model",
+            );
+          }
+        }
         await this.emitPhaseSafely({
           channel,
           peerId,

@@ -56,7 +56,7 @@ describe("Agents schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects object model with legacy primary/fallbacks fields", () => {
+  it("accepts object model with primary/fallbacks fields", () => {
     const result = MoziConfigSchema.safeParse({
       agents: {
         defaults: {
@@ -69,7 +69,7 @@ describe("Agents schema", () => {
       },
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("accepts string model shorthand for default route", () => {
@@ -85,7 +85,7 @@ describe("Agents schema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts unified model routes structure", () => {
+  it("rejects legacy nested model routes structure", () => {
     const result = MoziConfigSchema.safeParse({
       agents: {
         defaults: {
@@ -109,7 +109,39 @@ describe("Agents schema", () => {
       },
     });
 
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts image model override", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-4o",
+            fallbacks: ["openai/gpt-4o-mini"],
+          },
+          imageModel: {
+            primary: "openai/gpt-4o-vision",
+            fallbacks: ["openai/gpt-4o-mini-vision"],
+          },
+        },
+        mozi: { main: true },
+      },
+    });
+
     expect(result.success).toBe(true);
+  });
+
+  it("rejects audio/video/file model overrides in user config", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          model: "openai/gpt-4o",
+          audioModel: { primary: "openai/gpt-4o-audio" },
+        },
+      },
+    });
+    expect(result.success).toBe(false);
   });
 
   it("accepts context pruning and context tokens fields", () => {

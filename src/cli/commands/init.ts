@@ -293,7 +293,9 @@ function buildConfig(config: InitConfig): object {
     },
     agents: {
       defaults: {
-        model: `${config.providerId}/${config.model}`,
+        model: {
+          primary: `${config.providerId}/${config.model}`,
+        },
       },
       main: {
         name: "Mozi",

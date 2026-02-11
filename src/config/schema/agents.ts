@@ -30,37 +30,16 @@ const OutputRenderSchema = z
   })
   .strict();
 
-const ModelRouteSchema = z
+const AgentModelListSchema = z
   .object({
     primary: z.string().min(1).optional(),
     fallbacks: z.array(z.string()).optional(),
   })
   .strict();
 
-const DefaultModelRouteSchema = z
-  .object({
-    primary: z.string().min(1),
-    fallbacks: z.array(z.string()).optional(),
-  })
-  .strict();
-
-const ModelRoutesSchema = z
-  .object({
-    default: DefaultModelRouteSchema,
-    image: ModelRouteSchema.optional(),
-    audio: ModelRouteSchema.optional(),
-    video: ModelRouteSchema.optional(),
-    file: ModelRouteSchema.optional(),
-  })
-  .strict();
-
 export const AgentModelSchema = z.union([
   z.string().min(1),
-  z
-    .object({
-      routes: ModelRoutesSchema,
-    })
-    .strict(),
+  AgentModelListSchema,
 ]);
 
 export const SubagentPolicySchema = z
@@ -124,6 +103,7 @@ export const AgentEntrySchema = z
     workspace: z.string().optional(),
     systemPrompt: z.string().optional(),
     model: AgentModelSchema.optional(),
+    imageModel: AgentModelSchema.optional(),
     skills: z.array(z.string()).optional(),
     tools: z.array(z.string()).optional(),
     subagents: SubagentPolicySchema.optional(),
@@ -142,6 +122,7 @@ export const AgentsSchema = z
     defaults: z
       .object({
         model: AgentModelSchema.optional(),
+        imageModel: AgentModelSchema.optional(),
         tools: z.array(z.string()).optional(),
         sandbox: SandboxSchema.optional(),
         exec: ExecPolicySchema.optional(),
