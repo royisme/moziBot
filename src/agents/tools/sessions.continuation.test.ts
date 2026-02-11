@@ -97,4 +97,22 @@ describe("scheduleContinuation tool", () => {
     expect(pending).toHaveLength(3);
     expect(pending.map((p) => p.prompt)).toEqual(["Step 1", "Step 2", "Step 3"]);
   });
+
+  it("rejects delayed heartbeat-style continuation loops", async () => {
+    const ctx: SessionToolsContext = {
+      sessionManager: mockSessionManager,
+      subAgentRegistry: mockSubAgentRegistry,
+      currentSessionKey: "test-session-5",
+    };
+
+    const result = await scheduleContinuation(ctx, {
+      prompt: "2 minutes later do heartbeat check",
+      delayMs: 120000,
+      reason: "heartbeat periodic polling",
+    });
+
+    expect(result.scheduled).toBe(false);
+    expect(result.message).toContain("HEARTBEAT.md");
+    expect(continuationRegistry.consume("test-session-5")).toEqual([]);
+  });
 });

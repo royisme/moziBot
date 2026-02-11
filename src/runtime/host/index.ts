@@ -37,6 +37,8 @@ export class RuntimeHost {
   private cronScheduler: CronScheduler | null = null;
   private heartbeatRunner: HeartbeatRunner | null = null;
   private reminderRunner: ReminderRunner | null = null;
+  private pendingMessageHandlerReload: MoziConfig | null = null;
+  private reloadDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
   private async enqueueInboundMessage(msg: InboundMessage): Promise<void> {
     if (!this.runtimeKernel) {
@@ -83,7 +85,7 @@ export class RuntimeHost {
           "Sandbox auto-bootstrap failed during config reload; continuing with existing runtime.",
         );
       });
-      void this.reloadMessageHandler(config).catch((error) => {
+      void this.scheduleSafeMessageHandlerReload(config).catch((error) => {
         logger.warn(
           { err: error },
           "MessageHandler reload failed during config change; continuing with existing state.",
@@ -233,10 +235,43 @@ export class RuntimeHost {
       this.heartbeatRunner = new HeartbeatRunner(
         this.messageHandler,
         this.messageHandler.getAgentManager(),
-        this.channelRegistry,
+        async (msg: InboundMessage) => {
+          await this.enqueueInboundMessage(msg);
+        },
       );
     }
     this.heartbeatRunner.updateConfig(config);
+  }
+
+  private async scheduleSafeMessageHandlerReload(config: MoziConfig): Promise<void> {
+    this.pendingMessageHandlerReload = config;
+    if (this.reloadDrainTimer) {
+      return;
+    }
+
+    const tryDrain = async (): Promise<void> => {
+      if (!this.pendingMessageHandlerReload) {
+        return;
+      }
+      const activePrompts = this.messageHandler?.getActivePromptRunCount() ?? 0;
+      if (activePrompts > 0) {
+        logger.info(
+          { activePrompts },
+          "Deferring MessageHandler reload until active prompt runs are drained",
+        );
+        this.reloadDrainTimer = setTimeout(() => {
+          this.reloadDrainTimer = null;
+          void tryDrain();
+        }, 300);
+        return;
+      }
+
+      const next = this.pendingMessageHandlerReload;
+      this.pendingMessageHandlerReload = null;
+      await this.reloadMessageHandler(next);
+    };
+
+    await tryDrain();
   }
 
   private async runSandboxProbe(reason: "startup" | "reload"): Promise<void> {
@@ -541,6 +576,10 @@ export class RuntimeHost {
     }
     if (this.messageHandler) {
       await this.messageHandler.shutdownExtensions();
+    }
+    if (this.reloadDrainTimer) {
+      clearTimeout(this.reloadDrainTimer);
+      this.reloadDrainTimer = null;
     }
 
     // 3. Cleanup resources

@@ -140,6 +140,12 @@ Default heartbeat prompt:
 
 You are free to edit `HEARTBEAT.md` with a short checklist or reminders. Keep it small to limit token burn.
 
+Heartbeat management is file-driven:
+
+- Control heartbeat in `HEARTBEAT.md` directives (`@heartbeat enabled=on|off`, `@heartbeat every=30m`).
+- Do **NOT** implement periodic heartbeat with `schedule_continuation` loops.
+- Use `reminder_create` for durable reminders and exact timer workflows.
+
 ### Heartbeat vs Cron: When to Use Each
 
 **Use heartbeat when:**

@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoziConfig } from "../../config";
-import type { ChannelRegistry } from "../adapters/channels/registry";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { AgentManager } from "../agent-manager";
 import type { MessageHandler } from "./message-handler";
@@ -24,17 +23,24 @@ type HeartbeatState = {
   everyMs: number;
   nextRunAt: number;
   prompt: string;
+  paused: boolean;
+};
+
+type HeartbeatDirectives = {
+  enabled?: boolean;
+  everyMs?: number;
+  prompt?: string;
 };
 
 export class HeartbeatRunner {
-  private timer?: Timer;
+  private timer?: ReturnType<typeof setInterval>;
   private states = new Map<string, HeartbeatState>();
   private config?: MoziConfig;
 
   constructor(
     private handler: MessageHandler,
     private agentManager: AgentManager,
-    private channels: ChannelRegistry,
+    private enqueueInbound: (message: InboundMessage) => Promise<void>,
   ) {}
 
   start(config: MoziConfig): void {
@@ -56,7 +62,8 @@ export class HeartbeatRunner {
 
   updateConfig(config: MoziConfig): void {
     this.config = config;
-    this.states.clear();
+    const previous = new Map(this.states);
+    const next = new Map<string, HeartbeatState>();
     const agents = config.agents ?? {};
     const defaults = (agents.defaults as { heartbeat?: HeartbeatConfig } | undefined)?.heartbeat;
     for (const [agentId, entry] of Object.entries(agents)) {
@@ -75,13 +82,32 @@ export class HeartbeatRunner {
         continue;
       }
       const prompt = cfg.prompt?.trim() || DEFAULT_HEARTBEAT_PROMPT;
-      this.states.set(agentId, {
+      const prev = previous.get(agentId);
+      next.set(agentId, {
         agentId,
         everyMs,
-        nextRunAt: Date.now() + everyMs,
+        nextRunAt: prev ? prev.nextRunAt : Date.now() + everyMs,
         prompt,
+        paused: prev?.paused ?? false,
       });
     }
+    this.states = next;
+  }
+
+  setPaused(agentId: string, paused: boolean): boolean {
+    const state = this.states.get(agentId);
+    if (!state) {
+      return false;
+    }
+    state.paused = paused;
+    if (!paused) {
+      state.nextRunAt = Date.now() + state.everyMs;
+    }
+    return true;
+  }
+
+  isPaused(agentId: string): boolean {
+    return this.states.get(agentId)?.paused ?? false;
   }
 
   private mergeHeartbeatConfig(
@@ -103,11 +129,14 @@ export class HeartbeatRunner {
     }
     const now = Date.now();
     for (const state of this.states.values()) {
+      if (state.paused) {
+        continue;
+      }
       if (now < state.nextRunAt) {
         continue;
       }
-      state.nextRunAt = now + state.everyMs;
       await this.runHeartbeat(state);
+      state.nextRunAt = Date.now() + state.everyMs;
     }
   }
 
@@ -129,12 +158,16 @@ export class HeartbeatRunner {
       return;
     }
 
-    if (isHeartbeatContentEffectivelyEmpty(content)) {
+    const directives = parseHeartbeatDirectives(content);
+    if (typeof directives.enabled === "boolean" && directives.enabled === false) {
       return;
     }
+    if (typeof directives.everyMs === "number" && directives.everyMs > 0) {
+      state.everyMs = directives.everyMs;
+    }
+    const effectivePrompt = directives.prompt?.trim() || state.prompt;
 
-    const channel = this.channels.get(lastRoute.channelId);
-    if (!channel) {
+    if (isHeartbeatContentEffectivelyEmpty(content)) {
       return;
     }
 
@@ -147,13 +180,26 @@ export class HeartbeatRunner {
       threadId: lastRoute.threadId,
       senderId: "heartbeat",
       senderName: "Heartbeat",
-      text: state.prompt,
+      text: effectivePrompt,
       timestamp: new Date(),
       raw: { source: "heartbeat" },
     };
 
+    const context = this.handler.resolveSessionContext(inbound);
+    if (this.handler.isSessionActive(context.sessionKey)) {
+      logger.info(
+        {
+          sessionKey: context.sessionKey,
+          agentId: state.agentId,
+          peerId: inbound.peerId,
+        },
+        "Heartbeat skipped because session has an active prompt run",
+      );
+      return;
+    }
+
     try {
-      await this.handler.handle(inbound, channel);
+      await this.enqueueInbound(inbound);
     } catch (error) {
       logger.warn({ error, agentId: state.agentId }, "Heartbeat run failed");
     }
@@ -184,6 +230,10 @@ function parseEveryMs(raw: string): number | null {
   return amount * (multipliers[unit] || 0);
 }
 
+export function parseHeartbeatEveryMs(raw: string): number | null {
+  return parseEveryMs(raw);
+}
+
 function isHeartbeatContentEffectivelyEmpty(content: string | undefined | null): boolean {
   if (content === undefined || content === null) {
     return true;
@@ -200,7 +250,47 @@ function isHeartbeatContentEffectivelyEmpty(content: string | undefined | null):
     if (/^[-*+]\s*(\[[\sXx]?\]\s*)?$/.test(trimmed)) {
       continue;
     }
+    if (/^@heartbeat\b/i.test(trimmed)) {
+      continue;
+    }
     return false;
   }
   return true;
+}
+
+function parseHeartbeatDirectives(content: string): HeartbeatDirectives {
+  const directives: HeartbeatDirectives = {};
+  const lines = content.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const enableMatch = trimmed.match(/^@heartbeat\s+enabled\s*=\s*(on|off|true|false)$/i);
+    if (enableMatch) {
+      const value = enableMatch[1]?.toLowerCase();
+      directives.enabled = value === "on" || value === "true";
+      continue;
+    }
+
+    const everyMatch = trimmed.match(/^@heartbeat\s+every\s*=\s*([^\s#]+)$/i);
+    if (everyMatch) {
+      const parsed = parseEveryMs((everyMatch[1] || "").trim());
+      if (parsed && parsed > 0) {
+        directives.everyMs = parsed;
+      }
+      continue;
+    }
+
+    const promptMatch = trimmed.match(/^@heartbeat\s+prompt\s*=\s*(.+)$/i);
+    if (promptMatch) {
+      const prompt = (promptMatch[1] || "").trim();
+      if (prompt) {
+        directives.prompt = prompt;
+      }
+      continue;
+    }
+  }
+  return directives;
 }

@@ -1,6 +1,8 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { MoziConfig } from "../../config";
 import type { DeliveryPlan } from "../../multimodal/capabilities";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
@@ -959,6 +961,7 @@ export class MessageHandler {
       | "new"
       | "models"
       | "switch"
+      | "stop"
       | "restart"
       | "compact"
       | "context"
@@ -966,7 +969,8 @@ export class MessageHandler {
       | "unsetauth"
       | "listauth"
       | "checkauth"
-      | "reminders";
+      | "reminders"
+      | "heartbeat";
     args: string;
   } | null {
     const trimmed = text.trim();
@@ -986,6 +990,7 @@ export class MessageHandler {
       normalized !== "/models" &&
       normalized !== "/switch" &&
       normalized !== "/model" &&
+      normalized !== "/stop" &&
       normalized !== "/restart" &&
       normalized !== "/compact" &&
       normalized !== "/context" &&
@@ -993,7 +998,8 @@ export class MessageHandler {
       normalized !== "/unsetauth" &&
       normalized !== "/listauth" &&
       normalized !== "/checkauth" &&
-      normalized !== "/reminders"
+      normalized !== "/reminders" &&
+      normalized !== "/heartbeat"
     ) {
       return null;
     }
@@ -1013,6 +1019,7 @@ export class MessageHandler {
         | "new"
         | "models"
         | "switch"
+        | "stop"
         | "restart"
         | "compact"
         | "context"
@@ -1020,9 +1027,172 @@ export class MessageHandler {
         | "unsetauth"
         | "listauth"
         | "checkauth"
-        | "reminders",
+        | "reminders"
+        | "heartbeat",
       args,
     };
+  }
+
+  private normalizeImplicitControlCommand(text: string): string | null {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.startsWith("/")) {
+      return null;
+    }
+    const compact = trimmed.replace(/\s+/g, "").toLowerCase();
+    if (
+      compact === "取消心跳" ||
+      compact === "关闭心跳" ||
+      compact === "停止心跳" ||
+      compact === "暂停心跳" ||
+      compact === "心跳关闭" ||
+      compact === "心跳暂停" ||
+      compact === "cancelheartbeat" ||
+      compact === "stopheartbeat" ||
+      compact === "disableheartbeat"
+    ) {
+      return "/heartbeat off";
+    }
+    if (
+      compact === "开启心跳" ||
+      compact === "恢复心跳" ||
+      compact === "启动心跳" ||
+      compact === "打开心跳" ||
+      compact === "心跳开启" ||
+      compact === "resumeheartbeat" ||
+      compact === "startheartbeat" ||
+      compact === "enableheartbeat"
+    ) {
+      return "/heartbeat on";
+    }
+    if (
+      compact === "心跳状态" ||
+      compact === "查看心跳" ||
+      compact === "heartbeatstatus" ||
+      compact === "statusheartbeat"
+    ) {
+      return "/heartbeat status";
+    }
+    return null;
+  }
+
+  private async handleHeartbeatCommand(params: {
+    agentId: string;
+    channel: ChannelPlugin;
+    peerId: string;
+    args: string;
+  }): Promise<void> {
+    const { agentId, channel, peerId, args } = params;
+    const action = args.trim().toLowerCase() || "status";
+    const enabledDirective = await this.readHeartbeatEnabledDirective(agentId);
+    const effectiveEnabled = enabledDirective ?? true;
+
+    if (action === "status") {
+      await channel.send(peerId, {
+        text: `Heartbeat is currently ${effectiveEnabled ? "enabled" : "disabled"} for agent ${agentId}. (source: HEARTBEAT.md directive)`,
+      });
+      return;
+    }
+
+    if (action === "off" || action === "pause" || action === "stop" || action === "disable") {
+      const ok = await this.writeHeartbeatEnabledDirective(agentId, false);
+      await channel.send(peerId, {
+        text: ok
+          ? `Heartbeat disabled for agent ${agentId} by updating HEARTBEAT.md.`
+          : `Failed to update HEARTBEAT.md for agent ${agentId}.`,
+      });
+      return;
+    }
+
+    if (action === "on" || action === "resume" || action === "start" || action === "enable") {
+      const ok = await this.writeHeartbeatEnabledDirective(agentId, true);
+      await channel.send(peerId, {
+        text: ok
+          ? `Heartbeat enabled for agent ${agentId} by updating HEARTBEAT.md.`
+          : `Failed to update HEARTBEAT.md for agent ${agentId}.`,
+      });
+      return;
+    }
+
+    await channel.send(peerId, {
+      text: "Usage: /heartbeat [status|on|off]",
+    });
+  }
+
+  private getHeartbeatFilePath(agentId: string): string | null {
+    const workspaceDir = this.agentManager.getWorkspaceDir(agentId);
+    if (!workspaceDir) {
+      return null;
+    }
+    return path.join(workspaceDir, "HEARTBEAT.md");
+  }
+
+  private async readHeartbeatEnabledDirective(agentId: string): Promise<boolean | null> {
+    const filePath = this.getHeartbeatFilePath(agentId);
+    if (!filePath) {
+      return null;
+    }
+    let content = "";
+    try {
+      content = await fs.readFile(filePath, "utf-8");
+    } catch {
+      return null;
+    }
+
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      const matched = trimmed.match(/^@heartbeat\s+enabled\s*=\s*(on|off|true|false)$/i);
+      if (!matched) {
+        continue;
+      }
+      const value = matched[1]?.toLowerCase();
+      return value === "on" || value === "true";
+    }
+    return null;
+  }
+
+  private async writeHeartbeatEnabledDirective(agentId: string, enabled: boolean): Promise<boolean> {
+    const filePath = this.getHeartbeatFilePath(agentId);
+    if (!filePath) {
+      return false;
+    }
+
+    let content = "";
+    try {
+      content = await fs.readFile(filePath, "utf-8");
+    } catch {
+      content = "# HEARTBEAT.md\n\n";
+    }
+
+    const directiveLine = `@heartbeat enabled=${enabled ? "on" : "off"}`;
+    const lines = content.split("\n");
+    let replaced = false;
+    const nextLines = lines.map((line) => {
+      if (/^\s*@heartbeat\s+enabled\s*=\s*(on|off|true|false)\s*$/i.test(line)) {
+        replaced = true;
+        return directiveLine;
+      }
+      return line;
+    });
+
+    let nextContent = nextLines.join("\n");
+    if (!replaced) {
+      nextContent = `${directiveLine}\n${nextContent}`;
+    }
+
+    try {
+      await fs.writeFile(filePath, nextContent, "utf-8");
+      return true;
+    } catch (error) {
+      logger.warn(
+        {
+          agentId,
+          filePath,
+          error: this.toError(error).message,
+        },
+        "Failed to update HEARTBEAT.md directive",
+      );
+      return false;
+    }
   }
 
   private parseDurationMs(input: string): number | null {
@@ -1632,6 +1802,10 @@ export class MessageHandler {
     return this.activePromptRuns.has(sessionKey);
   }
 
+  getActivePromptRunCount(): number {
+    return this.activePromptRuns.size;
+  }
+
   async steerSession(
     sessionKey: string,
     text: string,
@@ -2063,11 +2237,12 @@ export class MessageHandler {
   async handle(message: InboundMessage, channel: ChannelPlugin): Promise<void> {
     const startedAt = Date.now();
     const text = this.getText(message);
+    const normalizedControlCommand = this.normalizeImplicitControlCommand(text);
     const media = message.media || [];
     if (text.trim().length === 0 && media.length === 0) {
       return;
     }
-    const parsedCommand = this.parseCommand(text);
+    const parsedCommand = this.parseCommand(normalizedControlCommand ?? text);
     if (text.startsWith("/") && !parsedCommand) {
       logger.debug(
         { channel: message.channel, peerId: message.peerId, text },
@@ -2133,7 +2308,7 @@ export class MessageHandler {
     try {
       if (parsedCommand?.name === "help") {
         await channel.send(peerId, {
-          text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
+            text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
         });
         logger.info(
           { sessionKey, agentId, command: "help", durationMs: Date.now() - startedAt },
@@ -2188,6 +2363,26 @@ export class MessageHandler {
         await this.handleSwitchCommand(sessionKey, agentId, parsedCommand.args, channel, peerId);
         logger.info(
           { sessionKey, agentId, command: "switch", durationMs: Date.now() - startedAt },
+          "Command handled",
+        );
+        return;
+      }
+
+      if (parsedCommand?.name === "stop") {
+        const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
+        await channel.send(peerId, {
+          text: interrupted
+            ? "Stopped active run. You can now /switch and continue."
+            : "No active run to stop.",
+        });
+        logger.info(
+          {
+            sessionKey,
+            agentId,
+            command: "stop",
+            interrupted,
+            durationMs: Date.now() - startedAt,
+          },
           "Command handled",
         );
         return;
@@ -2259,6 +2454,20 @@ export class MessageHandler {
         });
         logger.info(
           { sessionKey, agentId, command: "reminders", durationMs: Date.now() - startedAt },
+          "Command handled",
+        );
+        return;
+      }
+
+      if (parsedCommand?.name === "heartbeat") {
+        await this.handleHeartbeatCommand({
+          agentId,
+          channel,
+          peerId,
+          args: parsedCommand.args,
+        });
+        logger.info(
+          { sessionKey, agentId, command: "heartbeat", durationMs: Date.now() - startedAt },
           "Command handled",
         );
         return;
@@ -2592,7 +2801,20 @@ export class MessageHandler {
         await channel.send(peerId, {
           text: `Sorry, an error occurred while processing the message: ${err.message}`,
         });
-      } catch {}
+      } catch (sendError) {
+        logger.error(
+          {
+            sessionKey,
+            agentId,
+            peerId,
+            channelId: message.channel,
+            messageId: message.id,
+            originalError: err.message,
+            sendError: this.toError(sendError).message,
+          },
+          "Failed to deliver error reply to channel",
+        );
+      }
       throw err;
     }
   }

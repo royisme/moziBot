@@ -84,4 +84,18 @@ describe("ContinuationRegistry", () => {
     expect(registry.hasPending("session-2")).toBe(false);
     expect(registry.hasPending("session-3")).toBe(false);
   });
+
+  it("blocks scheduling for cancelled sessions until resumed", () => {
+    const sessionKey = "session-cancelled";
+    registry.cancelSession(sessionKey);
+
+    const accepted = registry.schedule(sessionKey, { prompt: "Task after cancel" });
+    expect(accepted).toBe(false);
+    expect(registry.consume(sessionKey)).toEqual([]);
+
+    registry.resumeSession(sessionKey);
+    const acceptedAfterResume = registry.schedule(sessionKey, { prompt: "Task after resume" });
+    expect(acceptedAfterResume).toBe(true);
+    expect(registry.consume(sessionKey)).toHaveLength(1);
+  });
 });

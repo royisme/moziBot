@@ -98,6 +98,40 @@ export class RuntimeKernel implements RuntimeIngress {
 
   async enqueueInbound(envelope: RuntimeInboundEnvelope): Promise<RuntimeEnqueueResult> {
     const context = this.messageHandler.resolveSessionContext(envelope.inbound);
+    const text = envelope.inbound.text?.trim() ?? "";
+    const commandToken = this.extractCommandToken(text);
+
+    if (this.isStopCommand(commandToken)) {
+      const interrupted = runtimeQueue.markInterruptedBySession(
+        context.sessionKey,
+        "Cancelled by /stop command",
+      );
+      continuationRegistry.cancelSession(context.sessionKey);
+      const interruptSession = (
+        this.messageHandler as unknown as {
+          interruptSession?: (sessionKey: string, reason?: string) => Promise<boolean> | boolean;
+        }
+      ).interruptSession;
+      if (typeof interruptSession === "function") {
+        await Promise.resolve(
+          interruptSession.call(
+            this.messageHandler,
+            context.sessionKey,
+            `Cancelled by /stop command ${envelope.inbound.id}`,
+          ),
+        );
+      }
+      if (interrupted > 0) {
+        logger.warn(
+          {
+            sessionKey: context.sessionKey,
+            interrupted,
+            messageId: envelope.inbound.id,
+          },
+          "Cancelled queued/running items for session by /stop command",
+        );
+      }
+    }
     const queueItemId = envelope.id || randomUUID();
 
     if (this.queueConfig.mode === "steer" || this.queueConfig.mode === "steer-backlog") {
@@ -219,6 +253,17 @@ export class RuntimeKernel implements RuntimeIngress {
     };
   }
 
+  private extractCommandToken(text: string): string {
+    if (!text.startsWith("/")) {
+      return "";
+    }
+    return text.split(/\s+/, 1)[0]?.split("@", 1)[0]?.toLowerCase() ?? "";
+  }
+
+  private isStopCommand(commandToken: string): boolean {
+    return commandToken === "/stop";
+  }
+
   private async tryInjectIntoActiveSession(params: {
     queueItemId: string;
     sessionKey: string;
@@ -230,8 +275,47 @@ export class RuntimeKernel implements RuntimeIngress {
       return false;
     }
     if (text.startsWith("/")) {
+      const commandToken = this.extractCommandToken(text);
+      if (this.isStopCommand(commandToken)) {
+        const interrupted = runtimeQueue.markInterruptedBySession(
+          params.sessionKey,
+          "Interrupted by /stop command",
+        );
+        continuationRegistry.cancelSession(params.sessionKey);
+        const interruptSession = (
+          this.messageHandler as unknown as {
+            interruptSession?: (sessionKey: string, reason?: string) => Promise<boolean> | boolean;
+          }
+        ).interruptSession;
+        if (typeof interruptSession === "function") {
+          const aborted = await Promise.resolve(
+            interruptSession.call(
+              this.messageHandler,
+              params.sessionKey,
+              `Interrupted by stop command ${params.inbound.id}`,
+            ),
+          );
+          if (aborted) {
+            logger.warn(
+              {
+                sessionKey: params.sessionKey,
+                messageId: params.inbound.id,
+                queueMode: params.mode,
+                interrupted,
+              },
+              "Active session run interrupted by stop command",
+            );
+          }
+        }
+      }
       return false;
     }
+
+    if (params.mode === "steer-backlog" && this.hasActiveSession(params.sessionKey)) {
+      await this.preemptActiveSessionForLatestInput(params.sessionKey, params.inbound.id);
+      return false;
+    }
+
     const inject = (
       this.messageHandler as unknown as {
         steerSession?: (
@@ -277,6 +361,58 @@ export class RuntimeKernel implements RuntimeIngress {
       "Inbound message injected into active session run",
     );
     return true;
+  }
+
+  private hasActiveSession(sessionKey: string): boolean {
+    const isSessionActive = (
+      this.messageHandler as unknown as {
+        isSessionActive?: (sessionKey: string) => boolean;
+      }
+    ).isSessionActive;
+    if (typeof isSessionActive !== "function") {
+      return false;
+    }
+    return Boolean(isSessionActive.call(this.messageHandler, sessionKey));
+  }
+
+  private async preemptActiveSessionForLatestInput(
+    sessionKey: string,
+    messageId: string,
+  ): Promise<void> {
+    const interrupted = runtimeQueue.markInterruptedBySession(
+      sessionKey,
+      "Interrupted by newer inbound message",
+    );
+    continuationRegistry.cancelSession(sessionKey);
+
+    const interruptSession = (
+      this.messageHandler as unknown as {
+        interruptSession?: (sessionKey: string, reason?: string) => Promise<boolean> | boolean;
+      }
+    ).interruptSession;
+
+    let aborted = false;
+    if (typeof interruptSession === "function") {
+      aborted = Boolean(
+        await Promise.resolve(
+          interruptSession.call(
+            this.messageHandler,
+            sessionKey,
+            `Interrupted by newer inbound message ${messageId}`,
+          ),
+        ),
+      );
+    }
+
+    logger.warn(
+      {
+        sessionKey,
+        messageId,
+        interrupted,
+        aborted,
+      },
+      "Preempted active session run for latest inbound message",
+    );
   }
 
   private async tryCollectIntoQueued(
@@ -482,6 +618,7 @@ export class RuntimeKernel implements RuntimeIngress {
   }
 
   private async processOne(queueItem: RuntimeQueueItem): Promise<void> {
+    continuationRegistry.resumeSession(queueItem.session_key);
     const inbound = this.parseInbound(queueItem.inbound_json);
     const channel = this.buildRuntimeChannel({
       queueItem,

@@ -8,6 +8,12 @@ const ingestInboundMessageMock = vi.fn((..._args: unknown[]) => null);
 const transcribeInboundMessageMock = vi.fn<(..._args: unknown[]) => Promise<string | null>>(
   async (..._args: unknown[]) => null,
 );
+const fsReadFileMock = vi.fn<(..._args: unknown[]) => Promise<string>>(
+  async (..._args: unknown[]) => "",
+);
+const fsWriteFileMock = vi.fn<(..._args: unknown[]) => Promise<void>>(
+  async (..._args: unknown[]) => {},
+);
 
 vi.mock("../../multimodal/ingest", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../multimodal/ingest")>();
@@ -24,6 +30,15 @@ vi.mock("./stt-service", () => ({
 
     updateConfig() {}
   },
+}));
+
+vi.mock("node:fs/promises", () => ({
+  default: {
+    readFile: (...args: unknown[]) => fsReadFileMock(...args),
+    writeFile: (...args: unknown[]) => fsWriteFileMock(...args),
+  },
+  readFile: (...args: unknown[]) => fsReadFileMock(...args),
+  writeFile: (...args: unknown[]) => fsWriteFileMock(...args),
 }));
 
 function createConfig(): MoziConfig {
@@ -179,6 +194,10 @@ describe("MessageHandler commands", () => {
     emitPhase = vi.fn(async () => {});
     ingestInboundMessageMock.mockClear();
     transcribeInboundMessageMock.mockClear();
+    fsReadFileMock.mockReset();
+    fsWriteFileMock.mockReset();
+    fsReadFileMock.mockResolvedValue("# HEARTBEAT.md\n");
+    fsWriteFileMock.mockResolvedValue();
 
     channel = {
       id: "telegram",
@@ -251,6 +270,7 @@ describe("MessageHandler commands", () => {
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         getContextUsage: (sessionKey: string) => unknown;
         getContextBreakdown: (sessionKey: string) => unknown;
+        getWorkspaceDir: (agentId: string) => string | undefined;
       };
       runPromptWithFallback: (params: unknown) => Promise<void>;
     };
@@ -302,6 +322,9 @@ describe("MessageHandler commands", () => {
       ) => void,
       getContextUsage: (() => null) as unknown as (sessionKey: string) => unknown,
       getContextBreakdown: (() => null) as unknown as (sessionKey: string) => unknown,
+      getWorkspaceDir: (() => "/tmp/mozi-tests") as unknown as (
+        agentId: string,
+      ) => string | undefined,
     };
     h.runPromptWithFallback = runPromptWithFallback as unknown as (
       params: unknown,
@@ -385,6 +408,39 @@ describe("MessageHandler commands", () => {
     expect(restart).toHaveBeenCalledTimes(1);
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("Restarting runtime");
+  });
+
+  it("handles implicit Chinese heartbeat cancel intent without invoking model prompt", async () => {
+    await handler.handle(createMessage("取消心跳"), channel);
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+    expect(fsWriteFileMock).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Heartbeat disabled");
+  });
+
+  it("handles /heartbeat status", async () => {
+    fsReadFileMock.mockResolvedValue("@heartbeat enabled=off\n");
+
+    await handler.handle(createMessage("/heartbeat status"), channel);
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("disabled");
+  });
+
+  it("handles /stop by interrupting active run", async () => {
+    const h = handler as unknown as {
+      interruptSession: (sessionKey: string, reason?: string) => Promise<boolean>;
+    };
+    h.interruptSession = vi.fn(async () => true);
+
+    await handler.handle(createMessage("/stop"), channel);
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+    expect(h.interruptSession).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Stopped active run");
   });
 
   it("handles /setAuth when auth is disabled", async () => {

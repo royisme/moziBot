@@ -145,6 +145,16 @@ export async function scheduleContinuation(
   ctx: SessionToolsContext,
   params: z.infer<typeof scheduleContinuationSchema>,
 ): Promise<{ scheduled: boolean; message: string }> {
+  const heartbeatPattern = /(\bheartbeat\b|心跳)/i;
+  const combinedHint = `${params.reason || ""}\n${params.prompt}`;
+  if (heartbeatPattern.test(combinedHint) && (params.delayMs ?? 0) > 0) {
+    return {
+      scheduled: false,
+      message:
+        "Rejected: periodic heartbeat scheduling via schedule_continuation is not allowed. Manage heartbeat cadence in HEARTBEAT.md directives (@heartbeat every=..., @heartbeat enabled=...) or use reminder_create for durable timers.",
+    };
+  }
+
   const request: ContinuationRequest = {
     prompt: params.prompt,
     delayMs: params.delayMs,
@@ -152,7 +162,14 @@ export async function scheduleContinuation(
     context: params.context,
   };
 
-  continuationRegistry.schedule(ctx.currentSessionKey, request);
+  const accepted = continuationRegistry.schedule(ctx.currentSessionKey, request);
+  if (!accepted) {
+    return {
+      scheduled: false,
+      message:
+        "Continuation scheduling is currently blocked for this session (likely due to /stop cancellation). Send a new request to resume normal scheduling.",
+    };
+  }
 
   return {
     scheduled: true,

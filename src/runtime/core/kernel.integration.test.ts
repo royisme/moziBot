@@ -485,20 +485,25 @@ describe("RuntimeKernel", () => {
     expect(sessionManager.getStatus("agent:mozi:telegram:dm:peer-steer")).toBe("running");
   });
 
-  it("steer-backlog mode injects as followup into active run", async () => {
+  it("steer-backlog mode preempts active run and queues latest message", async () => {
     const sessionManager = new FakeSessionManager();
-    const injected: Array<{ sessionKey: string; text: string; mode: "steer" | "followup" }> = [];
+    const handled: string[] = [];
+    const interruptCalls: Array<{ sessionKey: string; reason?: string }> = [];
     const handler = {
       resolveSessionContext: (message: InboundMessage) => ({
         agentId: "mozi",
         sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
       }),
-      steerSession: async (sessionKey: string, text: string, mode: "steer" | "followup") => {
-        injected.push({ sessionKey, text, mode });
+      isSessionActive: () => true,
+      steerSession: async () => {
+        return false;
+      },
+      interruptSession: async (sessionKey: string, reason?: string) => {
+        interruptCalls.push({ sessionKey, reason });
         return true;
       },
-      handle: async () => {
-        throw new Error("handle should not be called when steer-backlog injection succeeds");
+      handle: async (message: InboundMessage) => {
+        handled.push(message.id);
       },
     };
     const channelRegistry = {
@@ -523,18 +528,14 @@ describe("RuntimeKernel", () => {
       inbound: buildInbound("steer-backlog-m1", "peer-steer-backlog"),
       receivedAt: new Date(),
     });
+    const ok = await waitFor(() => handled.includes("steer-backlog-m1"), 2000, 20);
     await kernel.stop();
 
     expect(result.accepted).toBe(true);
-    expect(runtimeQueue.getById("steer-backlog-e1")).toBeNull();
-    expect(injected).toEqual([
-      {
-        sessionKey: "agent:mozi:telegram:dm:peer-steer-backlog",
-        text: "hello-steer-backlog-m1",
-        mode: "followup",
-      },
-    ]);
-    expect(sessionManager.getStatus("agent:mozi:telegram:dm:peer-steer-backlog")).toBe("running");
+    expect(ok).toBe(true);
+    expect(interruptCalls).toHaveLength(1);
+    expect(interruptCalls[0]?.sessionKey).toBe("agent:mozi:telegram:dm:peer-steer-backlog");
+    expect(runtimeQueue.getById("steer-backlog-e1")?.status).toBe("completed");
   });
 
   it("steer mode falls back to queue for slash commands", async () => {
@@ -581,5 +582,116 @@ describe("RuntimeKernel", () => {
     expect(result.accepted).toBe(true);
     expect(ok).toBe(true);
     expect(runtimeQueue.getById("steer-cmd-e1")?.status).toBe("completed");
+  });
+
+  it("steer-backlog mode interrupts active run on /stop before queue processing", async () => {
+    const sessionManager = new FakeSessionManager();
+    const handled: string[] = [];
+    const interruptCalls: Array<{ sessionKey: string; reason?: string }> = [];
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      steerSession: async () => true,
+      interruptSession: async (sessionKey: string, reason?: string) => {
+        interruptCalls.push({ sessionKey, reason });
+        return true;
+      },
+      handle: async (message: InboundMessage) => {
+        handled.push(message.id);
+      },
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-stop-cmd",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "steer-backlog",
+      },
+      pollIntervalMs: 10,
+    });
+    await kernel.start();
+
+    const inbound = buildInbound("stop-cmd-m1", "peer-stop-cmd");
+    inbound.text = "/stop";
+    const result = await kernel.enqueueInbound({
+      id: "stop-cmd-e1",
+      inbound,
+      receivedAt: new Date(),
+    });
+
+    const ok = await waitFor(() => handled.includes("stop-cmd-m1"), 2000, 20);
+    await kernel.stop();
+
+    expect(result.accepted).toBe(true);
+    expect(ok).toBe(true);
+    expect(interruptCalls).toHaveLength(1);
+    expect(interruptCalls[0]?.sessionKey).toBe("agent:mozi:telegram:dm:peer-stop-cmd");
+    expect(runtimeQueue.getById("stop-cmd-e1")?.status).toBe("completed");
+  });
+
+  it("cancels queued continuation items on /stop command", async () => {
+    const sessionKey = "agent:mozi:telegram:dm:peer-stop-continuation";
+    const now = new Date().toISOString();
+    runtimeQueue.enqueue({
+      id: "queued-cont-1",
+      dedupKey: "continuation:queued-cont-1",
+      sessionKey,
+      channelId: "telegram",
+      peerId: "peer-stop-continuation",
+      peerType: "dm",
+      inboundJson: JSON.stringify({
+        ...buildInbound("cont-1", "peer-stop-continuation"),
+        raw: { source: "continuation" },
+      }),
+      enqueuedAt: now,
+      availableAt: now,
+    });
+
+    const sessionManager = new FakeSessionManager();
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      handle: async (_message: InboundMessage) => {},
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-cancel-intent",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "steer-backlog",
+      },
+      pollIntervalMs: 10,
+    });
+    await kernel.start();
+
+    const inbound = buildInbound("stop-cmd-m2", "peer-stop-continuation");
+    inbound.text = "/stop";
+    const result = await kernel.enqueueInbound({
+      id: "stop-cmd-e2",
+      inbound,
+      receivedAt: new Date(),
+    });
+
+    await wait(30);
+    await kernel.stop();
+
+    expect(result.accepted).toBe(true);
+    expect(runtimeQueue.getById("queued-cont-1")?.status).toBe("interrupted");
   });
 });
