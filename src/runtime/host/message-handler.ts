@@ -1252,14 +1252,21 @@ export class MessageHandler {
     agentId: string;
     text: string;
     onStream?: StreamingCallback;
+    onFallback?: (info: {
+      fromModel: string;
+      toModel: string;
+      attempt: number;
+      error: string;
+    }) => Promise<void> | void;
   }): Promise<void> {
-    const { sessionKey, agentId, text, onStream } = params;
+    const { sessionKey, agentId, text, onStream, onFallback } = params;
     const fallbacks = this.agentManager.getAgentFallbacks(agentId);
     const tried = new Set<string>();
     let attempt = 0;
     let overflowCompactionAttempts = 0;
 
-    while (true) {
+    try {
+      while (true) {
       const { agent, modelRef } = await this.agentManager.getAgent(sessionKey, agentId);
       attempt += 1;
       const startedAt = Date.now();
@@ -1431,7 +1438,13 @@ export class MessageHandler {
           },
           "Agent prompt failed, switching to fallback model",
         );
-        await this.agentManager.setSessionModel(sessionKey, nextFallback);
+        await this.agentManager.setSessionModel(sessionKey, nextFallback, { persist: false });
+        await onFallback?.({
+          fromModel: modelRef,
+          toModel: nextFallback,
+          attempt,
+          error: err.message,
+        });
       } finally {
         if (unsubscribe) {
           unsubscribe();
@@ -1439,6 +1452,9 @@ export class MessageHandler {
         this.clearActivePromptRun(sessionKey);
         clearInterval(progressTimer);
       }
+    }
+    } finally {
+      this.agentManager.clearRuntimeModelOverride(sessionKey);
     }
   }
 
@@ -2237,6 +2253,11 @@ export class MessageHandler {
             sessionKey,
             agentId,
             text: promptText,
+            onFallback: async (info) => {
+              await channel.send(peerId, {
+                text: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`,
+              });
+            },
             onStream: (event) => {
               if (event.type === "text_delta" && event.delta) {
                 streamingBuffer?.append(event.delta);
@@ -2315,7 +2336,16 @@ export class MessageHandler {
             "Message handling completed",
           );
         } else {
-          await this.runPromptWithFallback({ sessionKey, agentId, text: promptText });
+          await this.runPromptWithFallback({
+            sessionKey,
+            agentId,
+            text: promptText,
+            onFallback: async (info) => {
+              await channel.send(peerId, {
+                text: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`,
+              });
+            },
+          });
 
           const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
           const messages = agent.messages;

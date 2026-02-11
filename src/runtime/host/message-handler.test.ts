@@ -231,7 +231,12 @@ describe("MessageHandler commands", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: (
+          sessionKey: string,
+          modelRef: string,
+          options?: { persist?: boolean },
+        ) => void;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         ensureSessionModelForInput: (params: {
           sessionKey: string;
           agentId: string;
@@ -271,7 +276,12 @@ describe("MessageHandler commands", () => {
         sessionKey: string,
         agentId: string,
       ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>,
-      setSessionModel: setSessionModel as unknown as (sessionKey: string, modelRef: string) => void,
+      setSessionModel: setSessionModel as unknown as (
+        sessionKey: string,
+        modelRef: string,
+        options?: { persist?: boolean },
+      ) => void,
+      clearRuntimeModelOverride: vi.fn((_: string) => {}),
       ensureSessionModelForInput: ensureSessionModelForInput as unknown as (params: {
         sessionKey: string;
         agentId: string;
@@ -462,6 +472,31 @@ describe("MessageHandler commands", () => {
     expect(degradedNotice).toContain("quotio/gemini-3-pro-image-preview");
     expect(degradedNotice).toContain("agents.mozi.imageModel");
     expect(degradedNotice).toContain("agents.defaults.imageModel");
+  });
+
+  it("sends user-visible fallback notice when primary model fails", async () => {
+    runPromptWithFallback.mockImplementation(async (params: {
+      onFallback?: (info: {
+        fromModel: string;
+        toModel: string;
+        attempt: number;
+        error: string;
+      }) => Promise<void> | void;
+    }) => {
+      await params.onFallback?.({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        attempt: 1,
+        error: "400 model failure",
+      });
+    });
+
+    await handler.handle(createMessage("hello"), channel);
+
+    const notice = send.mock.calls
+      .map((call) => (call[1] as { text?: string }).text || "")
+      .find((line) => line.includes("Primary model failed this turn"));
+    expect(notice).toContain("quotio/local/minimax-m2.1");
   });
 
   it("does not send audio degradation notice when transcript is available", async () => {

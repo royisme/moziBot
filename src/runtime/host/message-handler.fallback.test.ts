@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { MoziConfig } from "../../config";
 import { MessageHandler } from "./message-handler";
 
+type SetSessionModelFn = (
+  sessionKey: string,
+  modelRef: string,
+  options?: { persist?: boolean },
+) => void;
+
 function createConfig(): MoziConfig {
   return {
     models: {
@@ -61,7 +67,8 @@ describe("MessageHandler fallback behavior", () => {
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -74,6 +81,7 @@ describe("MessageHandler fallback behavior", () => {
       }),
       updateSessionContext,
       setSessionModel,
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -126,7 +134,8 @@ describe("MessageHandler fallback behavior", () => {
           modelRef: string;
         }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -141,6 +150,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -194,7 +204,8 @@ describe("MessageHandler fallback behavior", () => {
           modelRef: string;
         }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -209,6 +220,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -262,7 +274,8 @@ describe("MessageHandler fallback behavior", () => {
           modelRef: string;
         }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -277,6 +290,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -335,7 +349,8 @@ describe("MessageHandler fallback behavior", () => {
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -348,6 +363,7 @@ describe("MessageHandler fallback behavior", () => {
       }),
       updateSessionContext: () => {},
       setSessionModel: () => {},
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -413,7 +429,8 @@ describe("MessageHandler fallback behavior", () => {
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -426,6 +443,7 @@ describe("MessageHandler fallback behavior", () => {
       }),
       updateSessionContext: () => {},
       setSessionModel: () => {},
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 
@@ -492,7 +510,8 @@ describe("MessageHandler fallback behavior", () => {
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
         updateSessionContext: (sessionKey: string, messages: unknown) => void;
-        setSessionModel: (sessionKey: string, modelRef: string) => void;
+        setSessionModel: SetSessionModelFn;
+        clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
       };
     };
@@ -505,6 +524,7 @@ describe("MessageHandler fallback behavior", () => {
       }),
       updateSessionContext: () => {},
       setSessionModel: () => {},
+      clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
     };
 

@@ -141,6 +141,7 @@ function normalizePiInputCapabilities(
 export class AgentManager {
   private agents = new Map<string, AgentSession>();
   private agentModelRefs = new Map<string, string>();
+  private runtimeModelOverrides = new Map<string, string>();
   private homeContext = new Map<string, string>();
   private channelContextSessions = new Set<string>();
   private sandboxExecutors = new Map<string, SandboxExecutor>();
@@ -845,7 +846,7 @@ export class AgentManager {
       if (!this.modelSupportsInput(resolved.ref, input)) {
         continue;
       }
-      await this.setSessionModel(sessionKey, resolved.ref);
+      await this.setSessionModel(sessionKey, resolved.ref, { persist: false });
       return { ok: true, modelRef: resolved.ref, switched: resolved.ref !== modelRef };
     }
 
@@ -875,13 +876,21 @@ export class AgentManager {
     const homeDir = this.resolveHomeDir(resolvedId, entry);
     const session = this.sessions.getOrCreate(sessionKey, resolvedId);
 
+    const runtimeOverride = this.runtimeModelOverrides.get(sessionKey);
     const lockedModel = session.currentModel;
-    const modelRef = lockedModel || this.resolveAgentModelRef(resolvedId, entry);
+    const modelRef = runtimeOverride || lockedModel || this.resolveAgentModelRef(resolvedId, entry);
     if (!modelRef) {
       throw new Error(`No model configured for agent ${resolvedId}`);
     }
 
     let agent = this.agents.get(sessionKey);
+    if (agent) {
+      const activeModelRef = this.agentModelRefs.get(sessionKey);
+      if (activeModelRef !== modelRef) {
+        await this.setSessionModel(sessionKey, modelRef, { persist: false });
+        agent = this.agents.get(sessionKey);
+      }
+    }
     if (!agent) {
       const modelSpec = this.modelRegistry.get(modelRef);
       if (!modelSpec) {
@@ -1069,8 +1078,18 @@ export class AgentManager {
     return sections.join("\n\n");
   }
 
-  async setSessionModel(sessionKey: string, modelRef: string): Promise<void> {
-    this.sessions.update(sessionKey, { currentModel: modelRef });
+  async setSessionModel(
+    sessionKey: string,
+    modelRef: string,
+    options?: { persist?: boolean },
+  ): Promise<void> {
+    const persist = options?.persist ?? true;
+    if (persist) {
+      this.sessions.update(sessionKey, { currentModel: modelRef });
+      this.runtimeModelOverrides.delete(sessionKey);
+    } else {
+      this.runtimeModelOverrides.set(sessionKey, modelRef);
+    }
     const agent = this.agents.get(sessionKey);
     if (!agent) {
       return;
@@ -1094,6 +1113,11 @@ export class AgentManager {
     }
 
     await agent.setModel(this.buildPiModel(spec));
+    this.agentModelRefs.set(sessionKey, modelRef);
+  }
+
+  clearRuntimeModelOverride(sessionKey: string): void {
+    this.runtimeModelOverrides.delete(sessionKey);
   }
 
   resetSession(sessionKey: string, agentId?: string): void {
@@ -1109,6 +1133,7 @@ export class AgentManager {
     }
     this.agents.delete(sessionKey);
     this.agentModelRefs.delete(sessionKey);
+    this.runtimeModelOverrides.delete(sessionKey);
     this.channelContextSessions.delete(sessionKey);
   }
 
