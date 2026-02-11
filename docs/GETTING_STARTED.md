@@ -25,37 +25,45 @@ Create `~/.mozi/config.jsonc`:
 ```jsonc
 {
   "paths": {
-    "baseDir": "~/.mozi"
+    "baseDir": "~/.mozi",
   },
   "models": {
     "providers": {
       "openai": {
         "api": "openai-responses",
         "apiKey": "${OPENAI_API_KEY}",
-        "models": [{ "id": "gpt-4o-mini" }]
-      }
-    }
+        "models": [{ "id": "gpt-4o-mini" }],
+      },
+    },
   },
   "agents": {
     "defaults": {
-      "model": "openai/gpt-4o-mini"
+      "model": "openai/gpt-4o-mini",
+      "imageModel": "openai/gpt-4o-mini",
     },
     "mozi": {
-      "skills": []
-    }
+      "main": true,
+      "skills": [],
+    },
   },
   "memory": {
-    "backend": "builtin"
+    "backend": "builtin",
   },
   "channels": {
     "routing": {
-      "dmAgentId": "mozi"
-    }
-  }
+      "dmAgentId": "mozi",
+    },
+  },
 }
 ```
 
 This is intentionally minimal. Add lifecycle/memory/channel advanced options later.
+
+Model routing note:
+
+- Use `model` for default text routing.
+- Use optional `imageModel` for image-capable override.
+- Multi-format inputs are handled through the multimodal/media-understanding pipeline.
 
 ## 4) Set required environment variables
 
@@ -80,9 +88,9 @@ Then add channel config in `config.jsonc`:
     "telegram": {
       "enabled": true,
       "botToken": "${TELEGRAM_BOT_TOKEN}",
-      "agentId": "mozi"
-    }
-  }
+      "agentId": "mozi",
+    },
+  },
 }
 ```
 

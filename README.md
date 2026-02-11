@@ -12,7 +12,7 @@
 
 Mozi is **not** a "build for fun" project, and not a "cover every scenario" platform.
 
-It is built around one practical goal: 
+It is built around one practical goal:
 **a personal coding agent you can run every day, safely, with predictable behavior and low maintenance overhead.**
 
 Core logic:
@@ -28,7 +28,7 @@ Anti-goals:
 - Not trying to automate every workflow blindly.
 - Not adding features that increase complexity without clear daily value.
 
-Mozi can borrow ideas from projects like OpenClaw, but the product target is different: 
+Mozi can borrow ideas from projects like OpenClaw, but the product target is different:
 **smaller surface area, clearer control, and better day-to-day operability for a personal setup.**
 
 ## Quick Start
@@ -64,38 +64,40 @@ Create `~/.mozi/config.jsonc`:
         "onSessionStart": true,
         "onSearch": true,
         "watch": true,
-        "intervalMinutes": 0
-      }
+        "intervalMinutes": 0,
+      },
     },
     "persistence": {
       "enabled": true,
       "onOverflowCompaction": true,
-      "onNewReset": true
-    }
+      "onNewReset": true,
+    },
   },
   "agents": {
     "defaults": {
       "model": "openai/gpt-4o",
+      "imageModel": "openai/gpt-4o",
       "lifecycle": {
         "control": {
           "model": "openai/gpt-4o-mini",
-          "fallback": ["openai/gpt-4o"]
+          "fallback": ["openai/gpt-4o"],
         },
         "temporal": {
           "enabled": true,
           "activeWindowHours": 12,
-          "dayBoundaryRollover": true
+          "dayBoundaryRollover": true,
         },
         "semantic": {
           "enabled": true,
           "threshold": 0.8,
           "debounceSeconds": 60,
-          "reversible": true
-        }
-      }
+          "reversible": true,
+        },
+      },
     },
     "mozi": {
-      "level": "primary",
+      "main": true,
+      "name": "Mozi",
       "skills": [],
     },
   },
@@ -109,6 +111,11 @@ Create `~/.mozi/config.jsonc`:
   },
 }
 ```
+
+Model config note:
+
+- User-facing model keys are `agents.defaults.model` and optional `agents.defaults.imageModel` (or per-agent overrides).
+- Multi-format inputs are handled by the multimodal ingestion + media-understanding pipeline with model capability routing.
 
 Session lifecycle behavior:
 

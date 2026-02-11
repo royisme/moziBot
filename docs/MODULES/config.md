@@ -18,6 +18,19 @@ Used by CLI and RuntimeHost startup/reload. Invalid config is a startup blocker.
 
 ## Session Lifecycle Config (agents)
 
+## Agent Model Config (current)
+
+User-facing agent model config supports:
+
+- `agents.defaults.model` (string or `{ primary, fallbacks }`)
+- `agents.defaults.imageModel` (string or `{ primary, fallbacks }`, optional)
+- Per-agent overrides with the same shape under `agents.<agentId>.model` and `agents.<agentId>.imageModel`
+
+Notes:
+
+- Legacy nested route shape (`model.routes.*`) is invalid.
+- Non-image multi-format inputs route through multimodal ingestion + media-understanding pipeline.
+
 `src/config/schema/agents.ts` supports lifecycle policy under both `agents.defaults` and agent entry level:
 
 - `lifecycle.control.model` - control-plane model for lifecycle decisions
@@ -90,4 +103,4 @@ Circuit-open state is exposed in provider status (`custom.qmd.reliability`) and 
 
 ## Constraints
 
-- Keep backward compatibility where possible (legacy `cron` support exists).
+- Project is in active development stage: do not preserve backward compatibility unless explicitly required by task.
