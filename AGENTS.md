@@ -48,6 +48,20 @@ mozi/
 - Mock external dependencies
 - Aim for 80% coverage on critical paths
 
+### Security & Secret Hygiene (Mandatory)
+
+- Never commit real credentials, real-looking credentials, or copied production error payloads containing tokens.
+- This applies to **all files**, including tests, fixtures, snapshots, docs, and examples.
+- For tests that validate redaction/parsing behavior, use **synthetic placeholders** only:
+  - Good: `1234567890:TEST_TOKEN_FOR_REDACTION_ONLY_ABCDE`
+  - Bad: Any token copied from logs/API errors that could be valid or previously valid.
+- Do not paste raw external error messages into tests without sanitizing secrets first.
+- If a secret-like string is discovered in repo content:
+  1. Replace it immediately with a sanitized placeholder.
+  2. Revoke/rotate the affected credential if there is any chance it was real.
+  3. Document the incident and prevention rule update in AGENTS.md.
+- Before opening PR/commit, run a secret-pattern check on changed files (Telegram token/API key formats) and fix findings before merge.
+
 ### Compatibility Policy (Development Stage)
 
 - Project is currently in active development stage

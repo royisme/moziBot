@@ -8,6 +8,7 @@ import {
   messages,
   multimodal,
   runtimeQueue,
+  reminders,
   tasks,
   withConnection,
 } from "./db";
@@ -215,6 +216,93 @@ describe("Database", () => {
       });
       expect(first.inserted).toBe(true);
       expect(second.inserted).toBe(false);
+    });
+  });
+
+  describe("Reminders", () => {
+    it("creates, lists due, marks fired and cancels", () => {
+      const now = new Date();
+      const dueAt = new Date(now.getTime() - 1_000).toISOString();
+      reminders.create({
+        id: "rem-1",
+        sessionKey: "agent:mozi:telegram:dm:user1",
+        channelId: "telegram",
+        peerId: "user1",
+        peerType: "dm",
+        message: "Reminder text",
+        scheduleKind: "every",
+        scheduleJson: JSON.stringify({ kind: "every", everyMs: 60_000, anchorMs: now.getTime() }),
+        nextRunAt: dueAt,
+      });
+
+      const due = reminders.listDue(new Date().toISOString(), 10);
+      expect(due.length).toBe(1);
+      expect(due[0].id).toBe("rem-1");
+
+      const nextRunAt = new Date(now.getTime() + 60_000).toISOString();
+      const fired = reminders.markFired({
+        id: "rem-1",
+        expectedNextRunAt: dueAt,
+        firedAt: now.toISOString(),
+        nextRunAt,
+        enabled: true,
+      });
+      expect(fired).toBe(true);
+
+      const row = reminders.getById("rem-1");
+      expect(row).not.toBeNull();
+      expect(row?.last_run_at).toBe(now.toISOString());
+      expect(row?.next_run_at).toBe(nextRunAt);
+
+      const cancelled = reminders.cancel("rem-1");
+      expect(cancelled).toBe(true);
+      const after = reminders.getById("rem-1");
+      expect(after?.enabled).toBe(0);
+      expect(after?.cancelled_at).not.toBeNull();
+    });
+
+    it("supports scoped cancel and scoped updates", () => {
+      const now = Date.now();
+      const nextRunAt = new Date(now + 60_000).toISOString();
+      reminders.create({
+        id: "rem-scope-1",
+        sessionKey: "agent:mozi:telegram:dm:user1",
+        channelId: "telegram",
+        peerId: "user1",
+        peerType: "dm",
+        message: "scope",
+        scheduleKind: "every",
+        scheduleJson: JSON.stringify({ kind: "every", everyMs: 60_000, anchorMs: now }),
+        nextRunAt,
+      });
+
+      const cancelledWrong = reminders.cancelBySession(
+        "rem-scope-1",
+        "agent:mozi:telegram:dm:other",
+      );
+      expect(cancelledWrong).toBe(false);
+
+      const updated = reminders.updateBySession({
+        id: "rem-scope-1",
+        sessionKey: "agent:mozi:telegram:dm:user1",
+        message: "updated",
+        scheduleKind: "at",
+        scheduleJson: JSON.stringify({ kind: "at", atMs: now + 120_000 }),
+        nextRunAt: new Date(now + 120_000).toISOString(),
+      });
+      expect(updated).toBe(true);
+
+      const snoozed = reminders.updateNextRunBySession({
+        id: "rem-scope-1",
+        sessionKey: "agent:mozi:telegram:dm:user1",
+        nextRunAt: new Date(now + 180_000).toISOString(),
+      });
+      expect(snoozed).toBe(true);
+
+      const row = reminders.getById("rem-scope-1");
+      expect(row?.message).toBe("updated");
+      expect(row?.enabled).toBe(1);
+      expect(row?.next_run_at).toBe(new Date(now + 180_000).toISOString());
     });
   });
 

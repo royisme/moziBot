@@ -126,6 +126,11 @@ const DEFAULT_TOOL_NAMES = [
   "sessions_send",
   "sessions_spawn",
   "schedule_continuation",
+  "reminder_create",
+  "reminder_list",
+  "reminder_cancel",
+  "reminder_update",
+  "reminder_snooze",
   "subagent_run",
   "skills_note",
   "exec",
@@ -747,10 +752,7 @@ export class AgentManager {
     return [];
   }
 
-  resolveLifecycleControlModel(params: {
-    sessionKey: string;
-    agentId?: string;
-  }): {
+  resolveLifecycleControlModel(params: { sessionKey: string; agentId?: string }): {
     modelRef: string;
     source: "session" | "agent" | "defaults" | "fallback";
   } {

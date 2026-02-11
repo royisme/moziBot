@@ -1,6 +1,18 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import {
+  reminderCancel as reminderCancelTool,
+  reminderCancelSchema as reminderCancelToolSchema,
+  reminderCreate as reminderCreateTool,
+  reminderCreateSchema as reminderCreateToolSchema,
+  reminderList as reminderListTool,
+  reminderListSchema as reminderListToolSchema,
+  reminderSnooze as reminderSnoozeTool,
+  reminderSnoozeSchema as reminderSnoozeToolSchema,
+  reminderUpdate as reminderUpdateTool,
+  reminderUpdateSchema as reminderUpdateToolSchema,
+} from "../../../agents/tools/reminders";
+import {
   scheduleContinuation,
   scheduleContinuationSchema,
   sessionsHistory,
@@ -98,6 +110,96 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       schema: scheduleContinuationSchema,
       ctx,
       execute: scheduleContinuation,
+    }),
+    createZodTool({
+      name: "reminder_create",
+      label: "Reminder Create",
+      description: "Create a durable reminder with at/every/cron schedule",
+      parameters: Type.Object({
+        message: Type.String({ minLength: 1 }),
+        schedule: Type.Union([
+          Type.Object({
+            kind: Type.Literal("at"),
+            atMs: Type.Number(),
+          }),
+          Type.Object({
+            kind: Type.Literal("every"),
+            everyMs: Type.Number(),
+            anchorMs: Type.Optional(Type.Number()),
+          }),
+          Type.Object({
+            kind: Type.Literal("cron"),
+            expr: Type.String({ minLength: 1 }),
+            tz: Type.Optional(Type.String({ minLength: 1 })),
+          }),
+        ]),
+      }),
+      schema: reminderCreateToolSchema,
+      ctx,
+      execute: reminderCreateTool,
+    }),
+    createZodTool({
+      name: "reminder_list",
+      label: "Reminder List",
+      description: "List reminders for current session",
+      parameters: Type.Object({
+        includeDisabled: Type.Optional(Type.Boolean()),
+        limit: Type.Optional(Type.Number()),
+      }),
+      schema: reminderListToolSchema,
+      ctx,
+      execute: reminderListTool,
+    }),
+    createZodTool({
+      name: "reminder_cancel",
+      label: "Reminder Cancel",
+      description: "Cancel a reminder by ID",
+      parameters: Type.Object({
+        reminderId: Type.String({ minLength: 1 }),
+      }),
+      schema: reminderCancelToolSchema,
+      ctx,
+      execute: reminderCancelTool,
+    }),
+    createZodTool({
+      name: "reminder_update",
+      label: "Reminder Update",
+      description: "Update reminder message and schedule",
+      parameters: Type.Object({
+        reminderId: Type.String({ minLength: 1 }),
+        message: Type.String({ minLength: 1 }),
+        schedule: Type.Union([
+          Type.Object({
+            kind: Type.Literal("at"),
+            atMs: Type.Number(),
+          }),
+          Type.Object({
+            kind: Type.Literal("every"),
+            everyMs: Type.Number(),
+            anchorMs: Type.Optional(Type.Number()),
+          }),
+          Type.Object({
+            kind: Type.Literal("cron"),
+            expr: Type.String({ minLength: 1 }),
+            tz: Type.Optional(Type.String({ minLength: 1 })),
+          }),
+        ]),
+      }),
+      schema: reminderUpdateToolSchema,
+      ctx,
+      execute: reminderUpdateTool,
+    }),
+    createZodTool({
+      name: "reminder_snooze",
+      label: "Reminder Snooze",
+      description: "Snooze reminder by delay milliseconds",
+      parameters: Type.Object({
+        reminderId: Type.String({ minLength: 1 }),
+        delayMs: Type.Number(),
+      }),
+      schema: reminderSnoozeToolSchema,
+      ctx,
+      execute: reminderSnoozeTool,
     }),
   ];
 }
