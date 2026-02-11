@@ -27,6 +27,35 @@ import {
 } from "../../../agents/tools/sessions";
 import { createZodTool } from "../../tool-utils";
 
+const SESSION_STATUS_VALUES = [
+  "idle",
+  "queued",
+  "running",
+  "retrying",
+  "completed",
+  "failed",
+  "interrupted",
+] as const;
+
+const CLEANUP_VALUES = ["delete", "keep"] as const;
+const REMINDER_SCHEDULE_KIND_VALUES = ["at", "every", "cron"] as const;
+
+function stringEnum<const T extends readonly string[]>(values: T) {
+  return Type.Unsafe<T[number]>({
+    type: "string",
+    enum: [...values],
+  });
+}
+
+const reminderScheduleParameters = Type.Object({
+  kind: stringEnum(REMINDER_SCHEDULE_KIND_VALUES),
+  atMs: Type.Optional(Type.Number()),
+  everyMs: Type.Optional(Type.Number()),
+  anchorMs: Type.Optional(Type.Number()),
+  expr: Type.Optional(Type.String()),
+  tz: Type.Optional(Type.String()),
+});
+
 export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
   return [
     createZodTool({
@@ -36,17 +65,7 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       parameters: Type.Object({
         agentId: Type.Optional(Type.String()),
         channel: Type.Optional(Type.String()),
-        status: Type.Optional(
-          Type.Union([
-            Type.Literal("idle"),
-            Type.Literal("queued"),
-            Type.Literal("running"),
-            Type.Literal("retrying"),
-            Type.Literal("completed"),
-            Type.Literal("failed"),
-            Type.Literal("interrupted"),
-          ]),
-        ),
+        status: Type.Optional(stringEnum(SESSION_STATUS_VALUES)),
         limit: Type.Optional(Type.Number()),
       }),
       schema: sessionsListSchema,
@@ -89,7 +108,7 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
         agentId: Type.Optional(Type.String()),
         model: Type.Optional(Type.String()),
         label: Type.Optional(Type.String()),
-        cleanup: Type.Optional(Type.Union([Type.Literal("delete"), Type.Literal("keep")])),
+        cleanup: Type.Optional(stringEnum(CLEANUP_VALUES)),
         runTimeoutSeconds: Type.Optional(Type.Number()),
       }),
       schema: sessionsSpawnSchema,
@@ -117,22 +136,7 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       description: "Create a durable reminder with at/every/cron schedule",
       parameters: Type.Object({
         message: Type.String({ minLength: 1 }),
-        schedule: Type.Union([
-          Type.Object({
-            kind: Type.Literal("at"),
-            atMs: Type.Number(),
-          }),
-          Type.Object({
-            kind: Type.Literal("every"),
-            everyMs: Type.Number(),
-            anchorMs: Type.Optional(Type.Number()),
-          }),
-          Type.Object({
-            kind: Type.Literal("cron"),
-            expr: Type.String({ minLength: 1 }),
-            tz: Type.Optional(Type.String({ minLength: 1 })),
-          }),
-        ]),
+        schedule: reminderScheduleParameters,
       }),
       schema: reminderCreateToolSchema,
       ctx,
@@ -168,22 +172,7 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       parameters: Type.Object({
         reminderId: Type.String({ minLength: 1 }),
         message: Type.String({ minLength: 1 }),
-        schedule: Type.Union([
-          Type.Object({
-            kind: Type.Literal("at"),
-            atMs: Type.Number(),
-          }),
-          Type.Object({
-            kind: Type.Literal("every"),
-            everyMs: Type.Number(),
-            anchorMs: Type.Optional(Type.Number()),
-          }),
-          Type.Object({
-            kind: Type.Literal("cron"),
-            expr: Type.String({ minLength: 1 }),
-            tz: Type.Optional(Type.String({ minLength: 1 })),
-          }),
-        ]),
+        schedule: reminderScheduleParameters,
       }),
       schema: reminderUpdateToolSchema,
       ctx,

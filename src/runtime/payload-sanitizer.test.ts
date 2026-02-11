@@ -8,24 +8,17 @@ import {
 } from "./payload-sanitizer";
 
 describe("isGeminiLikeTarget", () => {
-  it("returns true for google-generative-ai API", () => {
-    expect(isGeminiLikeTarget("any-model", "google-generative-ai")).toBe(true);
-  });
-
   it("returns true for gemini model IDs", () => {
     expect(isGeminiLikeTarget("gemini-2.5-pro")).toBe(true);
     expect(isGeminiLikeTarget("google/gemini-3-flash")).toBe(true);
     expect(isGeminiLikeTarget("quotio/gemini-3-flash-preview")).toBe(true);
   });
 
-  it("returns true for known proxy patterns", () => {
-    expect(isGeminiLikeTarget("quotio/gemini-3-pro")).toBe(true);
-    expect(isGeminiLikeTarget("cliproxy/gemini-2.5")).toBe(true);
-  });
-
   it("returns false for non-Gemini models", () => {
+    expect(isGeminiLikeTarget("any-model", "google-generative-ai")).toBe(false);
     expect(isGeminiLikeTarget("gpt-4o", "openai-responses")).toBe(false);
     expect(isGeminiLikeTarget("claude-sonnet-4", "anthropic-messages")).toBe(false);
+    expect(isGeminiLikeTarget("quotio/local/minimax-m2.1")).toBe(false);
     expect(isGeminiLikeTarget("custom-model")).toBe(false);
   });
 });
@@ -179,6 +172,232 @@ describe("sanitizePromptInputForModel", () => {
 
     // Should return the same array (not just equal, but same reference)
     expect(result).toBe(messages);
+  });
+
+  it("prepends bootstrap user turn when history starts with assistant", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "I started first" }],
+      },
+      {
+        role: "user",
+        content: "hello",
+      },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "gemini-3-flash",
+      "openai-responses",
+      "quotio",
+    );
+    const first = result[0] as unknown as { role?: unknown; content?: unknown };
+    expect(first.role).toBe("user");
+    expect(first.content).toBe("(session bootstrap)");
+  });
+
+  it("drops incomplete tool calls and repairs missing tool results", () => {
+    const messages = [
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [
+          { type: "toolUse", id: "call-missing-args", name: "broken_tool" },
+          {
+            type: "toolUse",
+            id: "call-ok",
+            name: "ok_tool",
+            arguments: { q: "x" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: "follow-up",
+      },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "gemini-3-flash",
+      "openai-responses",
+      "quotio",
+    );
+    const hasBrokenToolCall = result.some((msg) => {
+      if (!msg || typeof msg !== "object" || msg.role !== "assistant" || !Array.isArray(msg.content)) {
+        return false;
+      }
+      return msg.content.some(
+        (block) =>
+          Boolean(block) &&
+          typeof block === "object" &&
+          (block as { type?: unknown }).type === "toolUse" &&
+          (block as { id?: unknown }).id === "call-missing-args",
+      );
+    });
+    expect(hasBrokenToolCall).toBe(false);
+
+    const synthetic = result.find(
+      (msg) =>
+        Boolean(msg) &&
+        typeof msg === "object" &&
+        msg.role === "toolResult" &&
+        (msg as { toolCallId?: unknown }).toolCallId === "call-ok",
+    ) as unknown as { isError?: unknown; content?: unknown } | undefined;
+    expect(Boolean(synthetic)).toBe(true);
+    expect(synthetic?.isError).toBe(true);
+    expect(Array.isArray(synthetic?.content)).toBe(true);
+  });
+
+  it("drops invalid thinking signatures for gemini", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "abc", signature: "msg_invalid_signature" },
+          { type: "text", text: "hello" },
+        ],
+      },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "gemini-3-flash",
+      "openai-responses",
+      "openrouter",
+    );
+    const assistant = result.find((msg) => msg.role === "assistant") as
+      | (Extract<AgentMessage, { role: "assistant" }> & { content: unknown[] })
+      | undefined;
+    expect(Boolean(assistant)).toBe(true);
+    const hasThinkingBlock = assistant?.content.some(
+      (block) => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "thinking",
+    );
+    expect(hasThinkingBlock).toBe(false);
+  });
+
+  it("normalizes gemini tool call IDs and keeps tool results paired", () => {
+    const messages = [
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [
+          {
+            type: "toolUse",
+            id: "call@bad:id",
+            name: "fetch",
+            arguments: { url: "https://example.com" },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call@bad:id",
+        toolName: "fetch",
+        content: [{ type: "text", text: "ok" }],
+      },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "gemini-3-flash",
+      "openai-responses",
+      "quotio",
+    );
+    const assistant = result.find((msg) => msg.role === "assistant") as
+      | Extract<AgentMessage, { role: "assistant" }>
+      | undefined;
+    expect(Boolean(assistant)).toBe(true);
+    const toolBlock = (assistant?.content || []).find(
+      (block) => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "toolUse",
+    ) as { id?: unknown } | undefined;
+    expect(typeof toolBlock?.id).toBe("string");
+    expect(toolBlock?.id).toBe("callbadid");
+
+    const toolResult = result.find((msg) => msg.role === "toolResult") as
+      | ({ toolCallId?: unknown } & AgentMessage)
+      | undefined;
+    expect(toolResult?.toolCallId).toBe("callbadid");
+  });
+
+  it("normalizes tool call IDs to strict9 for mistral providers", () => {
+    const messages = [
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [
+          {
+            type: "toolCall",
+            id: "mistral-call-very-long-id",
+            name: "x",
+            arguments: { a: 1 },
+          },
+        ],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "mistral-call-very-long-id",
+        content: [{ type: "text", text: "ok" }],
+      },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "mistral-large",
+      "openai-responses",
+      "mistral",
+    );
+    const assistant = result.find((msg) => msg.role === "assistant") as
+      | Extract<AgentMessage, { role: "assistant" }>
+      | undefined;
+    const block = assistant?.content.find(
+      (content) =>
+        Boolean(content) && typeof content === "object" && (content as { type?: unknown }).type === "toolCall",
+    ) as { id?: unknown } | undefined;
+    expect(typeof block?.id).toBe("string");
+    const blockId = block?.id as string;
+    expect(blockId.length).toBe(9);
+    const toolResult = result.find((msg) => msg.role === "toolResult") as
+      | ({ toolCallId?: unknown } & AgentMessage)
+      | undefined;
+    expect(typeof toolResult?.toolCallId).toBe("string");
+    const toolResultId = toolResult?.toolCallId as string;
+    expect(toolResultId.length).toBe(9);
+  });
+
+  it("merges consecutive user turns for anthropic", () => {
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "first" }] },
+      { role: "user", content: [{ type: "text", text: "second" }] },
+      { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(
+      messages,
+      "claude-sonnet-4",
+      "anthropic-messages",
+      "anthropic",
+    );
+    const userMessages = result.filter((msg) => msg.role === "user");
+    expect(userMessages.length).toBe(1);
+  });
+
+  it("does not repair tool pairing for pure openai targets", () => {
+    const messages = [
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        content: [{ type: "toolCall", id: "call-1", name: "x", arguments: { a: 1 } }],
+      },
+      { role: "user", content: "next" },
+    ] as unknown as AgentMessage[];
+
+    const result = sanitizePromptInputForModel(messages, "gpt-4.1", "openai-responses", "openai");
+    const hasSyntheticToolResult = result.some(
+      (msg) => Boolean(msg) && typeof msg === "object" && msg.role === "toolResult",
+    );
+    expect(hasSyntheticToolResult).toBe(false);
   });
 });
 

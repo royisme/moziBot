@@ -1286,6 +1286,7 @@ export class MessageHandler {
 
       let unsubscribe: (() => void) | undefined;
       let accumulatedText = "";
+      const activeToolCalls = new Map<string, { toolName: string; startedAt: number }>();
 
       try {
         this.registerActivePromptRun({
@@ -1302,21 +1303,106 @@ export class MessageHandler {
 
         if (onStream && typeof agent.subscribe === "function") {
           unsubscribe = agent.subscribe((event: AgentSessionEvent) => {
+            if (event.type === "tool_execution_start") {
+              const eventStartedAt = Date.now();
+              activeToolCalls.set(event.toolCallId, {
+                toolName: event.toolName,
+                startedAt: eventStartedAt,
+              });
+              logger.info(
+                {
+                  sessionKey,
+                  agentId,
+                  modelRef,
+                  attempt,
+                  toolName: event.toolName,
+                  toolCallId: event.toolCallId,
+                  elapsedMsFromPromptStart: eventStartedAt - startedAt,
+                },
+                "Agent tool execution started",
+              );
+            } else if (event.type === "tool_execution_end") {
+              const endedAt = Date.now();
+              const started = activeToolCalls.get(event.toolCallId);
+              const toolDurationMs = started ? endedAt - started.startedAt : undefined;
+              activeToolCalls.delete(event.toolCallId);
+              logger.info(
+                {
+                  sessionKey,
+                  agentId,
+                  modelRef,
+                  attempt,
+                  toolName: event.toolName,
+                  toolCallId: event.toolCallId,
+                  isError: event.isError,
+                  toolDurationMs,
+                  elapsedMsFromPromptStart: endedAt - startedAt,
+                },
+                "Agent tool execution ended",
+              );
+            }
             void this.handleAgentStreamEvent(event, onStream, (text) => {
               accumulatedText = text;
             });
           });
         }
 
-        await Promise.race([
-          agent.prompt(text),
-          new Promise<never>((_, reject) => {
-            setTimeout(
-              () => reject(new Error("Agent prompt timeout")),
-              MessageHandler.PROMPT_EXECUTION_TIMEOUT_MS,
+        const runAbortController = new AbortController();
+        let aborted = false;
+        const abortRun = (reason?: unknown): void => {
+          if (aborted) {
+            return;
+          }
+          aborted = true;
+          runAbortController.abort(reason);
+          if (typeof agent.abort === "function") {
+            void Promise.resolve(agent.abort()).catch((abortError) => {
+              logger.warn(
+                {
+                  sessionKey,
+                  agentId,
+                  modelRef,
+                  attempt,
+                  error: this.toError(abortError).message,
+                },
+                "Agent abort failed after timeout",
+              );
+            });
+          }
+        };
+        const abortable = async <T>(promise: Promise<T>): Promise<T> => {
+          const signal = runAbortController.signal;
+          if (signal.aborted) {
+            throw this.toError(signal.reason ?? new Error("Agent prompt aborted"));
+          }
+
+          return await new Promise<T>((resolve, reject) => {
+            const onAbort = () => {
+              reject(this.toError(signal.reason ?? new Error("Agent prompt aborted")));
+            };
+
+            signal.addEventListener("abort", onAbort, { once: true });
+            promise.then(
+              (value) => {
+                signal.removeEventListener("abort", onAbort);
+                resolve(value);
+              },
+              (err) => {
+                signal.removeEventListener("abort", onAbort);
+                reject(err);
+              },
             );
-          }),
-        ]);
+          });
+        };
+        const timeoutHandle = setTimeout(() => {
+          abortRun(new Error("Agent prompt timeout"));
+        }, MessageHandler.PROMPT_EXECUTION_TIMEOUT_MS);
+
+        try {
+          await abortable(Promise.resolve(agent.prompt(text)));
+        } finally {
+          clearTimeout(timeoutHandle);
+        }
 
         if (onStream && accumulatedText) {
           await onStream({ type: "agent_end", fullText: accumulatedText });
@@ -1373,6 +1459,58 @@ export class MessageHandler {
           throw err;
         }
 
+        const modelSpec = this.modelRegistry.get(modelRef);
+        const latestAssistant = [...((agent.messages as unknown[]) || [])]
+          .toReversed()
+          .find((m) => Boolean(m && typeof m === "object" && (m as { role?: unknown }).role === "assistant"));
+        const latestAssistantRecord =
+          latestAssistant && typeof latestAssistant === "object"
+            ? (latestAssistant as Record<string, unknown>)
+            : undefined;
+        const assistantStopReason =
+          latestAssistantRecord && typeof latestAssistantRecord.stopReason === "string"
+            ? latestAssistantRecord.stopReason
+            : undefined;
+        const assistantErrorMessage =
+          latestAssistantRecord && typeof latestAssistantRecord.errorMessage === "string"
+            ? latestAssistantRecord.errorMessage
+            : undefined;
+        const assistantFailureReason = getAssistantFailureReason(latestAssistantRecord);
+        const content = latestAssistantRecord?.content;
+        const assistantContentKind = Array.isArray(content) ? "array" : typeof content;
+        const isJsonParseError = /unexpected non-whitespace character after json/i.test(err.message);
+        const isTimeoutError = err.message === "Agent prompt timeout";
+        const inFlightToolCalls = Array.from(activeToolCalls.entries()).map(([toolCallId, entry]) => ({
+          toolCallId,
+          toolName: entry.toolName,
+          elapsedMs: Date.now() - entry.startedAt,
+        }));
+
+        logger.warn(
+          {
+            sessionKey,
+            agentId,
+            modelRef,
+            attempt,
+            elapsedMs: Date.now() - startedAt,
+            errorName: err.name,
+            error: err.message,
+            isTimeoutError,
+            isJsonParseError,
+            provider: modelSpec?.provider,
+            modelApi: modelSpec?.api,
+            baseUrl: modelSpec?.baseUrl,
+            hasAssistantMessage: Boolean(latestAssistantRecord),
+            assistantStopReason,
+            assistantErrorMessage,
+            assistantFailureReason,
+            assistantContentKind,
+            inFlightToolCalls,
+            fallbackCandidates: fallbacks.filter((fallback) => fallback !== modelRef && !tried.has(fallback)),
+          },
+          "Agent prompt attempt failed diagnostics",
+        );
+
         const errorText = err.message || String(err);
         if (isContextOverflowError(errorText) && !isCompactionFailureError(errorText)) {
           if (overflowCompactionAttempts < MessageHandler.MAX_OVERFLOW_COMPACTION_ATTEMPTS) {
@@ -1427,12 +1565,17 @@ export class MessageHandler {
         if (!nextFallback) {
           throw err;
         }
+        const nextFallbackSpec = this.modelRegistry.get(nextFallback);
         logger.warn(
           {
             sessionKey,
             agentId,
             fromModel: modelRef,
+            fromModelApi: modelSpec?.api,
+            fromProvider: modelSpec?.provider,
             toModel: nextFallback,
+            toModelApi: nextFallbackSpec?.api,
+            toProvider: nextFallbackSpec?.provider,
             attempt,
             error: err.message,
           },

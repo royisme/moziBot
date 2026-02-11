@@ -702,9 +702,6 @@ export class AgentManager {
     if (this.config.runtime?.sanitizeToolSchema === false) {
       return false;
     }
-    if (modelSpec.api === "google-generative-ai") {
-      return true;
-    }
     return modelSpec.id.toLowerCase().includes("gemini");
   }
 
@@ -982,6 +979,7 @@ export class AgentManager {
           pruningResult.messages,
           modelRef,
           modelSpec.api,
+          modelSpec.provider,
         );
         agent.agent.replaceMessages(sanitizedMessages);
       }
@@ -1147,6 +1145,7 @@ export class AgentManager {
         messages as AgentMessage[],
         modelRef,
         modelSpec?.api,
+        modelSpec?.provider,
       );
       this.sessions.update(sessionKey, { context: sanitized });
       return;

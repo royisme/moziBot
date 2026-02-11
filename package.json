@@ -15,6 +15,8 @@
     "build:full:native": "pnpm run build:all && pnpm run ui:build:native",
     "build:cli": "pnpm tsdown src/cli/index.ts --format esm --out-dir dist --clean --no-splitting --out-extension .mjs && cp dist/index.mjs dist/mozi.mjs",
     "build:runtime": "pnpm tsdown src/runtime/host/main.ts --format esm --out-dir dist --no-clean --no-splitting --out-extension .mjs && cp dist/main.mjs dist/mozi-runtime.mjs",
+    "ui:dev": "pnpm --dir desktop-widget dev",
+    "ui:preview": "pnpm --dir desktop-widget preview",
     "ui:build": "pnpm --dir desktop-widget build",
     "ui:build:native": "pnpm --dir desktop-widget build:native",
     "ui:build:web": "pnpm --dir desktop-widget build:web",
