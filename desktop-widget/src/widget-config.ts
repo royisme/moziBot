@@ -32,7 +32,8 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
     // runtime may be offline; keep defaults
   }
 
-  const runtimeEnabled = typeof runtimeConfig.enabled === "boolean" ? runtimeConfig.enabled : undefined;
+  const runtimeEnabled =
+    typeof runtimeConfig.enabled === "boolean" ? runtimeConfig.enabled : undefined;
   const runtimeHost = normalizeHost(runtimeConfig.host);
   const runtimePort = normalizePort(runtimeConfig.port);
   const runtimeToken = normalizeToken(runtimeConfig.authToken);
@@ -86,7 +87,8 @@ function normalizeHost(input: unknown): string | undefined {
 }
 
 function normalizePort(input: unknown): number | undefined {
-  const n = typeof input === "number" ? input : typeof input === "string" ? Number(input) : Number.NaN;
+  const n =
+    typeof input === "number" ? input : typeof input === "string" ? Number(input) : Number.NaN;
   if (!Number.isFinite(n) || n <= 0 || n > 65535) {
     return undefined;
   }

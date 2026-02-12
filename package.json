@@ -11,15 +11,10 @@
   "scripts": {
     "build": "pnpm run build:all",
     "build:all": "pnpm run build:cli && pnpm run build:runtime",
+    "build:cli": "pnpm tsdown src/cli/index.ts --format esm --out-dir dist --clean --no-splitting --out-extension .mjs && cp dist/index.mjs dist/mozi.mjs",
     "build:full": "pnpm run build:all && pnpm run ui:build",
     "build:full:native": "pnpm run build:all && pnpm run ui:build:native",
-    "build:cli": "pnpm tsdown src/cli/index.ts --format esm --out-dir dist --clean --no-splitting --out-extension .mjs && cp dist/index.mjs dist/mozi.mjs",
     "build:runtime": "pnpm tsdown src/runtime/host/main.ts --format esm --out-dir dist --no-clean --no-splitting --out-extension .mjs && cp dist/main.mjs dist/mozi-runtime.mjs",
-    "ui:dev": "pnpm --dir desktop-widget dev",
-    "ui:preview": "pnpm --dir desktop-widget preview",
-    "ui:build": "pnpm --dir desktop-widget build",
-    "ui:build:native": "pnpm --dir desktop-widget build:native",
-    "ui:build:web": "pnpm --dir desktop-widget build:web",
     "changelog:draft": "bash scripts/changelog-draft.sh",
     "check": "pnpm run lint && pnpm run format",
     "dev": "tsx watch src/index.ts",
@@ -35,7 +30,12 @@
     "test": "vitest run --config vitest.config.ts",
     "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "test:watch": "vitest --config vitest.config.ts",
+    "ui:build": "pnpm --dir desktop-widget build",
+    "ui:build:native": "pnpm --dir desktop-widget build:native",
+    "ui:build:web": "pnpm --dir desktop-widget build:web",
+    "ui:dev": "pnpm --dir desktop-widget dev",
+    "ui:preview": "pnpm --dir desktop-widget preview"
   },
   "dependencies": {
     "@buape/carbon": "^0.14.0",
