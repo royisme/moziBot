@@ -5,9 +5,19 @@
   "bin": {
     "mozi": "./dist/mozi.mjs"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "package.json",
+    "!src"
+  ],
   "type": "module",
-  "main": "src/index.ts",
-  "module": "src/index.ts",
+  "main": "./dist/mozi.mjs",
+  "module": "./dist/mozi.mjs",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "pnpm run build:all",
     "build:all": "pnpm run build:cli && pnpm run build:runtime",
@@ -23,7 +33,9 @@
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "package": "bash scripts/package.sh",
+    "prepack": "pnpm run build:all",
     "release": "bash scripts/release.sh",
+    "release:check": "pnpm tsx scripts/release-check.ts",
     "schema:check": "pnpm run schema:config && git diff --exit-code schema/config.schema.json",
     "schema:config": "pnpm tsx scripts/generate-config-schema.ts",
     "start": "tsx src/index.ts",
