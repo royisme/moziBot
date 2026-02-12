@@ -1,6 +1,6 @@
 {
   "name": "mozi",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Personal AI coding agent that runs securely in containers",
   "bin": {
     "mozi": "./dist/mozi.mjs"
