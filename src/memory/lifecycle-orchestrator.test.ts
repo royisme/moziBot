@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { ResolvedBuiltinMemoryConfig } from "./backend-config";
-import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 import type { MemorySearchManager } from "./types";
+import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 
 function makeManager(overrides?: Partial<MemorySearchManager>): MemorySearchManager {
   return {
@@ -72,7 +72,11 @@ describe("MemoryLifecycleOrchestrator", () => {
 
   test("search_requested syncs only when dirty and enabled", async () => {
     const sync = vi.fn(async () => {});
-    const statusDirty = vi.fn(() => ({ backend: "builtin" as const, provider: "builtin", dirty: true }));
+    const statusDirty = vi.fn(() => ({
+      backend: "builtin" as const,
+      provider: "builtin",
+      dirty: true,
+    }));
     const managerDirty = makeManager({ sync, status: statusDirty });
     const orchestratorDirty = new MemoryLifecycleOrchestrator(managerDirty, makeBuiltinSync());
 
@@ -82,7 +86,11 @@ describe("MemoryLifecycleOrchestrator", () => {
     expect(sync).toHaveBeenCalledWith({ reason: "search", force: false });
 
     const syncClean = vi.fn(async () => {});
-    const statusClean = vi.fn(() => ({ backend: "builtin" as const, provider: "builtin", dirty: false }));
+    const statusClean = vi.fn(() => ({
+      backend: "builtin" as const,
+      provider: "builtin",
+      dirty: false,
+    }));
     const managerClean = makeManager({ sync: syncClean, status: statusClean });
     const orchestratorClean = new MemoryLifecycleOrchestrator(managerClean, makeBuiltinSync());
 

@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ConfigManager } from "./config-manager";
 
-const TEST_DIR = join(process.cwd(), "test-config");
+const TEST_DIR = join(os.tmpdir(), "mozi-test-config");
 const CONFIG_FILE = join(TEST_DIR, "mozi.config.json");
 
 describe("ConfigManager", () => {
@@ -55,8 +56,6 @@ describe("ConfigManager", () => {
   it("should handle invalid JSON config", async () => {
     writeFileSync(CONFIG_FILE, "{ invalid json }");
 
-    // JSONC parser is lenient, so it may parse or return defaults
-    // Just verify it doesn't crash
     expect(() => new ConfigManager(CONFIG_FILE)).not.toThrow();
   });
 
@@ -85,10 +84,42 @@ describe("ConfigManager", () => {
         }
       });
 
-      // Update file
       setTimeout(() => {
         writeFileSync(CONFIG_FILE, JSON.stringify({ meta: { version: "2.0.0" } }));
       }, 100);
+    });
+  });
+
+  it("should detect atomic rename writes", async () => {
+    writeFileSync(CONFIG_FILE, JSON.stringify({ meta: { version: "1.0.0" } }));
+
+    const manager = new ConfigManager(CONFIG_FILE);
+    await manager.load();
+    manager.watch();
+
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        manager.stopWatch();
+        reject(new Error("Timeout waiting for config rename change"));
+      }, 2000);
+
+      manager.once("change", (newConfig) => {
+        clearTimeout(timeout);
+        try {
+          expect(newConfig.meta?.version).toBe("3.0.0");
+          manager.stopWatch();
+          resolve();
+        } catch (e) {
+          manager.stopWatch();
+          reject(e);
+        }
+      });
+
+      setTimeout(() => {
+        const temp = `${CONFIG_FILE}.tmp`;
+        writeFileSync(temp, JSON.stringify({ meta: { version: "3.0.0" } }));
+        renameSync(temp, CONFIG_FILE);
+      }, 150);
     });
   });
 });

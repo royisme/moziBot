@@ -225,7 +225,12 @@ describe("sanitizePromptInputForModel", () => {
       "quotio",
     );
     const hasBrokenToolCall = result.some((msg) => {
-      if (!msg || typeof msg !== "object" || msg.role !== "assistant" || !Array.isArray(msg.content)) {
+      if (
+        !msg ||
+        typeof msg !== "object" ||
+        msg.role !== "assistant" ||
+        !Array.isArray(msg.content)
+      ) {
         return false;
       }
       return msg.content.some(
@@ -272,7 +277,10 @@ describe("sanitizePromptInputForModel", () => {
       | undefined;
     expect(Boolean(assistant)).toBe(true);
     const hasThinkingBlock = assistant?.content.some(
-      (block) => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "thinking",
+      (block) =>
+        Boolean(block) &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "thinking",
     );
     expect(hasThinkingBlock).toBe(false);
   });
@@ -305,12 +313,13 @@ describe("sanitizePromptInputForModel", () => {
       "openai-responses",
       "quotio",
     );
-    const assistant = result.find((msg) => msg.role === "assistant") as
-      | Extract<AgentMessage, { role: "assistant" }>
-      | undefined;
+    const assistant = result.find((msg) => msg.role === "assistant");
     expect(Boolean(assistant)).toBe(true);
     const toolBlock = (assistant?.content || []).find(
-      (block) => Boolean(block) && typeof block === "object" && (block as { type?: unknown }).type === "toolUse",
+      (block) =>
+        Boolean(block) &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "toolUse",
     ) as { id?: unknown } | undefined;
     expect(typeof toolBlock?.id).toBe("string");
     expect(toolBlock?.id).toBe("callbadid");
@@ -348,12 +357,12 @@ describe("sanitizePromptInputForModel", () => {
       "openai-responses",
       "mistral",
     );
-    const assistant = result.find((msg) => msg.role === "assistant") as
-      | Extract<AgentMessage, { role: "assistant" }>
-      | undefined;
+    const assistant = result.find((msg) => msg.role === "assistant");
     const block = assistant?.content.find(
       (content) =>
-        Boolean(content) && typeof content === "object" && (content as { type?: unknown }).type === "toolCall",
+        Boolean(content) &&
+        typeof content === "object" &&
+        (content as { type?: unknown }).type === "toolCall",
     ) as { id?: unknown } | undefined;
     expect(typeof block?.id).toBe("string");
     const blockId = block?.id as string;

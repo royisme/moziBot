@@ -166,7 +166,8 @@ export class SessionStore {
     next.createdAt = next.createdAt || current.createdAt || now;
     next.updatedAt = now;
     next.latestSessionId = next.latestSessionId || next.sessionId || current.latestSessionId;
-    next.latestSessionFile = next.latestSessionFile || next.sessionFile || current.latestSessionFile;
+    next.latestSessionFile =
+      next.latestSessionFile || next.sessionFile || current.latestSessionFile;
     next.sessionId = next.latestSessionId;
     next.sessionFile = next.latestSessionFile;
 
@@ -177,7 +178,8 @@ export class SessionStore {
 
     if (!entry) {
       const segmentId = next.latestSessionId || crypto.randomUUID();
-      const segmentFile = next.latestSessionFile || this.resolveSessionFile(next.agentId, segmentId);
+      const segmentFile =
+        next.latestSessionFile || this.resolveSessionFile(next.agentId, segmentId);
       entry = {
         agentId: next.agentId,
         createdAt: next.createdAt || now,
@@ -217,7 +219,9 @@ export class SessionStore {
       entry.latestSessionFile = latestSessionFile;
       entry.historySessionIds = Array.from(
         new Set(
-          Array.isArray(next.historySessionIds) ? next.historySessionIds : entry.historySessionIds || [],
+          Array.isArray(next.historySessionIds)
+            ? next.historySessionIds
+            : entry.historySessionIds || [],
         ),
       );
 
@@ -422,7 +426,9 @@ export class SessionStore {
       archived: true,
       updatedAt: now,
     };
-    entry.historySessionIds = Array.from(new Set([...(entry.historySessionIds || []), currentLatestId]));
+    entry.historySessionIds = Array.from(
+      new Set([...(entry.historySessionIds || []), currentLatestId]),
+    );
 
     const header: TranscriptHeader = {
       type: "session",

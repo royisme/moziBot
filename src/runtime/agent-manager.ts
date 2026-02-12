@@ -11,7 +11,6 @@ import {
 import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../config";
-import { resolveAgentModelRouting } from "../config/model-routing";
 import type { InboundMessage } from "./adapters/channels/types";
 import type { SandboxConfig } from "./sandbox/types";
 import type { SubagentRegistry } from "./subagent-registry";
@@ -26,6 +25,7 @@ import {
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
 import { loadWorkspaceFiles, buildWorkspaceContext } from "../agents/workspace";
+import { resolveAgentModelRouting } from "../config/model-routing";
 import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../extensions";
 import { logger } from "../logger";
 import {

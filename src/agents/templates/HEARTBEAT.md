@@ -12,7 +12,9 @@ read_when:
 
 @heartbeat enabled=on
 @heartbeat every=30m
+
 # Optional: override prompt for heartbeat turns.
+
 # @heartbeat prompt=Read HEARTBEAT.md and execute only listed tasks. Reply HEARTBEAT_OK when no action is needed.
 
 ## Rules

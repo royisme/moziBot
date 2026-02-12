@@ -171,7 +171,12 @@ describe("multimodal ingest", () => {
           .prepare("SELECT COUNT(*) AS count FROM multimodal_media_assets WHERE id = ?")
           .get(partWithMedia?.media_id ?? "") as { count: number }
       ).count;
-      return { messageCount, partCount, assetCount, hasMediaPart: Boolean(partWithMedia?.media_id) };
+      return {
+        messageCount,
+        partCount,
+        assetCount,
+        hasMediaPart: Boolean(partWithMedia?.media_id),
+      };
     });
 
     expect(counts.messageCount).toBe(1);

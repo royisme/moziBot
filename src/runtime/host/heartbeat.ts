@@ -159,7 +159,7 @@ export class HeartbeatRunner {
     }
 
     const directives = parseHeartbeatDirectives(content);
-    if (typeof directives.enabled === "boolean" && directives.enabled === false) {
+    if (directives.enabled === false) {
       return;
     }
     if (typeof directives.everyMs === "number" && directives.everyMs > 0) {

@@ -1,7 +1,7 @@
+import { execa } from "execa";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { execa } from "execa";
 import type { MoziConfig } from "../../config";
 import type { SandboxConfig, SandboxMode, SandboxVibeboxConfig } from "./types";
 

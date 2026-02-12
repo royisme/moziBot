@@ -362,7 +362,11 @@ function sanitizeToolCallIdsForProvider(
           continue;
         }
         const rec = block as { type?: unknown; id?: unknown };
-        if (typeof rec.type !== "string" || !TOOL_CALL_TYPES.has(rec.type) || typeof rec.id !== "string") {
+        if (
+          typeof rec.type !== "string" ||
+          !TOOL_CALL_TYPES.has(rec.type) ||
+          typeof rec.id !== "string"
+        ) {
           nextContent.push(block);
           continue;
         }
@@ -441,7 +445,12 @@ function sanitizeGeminiThinkingBlocks(messages: AgentMessage[]): AgentMessage[] 
   let touched = false;
   const out: AgentMessage[] = [];
   for (const msg of messages) {
-    if (!msg || typeof msg !== "object" || msg.role !== "assistant" || !Array.isArray(msg.content)) {
+    if (
+      !msg ||
+      typeof msg !== "object" ||
+      msg.role !== "assistant" ||
+      !Array.isArray(msg.content)
+    ) {
       out.push(msg);
       continue;
     }
@@ -449,7 +458,11 @@ function sanitizeGeminiThinkingBlocks(messages: AgentMessage[]): AgentMessage[] 
     const nextContent: AssistantContentBlock[] = [];
     let contentChanged = false;
     for (const block of msg.content) {
-      if (!block || typeof block !== "object" || (block as { type?: unknown }).type !== "thinking") {
+      if (
+        !block ||
+        typeof block !== "object" ||
+        (block as { type?: unknown }).type !== "thinking"
+      ) {
         nextContent.push(block);
         continue;
       }
@@ -488,7 +501,10 @@ function sanitizeGeminiThinkingBlocks(messages: AgentMessage[]): AgentMessage[] 
   return touched ? out : messages;
 }
 
-function repairToolUseResultPairing(messages: AgentMessage[], allowSyntheticToolResults: boolean): {
+function repairToolUseResultPairing(
+  messages: AgentMessage[],
+  allowSyntheticToolResults: boolean,
+): {
   messages: AgentMessage[];
   addedCount: number;
   droppedDuplicateCount: number;
@@ -533,7 +549,7 @@ function repairToolUseResultPairing(messages: AgentMessage[], allowSyntheticTool
       continue;
     }
 
-    const assistant = msg as Extract<AgentMessage, { role: "assistant" }>;
+    const assistant = msg;
     if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
       out.push(msg);
       continue;
@@ -562,7 +578,7 @@ function repairToolUseResultPairing(messages: AgentMessage[], allowSyntheticTool
       }
 
       if (next.role === "toolResult") {
-        const toolResult = next as Extract<AgentMessage, { role: "toolResult" }>;
+        const toolResult = next;
         const id = extractToolResultId(toolResult);
         if (id && toolCallIds.has(id)) {
           if (seenToolResultIds.has(id)) {

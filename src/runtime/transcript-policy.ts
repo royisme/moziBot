@@ -51,7 +51,8 @@ export function resolveTranscriptPolicy(params: {
   const isGoogle = api === "google-generative-ai" || isGeminiModel;
   const isAnthropic = isAnthropicTarget(api, provider);
   const isMistral = isMistralTarget(provider, modelRef);
-  const isOpenRouterGemini = (provider === "openrouter" || provider === "opencode") && isGeminiModel;
+  const isOpenRouterGemini =
+    (provider === "openrouter" || provider === "opencode") && isGeminiModel;
 
   const sanitizeToolCallIds = isMistral || (!isOpenAi && isGoogle);
   const toolCallIdMode: ToolCallIdMode | undefined = isMistral

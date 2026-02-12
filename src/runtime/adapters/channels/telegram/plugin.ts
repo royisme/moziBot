@@ -4,16 +4,16 @@ import type { InboundMessage, OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
 import {
+  formatTelegramError,
+  isGetUpdatesConflict,
+  isRecoverableTelegramNetworkError,
+} from "./network-errors";
+import {
   chunkMessage,
   isTelegramParseError,
   markdownToTelegramHtml,
   TELEGRAM_MAX_MESSAGE_LENGTH,
 } from "./render";
-import {
-  formatTelegramError,
-  isGetUpdatesConflict,
-  isRecoverableTelegramNetworkError,
-} from "./network-errors";
 
 type AccessPolicy = "open" | "allowlist";
 
@@ -434,7 +434,8 @@ export class TelegramPlugin extends BaseChannelPlugin {
         this.runner = null;
 
         const recoverable =
-          isGetUpdatesConflict(error) || isRecoverableTelegramNetworkError(error, { context: "polling" });
+          isGetUpdatesConflict(error) ||
+          isRecoverableTelegramNetworkError(error, { context: "polling" });
         if (!recoverable) {
           this.setStatus("error");
           this.lastSupervisorError = error instanceof Error ? error : new Error(String(error));

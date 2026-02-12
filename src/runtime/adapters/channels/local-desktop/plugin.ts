@@ -1,8 +1,8 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
-import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 
 export interface LocalDesktopPluginConfig {
   enabled?: boolean;
@@ -188,7 +188,8 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
       return true;
     }
     const auth = req.headers.authorization;
-    const bearer = typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7) : undefined;
+    const bearer =
+      typeof auth === "string" && auth.startsWith("Bearer ") ? auth.slice(7) : undefined;
     const headerToken = req.headers["x-mozi-token"];
     const explicit = typeof headerToken === "string" ? headerToken : undefined;
     const queryToken = url.searchParams.get("token") ?? undefined;
@@ -240,12 +241,16 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
     }
     const data = body as Record<string, unknown>;
     const text = typeof data.text === "string" ? data.text : "";
-    const peerId = typeof data.peerId === "string" && data.peerId.trim() ? data.peerId : "desktop-default";
+    const peerId =
+      typeof data.peerId === "string" && data.peerId.trim() ? data.peerId : "desktop-default";
     const senderId =
       typeof data.senderId === "string" && data.senderId.trim() ? data.senderId : "desktop-user";
     const senderName =
-      typeof data.senderName === "string" && data.senderName.trim() ? data.senderName : "Desktop User";
-    const peerType = data.peerType === "group" || data.peerType === "channel" ? data.peerType : "dm";
+      typeof data.senderName === "string" && data.senderName.trim()
+        ? data.senderName
+        : "Desktop User";
+    const peerType =
+      data.peerType === "group" || data.peerType === "channel" ? data.peerType : "dm";
     const media: MediaAttachment[] | undefined = Array.isArray(data.media)
       ? data.media
           .filter((item) => !!item && typeof item === "object")

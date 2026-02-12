@@ -103,11 +103,12 @@ describe("SttService", () => {
       .mockResolvedValueOnce({ stdout: "" })
       .mockRejectedValueOnce(new Error("local failed"))
       .mockResolvedValueOnce({ stdout: "" });
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ text: "remote transcript" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ text: "remote transcript" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 

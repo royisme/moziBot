@@ -531,21 +531,23 @@ describe("MessageHandler commands", () => {
   });
 
   it("sends user-visible fallback notice when primary model fails", async () => {
-    runPromptWithFallback.mockImplementation(async (params: {
-      onFallback?: (info: {
-        fromModel: string;
-        toModel: string;
-        attempt: number;
-        error: string;
-      }) => Promise<void> | void;
-    }) => {
-      await params.onFallback?.({
-        fromModel: "quotio/gemini-3-flash-preview",
-        toModel: "quotio/local/minimax-m2.1",
-        attempt: 1,
-        error: "400 model failure",
-      });
-    });
+    runPromptWithFallback.mockImplementation(
+      async (params: {
+        onFallback?: (info: {
+          fromModel: string;
+          toModel: string;
+          attempt: number;
+          error: string;
+        }) => Promise<void> | void;
+      }) => {
+        await params.onFallback?.({
+          fromModel: "quotio/gemini-3-flash-preview",
+          toModel: "quotio/local/minimax-m2.1",
+          attempt: 1,
+          error: "400 model failure",
+        });
+      },
+    );
 
     await handler.handle(createMessage("hello"), channel);
 
@@ -662,7 +664,10 @@ describe("MessageHandler commands", () => {
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
-        getOrCreate: (sessionKey: string, agentId: string) => { createdAt?: number; updatedAt?: number };
+        getOrCreate: (
+          sessionKey: string,
+          agentId: string,
+        ) => { createdAt?: number; updatedAt?: number };
       };
       runPromptWithFallback: (params: unknown) => Promise<void>;
     };
@@ -729,7 +734,10 @@ describe("MessageHandler commands", () => {
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
-        getOrCreate: (sessionKey: string, agentId: string) => { createdAt?: number; updatedAt?: number };
+        getOrCreate: (
+          sessionKey: string,
+          agentId: string,
+        ) => { createdAt?: number; updatedAt?: number };
       };
       runPromptWithFallback: (params: unknown) => Promise<void>;
     };
@@ -798,13 +806,16 @@ describe("MessageHandler commands", () => {
         ensureChannelContext: (params: unknown) => Promise<void>;
         updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
-        resolveLifecycleControlModel: (params: {
-          sessionKey: string;
-          agentId?: string;
-        }) => { modelRef: string; source: "session" | "agent" | "defaults" | "fallback" };
+        resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
+          modelRef: string;
+          source: "session" | "agent" | "defaults" | "fallback";
+        };
       };
       sessions: {
-        getOrCreate: (sessionKey: string, agentId: string) => {
+        getOrCreate: (
+          sessionKey: string,
+          agentId: string,
+        ) => {
           createdAt?: number;
           updatedAt?: number;
           context?: unknown[];
@@ -886,13 +897,16 @@ describe("MessageHandler commands", () => {
         ensureChannelContext: (params: unknown) => Promise<void>;
         updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
-        resolveLifecycleControlModel: (params: {
-          sessionKey: string;
-          agentId?: string;
-        }) => { modelRef: string; source: "session" | "agent" | "defaults" | "fallback" };
+        resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
+          modelRef: string;
+          source: "session" | "agent" | "defaults" | "fallback";
+        };
       };
       sessions: {
-        getOrCreate: (sessionKey: string, agentId: string) => {
+        getOrCreate: (
+          sessionKey: string,
+          agentId: string,
+        ) => {
           createdAt?: number;
           updatedAt?: number;
           context?: unknown[];

@@ -11,7 +11,9 @@ declare global {
 }
 
 function isRecoverableRuntimeError(err: unknown): boolean {
-  return isGetUpdatesConflict(err) || isRecoverableTelegramNetworkError(err, { context: "polling" });
+  return (
+    isGetUpdatesConflict(err) || isRecoverableTelegramNetworkError(err, { context: "polling" })
+  );
 }
 
 export function registerProcessErrorHandlers(): void {

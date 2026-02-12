@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import type { MoziConfig } from "../config";
+import { resolveMemoryBackendConfig } from "./backend-config";
 import { isInsideWorkspace, isWithinRoot } from "./qmd/path-utils";
 import {
   deriveChannelFromKey,
@@ -12,7 +13,6 @@ import {
   normalizeSessionKey,
 } from "./qmd/scope";
 import { clampResultsByInjectedChars, extractSnippetLines } from "./qmd/snippet";
-import { resolveMemoryBackendConfig } from "./backend-config";
 
 describe("QmdMemoryManager", () => {
   let tmpDir: string;

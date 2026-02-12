@@ -109,7 +109,8 @@ export function isRecoverableTelegramNetworkError(
   _opts: { context?: TelegramNetworkErrorContext } = {},
 ): boolean {
   for (const record of collectErrorLikeChain(err)) {
-    const code = normalizeCode(record.code) ?? normalizeCode(record.errno) ?? normalizeCode(record.type);
+    const code =
+      normalizeCode(record.code) ?? normalizeCode(record.errno) ?? normalizeCode(record.type);
     if (code && RECOVERABLE_ERROR_CODES.has(code)) {
       return true;
     }

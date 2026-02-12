@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureHome } from "../agents/home";
 import type { MoziConfig } from "../config";
 import type { MemorySearchManager } from "./types";
+import { ensureHome } from "../agents/home";
 import { logger } from "../logger";
 import { resolveMemoryBackendConfig, resolveHomeDir } from "./backend-config";
 import { BuiltinMemoryManager } from "./builtin-manager";

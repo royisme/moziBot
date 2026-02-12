@@ -47,17 +47,21 @@ async function executeGroqTranscription(
   const filePathValue = args.filePath;
   if (typeof filePathValue !== "string" || filePathValue.trim().length === 0) {
     return {
-      content: [{ type: "text", text: "Error: filePath is required and must be a non-empty string" }],
+      content: [
+        { type: "text", text: "Error: filePath is required and must be a non-empty string" },
+      ],
       details: {},
     };
   }
 
-  const model = typeof args.model === "string" && args.model.trim() ? args.model : config.defaultModel;
+  const model =
+    typeof args.model === "string" && args.model.trim() ? args.model : config.defaultModel;
   const responseFormat =
     typeof args.responseFormat === "string" && args.responseFormat.trim()
       ? args.responseFormat
       : "verbose_json";
-  const language = typeof args.language === "string" && args.language.trim() ? args.language : undefined;
+  const language =
+    typeof args.language === "string" && args.language.trim() ? args.language : undefined;
   const prompt = typeof args.prompt === "string" && args.prompt.trim() ? args.prompt : undefined;
   const temperature =
     typeof args.temperature === "number" && Number.isFinite(args.temperature)
@@ -175,7 +179,10 @@ const groqTranscriptionTool: ExtensionToolDefinition = {
   description:
     "Transcribe a local audio file using Groq Speech-to-Text (e.g., whisper-large-v3-turbo).",
   parameters: Type.Object({
-    filePath: Type.String({ minLength: 1, description: "Absolute or relative path to local audio file" }),
+    filePath: Type.String({
+      minLength: 1,
+      description: "Absolute or relative path to local audio file",
+    }),
     model: Type.Optional(
       Type.String({
         minLength: 1,
