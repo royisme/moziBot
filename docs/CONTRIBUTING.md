@@ -31,6 +31,7 @@ pnpm run check
 **Location**: `src/runtime/adapters/channels/{channel-name}/`
 
 **Required files**:
+
 - `plugin.ts` - Main plugin implementation
 - `plugin.test.ts` - Unit tests
 - `types.ts` - Channel-specific types (if needed)
@@ -38,10 +39,10 @@ pnpm run check
 **Template**:
 
 ```typescript
-import type { ChannelPlugin, InboundMessage, OutboundMessage } from '../plugin';
+import type { ChannelPlugin, InboundMessage, OutboundMessage } from "../plugin";
 
 export class MyChannelPlugin implements ChannelPlugin {
-  readonly id = 'my-channel';
+  readonly id = "my-channel";
   readonly capabilities = {
     supportsMedia: true,
     supportsThreads: false,
@@ -75,25 +76,25 @@ export class MyChannelPlugin implements ChannelPlugin {
 **Pattern**:
 
 ```typescript
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentTool } from "@mariozechner/pi-agent-core";
 
 export function createMyTool(config: MyToolConfig): AgentTool {
   return {
-    name: 'my_tool',
-    description: 'Description of what the tool does',
+    name: "my_tool",
+    description: "Description of what the tool does",
     parameters: {
-      type: 'object',
+      type: "object",
       properties: {
         param1: {
-          type: 'string',
-          description: 'Description of param1',
+          type: "string",
+          description: "Description of param1",
         },
       },
-      required: ['param1'],
+      required: ["param1"],
     },
     execute: async (args) => {
       // Tool logic
-      return { success: true, result: '...' };
+      return { success: true, result: "..." };
     },
   };
 }
@@ -113,16 +114,16 @@ export function createMyTool(config: MyToolConfig): AgentTool {
 
 ```typescript
 export const mySkill = {
-  id: 'my-skill',
-  name: 'My Skill',
-  description: 'What this skill does',
-  
+  id: "my-skill",
+  name: "My Skill",
+  description: "What this skill does",
+
   tools: [
     // Tool definitions
   ],
-  
+
   prompts: {
-    system: 'Additional system prompt content',
+    system: "Additional system prompt content",
   },
 };
 ```
@@ -132,13 +133,13 @@ export const mySkill = {
 **Unit Tests**:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { createMyTool } from './my-tool';
+import { describe, it, expect } from "vitest";
+import { createMyTool } from "./my-tool";
 
-describe('my-tool', () => {
-  it('should execute successfully', async () => {
+describe("my-tool", () => {
+  it("should execute successfully", async () => {
     const tool = createMyTool({});
-    const result = await tool.execute({ param1: 'test' });
+    const result = await tool.execute({ param1: "test" });
     expect(result.success).toBe(true);
   });
 });
@@ -158,6 +159,7 @@ Place in `src/{module}/{feature}.integration.test.ts`
 ### 5. Documentation
 
 Update relevant documentation:
+
 - API changes → [API.md](./API.md)
 - New features → [SYSTEM.md](./SYSTEM.md)
 - Architecture changes → [dev-docs/](../dev-docs/)
@@ -168,11 +170,7 @@ Update relevant documentation:
 
 ```typescript
 // Always wrap errors with context
-throw new AgentError(
-  `Failed to process message: ${err.message}`,
-  'PROCESSING_ERROR',
-  err
-);
+throw new AgentError(`Failed to process message: ${err.message}`, "PROCESSING_ERROR", err);
 
 // Use specific error types
 if (isContextOverflowError(err)) {
@@ -183,16 +181,13 @@ if (isContextOverflowError(err)) {
 ### Logging
 
 ```typescript
-import { logger } from '../logger';
+import { logger } from "../logger";
 
 // Structured logging
-logger.info(
-  { sessionKey, agentId, messageCount: messages.length },
-  'Session initialized'
-);
+logger.info({ sessionKey, agentId, messageCount: messages.length }, "Session initialized");
 
 // Debug logging
-logger.debug({ context: 'some-context' }, 'Detailed debug info');
+logger.debug({ context: "some-context" }, "Detailed debug info");
 ```
 
 ### Async Patterns
@@ -204,7 +199,7 @@ async function processMessage(message: InboundMessage): Promise<void> {
     const agent = await this.agentManager.getAgent(sessionKey);
     await agent.prompt(message.text);
   } catch (err) {
-    logger.error({ err }, 'Failed to process message');
+    logger.error({ err }, "Failed to process message");
     throw err;
   }
 }
@@ -261,6 +256,7 @@ const routing = this.config.channels?.routing;
 ### 2. Plugin Architecture
 
 New features should be pluggable:
+
 - Implement the interface
 - Register in the appropriate registry
 - No changes to core required
@@ -268,6 +264,7 @@ New features should be pluggable:
 ### 3. Session Isolation
 
 Each conversation is isolated:
+
 - Separate context
 - Separate tool instances
 - Separate memory scope
@@ -275,6 +272,7 @@ Each conversation is isolated:
 ### 4. Graceful Degradation
 
 When features fail:
+
 - Log the error
 - Fall back to safe defaults
 - Continue operating if possible
@@ -303,6 +301,7 @@ Before submitting changes:
 ## Example: Complete Feature Addition
 
 See `src/runtime/adapters/channels/local-desktop/` for a complete example of:
+
 - Plugin implementation
 - Type definitions
 - Unit tests

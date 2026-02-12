@@ -11,17 +11,17 @@ interface AgentSession {
   // Core properties
   readonly messages: AgentMessage[];
   readonly systemPrompt: string;
-  
+
   // Message operations
   replaceMessages(messages: AgentMessage[]): void;
   setSystemPrompt(prompt: string): void;
-  
+
   // Execution
   prompt(text: string): Promise<void>;
   steer(message: string): Promise<void>;
   followUp(message: string): Promise<void>;
   compact(): Promise<{ tokensBefore: number }>;
-  
+
   // Lifecycle
   dispose(): void;
 }
@@ -31,14 +31,14 @@ interface AgentSession {
 
 ```typescript
 interface AgentMessage {
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: "user" | "assistant" | "system" | "tool";
   content: string | MessageContent[];
   toolCalls?: ToolCall[];
   toolCallId?: string;
 }
 
 interface MessageContent {
-  type: 'text' | 'image' | 'file';
+  type: "text" | "image" | "file";
   text?: string;
   imageUrl?: { url: string };
   fileData?: { mimeType: string; data: string };
@@ -58,7 +58,7 @@ interface AgentTool {
   name: string;
   description: string;
   parameters: {
-    type: 'object';
+    type: "object";
     properties: Record<string, unknown>;
     required?: string[];
   };
@@ -72,13 +72,13 @@ interface AgentTool {
 interface ChannelPlugin {
   readonly id: string;
   readonly capabilities: ChannelCapabilities;
-  
+
   initialize(): Promise<void>;
   shutdown(): Promise<void>;
-  
+
   send(peerId: string, message: OutboundMessage): Promise<void>;
   editMessage?(messageId: string, peerId: string, text: string): Promise<void>;
-  
+
   onMessage(handler: (message: InboundMessage) => void): void;
 }
 
@@ -98,15 +98,15 @@ class AgentManager {
   // Agent lifecycle
   getAgent(sessionKey: string, agentId?: string): Promise<ResolvedAgent>;
   resetSession(sessionKey: string, agentId?: string): void;
-  
+
   // Context management
   updateSessionContext(sessionKey: string, messages: unknown): void;
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined;
   updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void;
-  
+
   // Model switching
   setSessionModel(sessionKey: string, modelRef: string): Promise<void>;
-  
+
   // Tools
   buildTools(params: ToolBuildParams): Promise<AgentTool[]>;
 }
@@ -117,13 +117,13 @@ class AgentManager {
 ```typescript
 class MessageHandler {
   constructor(config: MoziConfig, deps?: HandlerDependencies);
-  
+
   // Message processing
   handleMessage(message: InboundMessage, options: HandleOptions): Promise<HandleResult>;
-  
+
   // Commands
   handleCommand(sessionKey: string, command: string, args: string): Promise<CommandResult>;
-  
+
   // Lifecycle
   reloadConfig(config: MoziConfig): Promise<void>;
   shutdown(): Promise<void>;
@@ -138,12 +138,12 @@ class MessageHandler {
 interface MoziConfig {
   $schema?: string;
   $include?: string | string[];
-  
+
   meta?: {
     version?: string;
     createdAt?: string;
   };
-  
+
   paths?: {
     baseDir?: string;
     sessions?: string;
@@ -151,22 +151,22 @@ interface MoziConfig {
     skills?: string;
     workspace?: string;
   };
-  
+
   models?: {
     providers?: Record<string, ModelProvider>;
   };
-  
+
   agents?: {
     defaults?: AgentDefaults;
     [agentId: string]: AgentConfig | undefined;
   };
-  
+
   channels?: {
     routing?: ChannelRouting;
     telegram?: TelegramConfig;
     discord?: DiscordConfig;
   };
-  
+
   sandbox?: SandboxConfig;
   extensions?: ExtensionsConfig;
 }
@@ -178,13 +178,13 @@ interface MoziConfig {
 interface ModelProvider {
   baseUrl?: string;
   apiKey?: string;
-  api?: 'openai-responses' | 'openai-completions' | 'anthropic-messages' | 'google-generative-ai';
+  api?: "openai-responses" | "openai-completions" | "anthropic-messages" | "google-generative-ai";
   headers?: Record<string, string>;
   models: Array<{
     id: string;
     contextWindow?: number;
     maxTokens?: number;
-    input?: ('text' | 'image' | 'audio' | 'video' | 'file')[];
+    input?: ("text" | "image" | "audio" | "video" | "file")[];
   }>;
 }
 ```
@@ -198,14 +198,14 @@ interface ExtensionManifest {
   id: string;
   name: string;
   version: string;
-  
+
   tools?: Array<{
     name: string;
     description: string;
     parameters: object;
     handler: string;
   }>;
-  
+
   hooks?: {
     onInit?: string;
     onShutdown?: string;
@@ -220,10 +220,10 @@ interface ExtensionManifest {
 interface ExtensionContext {
   logger: Logger;
   config: MoziConfig;
-  
+
   registerTool(tool: AgentTool): void;
   registerHook(event: string, handler: Function): void;
-  
+
   getAgent(sessionKey: string): Promise<AgentSession>;
 }
 ```
@@ -234,11 +234,11 @@ interface ExtensionContext {
 
 ```typescript
 type AgentEvent =
-  | { type: 'prompt_start'; sessionKey: string; text: string }
-  | { type: 'prompt_complete'; sessionKey: string; durationMs: number }
-  | { type: 'tool_call'; sessionKey: string; toolName: string; args: unknown }
-  | { type: 'tool_result'; sessionKey: string; toolName: string; result: unknown }
-  | { type: 'error'; sessionKey: string; error: Error };
+  | { type: "prompt_start"; sessionKey: string; text: string }
+  | { type: "prompt_complete"; sessionKey: string; durationMs: number }
+  | { type: "tool_call"; sessionKey: string; toolName: string; args: unknown }
+  | { type: "tool_result"; sessionKey: string; toolName: string; result: unknown }
+  | { type: "error"; sessionKey: string; error: Error };
 ```
 
 ### Channel Events
@@ -323,6 +323,6 @@ class ModelUnavailableError extends AgentError {
 ```typescript
 function isAgentMessage(obj: unknown): obj is AgentMessage;
 function isToolCall(obj: unknown): obj is ToolCall;
-function isTextContent(obj: unknown): obj is { type: 'text'; text: string };
+function isTextContent(obj: unknown): obj is { type: "text"; text: string };
 function isContextOverflowError(err: unknown): err is ContextOverflowError;
 ```

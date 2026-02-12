@@ -24,6 +24,7 @@ This module powers memory tools (`memory_search`, `memory_get`) and long-term co
 The `builtin` memory backend supports automated synchronization of local `.md` files into a SQLite-backed search index.
 
 #### Sync Triggers
+
 - **Session Start**: Syncs when an agent session is warmed up.
 - **On Search**: Ensures index is fresh before executing a search if it's marked as dirty.
 - **Watch**: Filesystem watcher (chokidar) detects changes to `MEMORY.md` or `memory/` directory.
@@ -51,37 +52,37 @@ Memory configuration is defined in `src/config/schema/memory.ts`.
 
 ### Builtin Sync Options (`memory.builtin.sync`)
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `onSessionStart` | `true` | Trigger sync when session starts. |
-| `onSearch` | `true` | Trigger sync before search if dirty. |
-| `watch` | `true` | Enable filesystem watcher for `MEMORY.md` and `memory/`. |
-| `watchDebounceMs` | `1500` | Debounce time for filesystem watcher. |
-| `intervalMinutes` | `0` | Periodic sync interval in minutes (0 to disable). |
-| `forceOnFlush` | `true` | Force reindex immediately after a memory flush. |
+| Key               | Default | Description                                              |
+| ----------------- | ------- | -------------------------------------------------------- |
+| `onSessionStart`  | `true`  | Trigger sync when session starts.                        |
+| `onSearch`        | `true`  | Trigger sync before search if dirty.                     |
+| `watch`           | `true`  | Enable filesystem watcher for `MEMORY.md` and `memory/`. |
+| `watchDebounceMs` | `1500`  | Debounce time for filesystem watcher.                    |
+| `intervalMinutes` | `0`     | Periodic sync interval in minutes (0 to disable).        |
+| `forceOnFlush`    | `true`  | Force reindex immediately after a memory flush.          |
 
 ### QMD Reliability (`memory.qmd.reliability`)
 
 Phase 3 adds bounded retry and circuit-breaker controls to QMD update/embed execution.
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `maxRetries` | `2` | Retry attempts for failed `qmd update/embed` operations. |
-| `retryBackoffMs` | `500` | Linear backoff per retry attempt. |
-| `circuitBreakerThreshold` | `3` | Consecutive update failures before opening circuit. |
-| `circuitOpenMs` | `30000` | Circuit-open duration before allowing update attempts again. |
+| Key                       | Default | Description                                                  |
+| ------------------------- | ------- | ------------------------------------------------------------ |
+| `maxRetries`              | `2`     | Retry attempts for failed `qmd update/embed` operations.     |
+| `retryBackoffMs`          | `500`   | Linear backoff per retry attempt.                            |
+| `circuitBreakerThreshold` | `3`     | Consecutive update failures before opening circuit.          |
+| `circuitOpenMs`           | `30000` | Circuit-open duration before allowing update attempts again. |
 
 When the circuit is open, QMD update calls are skipped (unless forced). In fallback mode, a circuit-open QMD status can preemptively route searches to builtin memory.
 
 ### Memory Persistence (`memory.persistence`)
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `enabled` | `false` | Enable session history flushing to memory files. |
-| `onOverflowCompaction` | `true` | Flush history to memory when context overflow occurs. |
-| `onNewReset` | `true` | Flush history to memory when `/new` is called. |
-| `maxMessages` | `12` | Max messages to retain in context after flush. |
-| `maxChars` | `4000` | Max characters to retain in context after flush. |
+| Key                    | Default | Description                                           |
+| ---------------------- | ------- | ----------------------------------------------------- |
+| `enabled`              | `false` | Enable session history flushing to memory files.      |
+| `onOverflowCompaction` | `true`  | Flush history to memory when context overflow occurs. |
+| `onNewReset`           | `true`  | Flush history to memory when `/new` is called.        |
+| `maxMessages`          | `12`    | Max messages to retain in context after flush.        |
+| `maxChars`             | `4000`  | Max characters to retain in context after flush.      |
 
 ## Integration Points
 

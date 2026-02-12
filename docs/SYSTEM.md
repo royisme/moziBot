@@ -34,6 +34,7 @@ Mozi is a personal AI coding agent that runs in isolated containers, bridging me
 The main process that orchestrates all subsystems.
 
 **Key modules:**
+
 - `host/` - Message handling, routing, session lifecycle
 - `adapters/channels/` - Platform integrations (Telegram, Discord, Desktop)
 - `sandbox/` - Container execution environment
@@ -44,6 +45,7 @@ The main process that orchestrates all subsystems.
 LLM-powered entities that execute tasks.
 
 **Key modules:**
+
 - `runner.ts` - Agent execution coordinator
 - `skills/` - Capability definitions and loading
 - `workspace/` - Project context management
@@ -54,6 +56,7 @@ LLM-powered entities that execute tasks.
 Persistent state management.
 
 **Key modules:**
+
 - `session-store.ts` - Conversation persistence
 - `memory/` - Long-term memory and QMD
 - Config and state files in `~/.mozi/`
@@ -63,6 +66,7 @@ Persistent state management.
 Plugin system for extending capabilities.
 
 **Key files:**
+
 - `registry.ts` - Extension registration
 - `loader.ts` - Dynamic loading
 - `builtins/` - Built-in extensions (search, etc.)
@@ -113,24 +117,24 @@ Configuration is stored in `~/.mozi/config.jsonc`:
   "paths": {
     "baseDir": "~/.mozi",
     "sessions": "./sessions",
-    "memory": "./memory"
+    "memory": "./memory",
   },
   "models": {
     "providers": {
       "provider-name": {
         "apiKey": "${ENV_VAR}",
         "api": "api-type",
-        "models": [{ "id": "model-id" }]
-      }
-    }
+        "models": [{ "id": "model-id" }],
+      },
+    },
   },
   "agents": {
     "defaults": { "model": "provider/model" },
-    "agent-name": { "level": "primary", "skills": [] }
+    "agent-name": { "level": "primary", "skills": [] },
   },
   "channels": {
-    "telegram": { "enabled": true, "botToken": "${TOKEN}" }
-  }
+    "telegram": { "enabled": true, "botToken": "${TOKEN}" },
+  },
 }
 ```
 
@@ -163,12 +167,14 @@ Sessions use a segmented lifecycle model:
 ### 3. Context Pruning
 
 Messages are automatically pruned when approaching context window limits:
+
 - Soft trim: Remove old messages
 - Hard clear: Reset to system prompt only
 
 ### 4. Sandbox Execution
 
 Tools can run in isolated containers:
+
 - `off` - No sandbox
 - `docker` - Docker containers
 - `apple` - Apple Virtualization Framework

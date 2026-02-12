@@ -73,7 +73,6 @@ When an agent starts a new task in this repository, read in this order:
 - [MODULES/container.md](./MODULES/container.md)
 - [MODULES/storage.md](./MODULES/storage.md)
 
-
 ## Key Principles
 
 - **Explicit over implicit**: All patterns and conventions are documented
