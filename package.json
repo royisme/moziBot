@@ -2,6 +2,14 @@
   "name": "@royisme/mozi-bot",
   "version": "1.0.5",
   "description": "Personal AI coding agent that runs securely in containers",
+  "homepage": "https://github.com/royisme/moziBot#readme",
+  "bugs": {
+    "url": "https://github.com/royisme/moziBot/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/royisme/moziBot"
+  },
   "bin": {
     "mozi": "./dist/mozi.mjs"
   },
