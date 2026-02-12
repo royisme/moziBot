@@ -43,6 +43,20 @@ If you want to run Mozi locally for the first time, start here:
 
 - [GETTING_STARTED.md](./GETTING_STARTED.md) — required config/env/runtime startup steps.
 
+Published CLI package:
+
+- `@royisme/mozi-bot`
+
+Global install examples:
+
+```bash
+pnpm add -g @royisme/mozi-bot
+# or
+bun add -g @royisme/mozi-bot
+# or
+npm i -g @royisme/mozi-bot
+```
+
 ## Agent Bootstrap Order (Recommended)
 
 When an agent starts a new task in this repository, read in this order:

@@ -18,6 +18,19 @@ cd mozi
 pnpm install
 ```
 
+Or install the global CLI from npm:
+
+```bash
+# pnpm
+pnpm add -g @royisme/mozi-bot
+
+# bun
+bun add -g @royisme/mozi-bot
+
+# npm
+npm i -g @royisme/mozi-bot
+```
+
 ## 3) Create runtime config
 
 Create `~/.mozi/config.jsonc`:
