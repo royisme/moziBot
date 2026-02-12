@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { test, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { test, expect } from "vitest";
 
 const CLI_PATH = "src/cli/index.ts";
 

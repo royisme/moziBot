@@ -10,6 +10,30 @@ const program = new Command()
   .description("Mozi AI Agent Platform")
   .version(APP_VERSION);
 
+function extractCommandOptions(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  const candidate = value as {
+    optsWithGlobals?: () => Record<string, unknown>;
+    opts?: () => Record<string, unknown>;
+  };
+  if (typeof candidate.optsWithGlobals === "function") {
+    return candidate.optsWithGlobals();
+  }
+  if (typeof candidate.opts === "function") {
+    return candidate.opts();
+  }
+  return value as Record<string, unknown>;
+}
+
+function resolveActionOptions(first: unknown, second?: unknown): Record<string, unknown> {
+  return {
+    ...extractCommandOptions(first),
+    ...extractCommandOptions(second),
+  };
+}
+
 program.addCommand(runtimeCommand);
 program.addCommand(sandboxCommand);
 
@@ -41,9 +65,9 @@ program
     await runHealth();
   });
 
-program
+const configCmd = program
   .command("config")
-  .description("Validate or inspect configuration")
+  .description("Validate or mutate configuration")
   .option("-c, --config <path>", "Config file path")
   .option("--doctor", "Run extended validation checks")
   .option("--fix", "Try to bootstrap sandbox dependencies (with --doctor)")
@@ -54,6 +78,79 @@ program
       return;
     }
     await validateConfig(options.config);
+  });
+
+configCmd
+  .command("snapshot [configPath]")
+  .description("Show config path/hash snapshot")
+  .option("-c, --config <path>", "Config file path")
+  .option("--json", "Output machine-readable JSON")
+  .action(async (configPath: string | undefined, options, command) => {
+    const { snapshotConfig } = await import("./commands/config");
+    const resolved = resolveActionOptions(options, command) as { config?: string; json?: boolean };
+    await snapshotConfig({
+      ...resolved,
+      config: configPath ?? resolved.config,
+    });
+  });
+
+configCmd
+  .command("set <path> <value>")
+  .description("Set config value at path (value parsed as JSON5)")
+  .option("-c, --config <path>", "Config file path")
+  .option("--json", "Parse value as JSON/JSON5")
+  .option("--if-hash <hash>", "Only mutate if current raw hash matches")
+  .action(async (entryPath: string, value: string, options, command) => {
+    const { setConfigEntry } = await import("./commands/config");
+    const resolved = resolveActionOptions(options, command) as {
+      config?: string;
+      json?: boolean;
+      ifHash?: string;
+    };
+    await setConfigEntry(entryPath, value, resolved);
+  });
+
+configCmd
+  .command("unset <path>")
+  .description("Remove config value at path")
+  .option("-c, --config <path>", "Config file path")
+  .option("--if-hash <hash>", "Only mutate if current raw hash matches")
+  .action(async (entryPath: string, options, command) => {
+    const { unsetConfigEntry } = await import("./commands/config");
+    const resolved = resolveActionOptions(options, command) as { config?: string; ifHash?: string };
+    await unsetConfigEntry(entryPath, resolved);
+  });
+
+configCmd
+  .command("patch [patch]")
+  .description("Deep-merge patch object into config")
+  .option("-c, --config <path>", "Config file path")
+  .option("-f, --file <path>", "Read patch object from file")
+  .option("--if-hash <hash>", "Only mutate if current raw hash matches")
+  .action(async (patch: string | undefined, options, command) => {
+    const { patchConfigEntry } = await import("./commands/config");
+    const resolved = resolveActionOptions(options, command) as {
+      config?: string;
+      ifHash?: string;
+      file?: string;
+    };
+    await patchConfigEntry(patch, resolved);
+  });
+
+configCmd
+  .command("apply [operations]")
+  .description("Apply operation array (set/delete/patch) to config")
+  .option("-c, --config <path>", "Config file path")
+  .option("-f, --file <path>", "Read operations array from file")
+  .option("--if-hash <hash>", "Only mutate if current raw hash matches")
+  .action(async (operations: string | undefined, options, command) => {
+    const { applyConfigOperations } = await import("./commands/config");
+    const resolved = resolveActionOptions(options, command) as {
+      config?: string;
+      ifHash?: string;
+      file?: string;
+    };
+    await applyConfigOperations(operations, resolved);
   });
 
 program
