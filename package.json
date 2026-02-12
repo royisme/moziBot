@@ -1,6 +1,6 @@
 {
   "name": "@royisme/mozi-bot",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Personal AI coding agent that runs securely in containers",
   "bin": {
     "mozi": "./dist/mozi.mjs"
