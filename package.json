@@ -1,5 +1,5 @@
 {
-  "name": "mozi",
+  "name": "@royisme/mozi-bot",
   "version": "1.0.4",
   "description": "Personal AI coding agent that runs securely in containers",
   "bin": {
