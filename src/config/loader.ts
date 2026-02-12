@@ -26,7 +26,7 @@ export function resolveConfigPath(customPath?: string): string {
   return path.join(home, ".mozi", "config.jsonc");
 }
 
-function applyConfigDefaults(raw: unknown): unknown {
+export function applyConfigDefaults(raw: unknown): unknown {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return raw;
   }

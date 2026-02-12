@@ -32,7 +32,10 @@ function toModelList(raw: unknown): AgentModelList {
   return { primary, fallbacks, hasPrimary, hasFallbacks };
 }
 
-function pickEntry(agents: MoziConfig["agents"], agentId: string): Record<string, unknown> | undefined {
+function pickEntry(
+  agents: MoziConfig["agents"],
+  agentId: string,
+): Record<string, unknown> | undefined {
   if (!agents) {
     return undefined;
   }
@@ -43,7 +46,7 @@ function pickEntry(agents: MoziConfig["agents"], agentId: string): Record<string
 function merge(primary?: AgentModelList, fallback?: AgentModelList): AgentModelList {
   return {
     primary: primary?.hasPrimary ? primary.primary : fallback?.primary,
-    fallbacks: primary?.hasFallbacks ? primary.fallbacks : fallback?.fallbacks ?? [],
+    fallbacks: primary?.hasFallbacks ? primary.fallbacks : (fallback?.fallbacks ?? []),
     hasPrimary: primary?.hasPrimary ?? fallback?.hasPrimary ?? false,
     hasFallbacks: primary?.hasFallbacks ?? fallback?.hasFallbacks ?? false,
   };

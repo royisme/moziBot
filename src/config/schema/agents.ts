@@ -37,10 +37,7 @@ const AgentModelListSchema = z
   })
   .strict();
 
-export const AgentModelSchema = z.union([
-  z.string().min(1),
-  AgentModelListSchema,
-]);
+export const AgentModelSchema = z.union([z.string().min(1), AgentModelListSchema]);
 
 export const SubagentPolicySchema = z
   .object({

@@ -20,7 +20,9 @@ const TelegramPollingConfigSchema = z
   .object({
     timeoutSeconds: z.number().int().positive().max(60).optional(),
     maxRetryTimeMs: z.number().int().positive().optional(),
-    retryInterval: z.union([z.enum(["exponential", "quadratic"]), z.number().int().positive()]).optional(),
+    retryInterval: z
+      .union([z.enum(["exponential", "quadratic"]), z.number().int().positive()])
+      .optional(),
     silentRunnerErrors: z.boolean().optional(),
   })
   .strict();
