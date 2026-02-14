@@ -65,8 +65,6 @@ import {
   normalizeImplicitControlCommand as normalizeImplicitControlCommandService,
 } from "./commands/parser";
 import {
-  handleThinkCommand,
-  handleReasoningCommand,
   parseInlineOverrides as parseInlineOverridesService,
 } from "./commands/reasoning";
 import type { ReasoningLevel } from "../model/thinking";
@@ -81,7 +79,7 @@ import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
 import {
   type CommandHandlerMap,
 } from "./message-handler/services/command-handlers";
-import { createMessageCommandHandlerMap as createMessageCommandHandlerMapService } from "./message-handler/services/command-map";
+import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
 import {
   finalizeStreamingReply,
   buildNegotiatedOutbound,
@@ -723,76 +721,25 @@ export class MessageHandler {
   }
 
   private createCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
-    return createMessageCommandHandlerMapService({
+    return buildCommandHandlerMapService({
       channel,
-      deps: {
-        onWhoami: async ({ message, channel, peerId }) => {
-          await this.handleWhoamiCommand({ message, channel, peerId });
-        },
-        onStatus: async ({ sessionKey, agentId, message, channel, peerId }) => {
-          await this.handleStatusCommand({ sessionKey, agentId, message, channel, peerId });
-        },
-        onNew: async ({ sessionKey, agentId, channel, peerId }) => {
-          await this.handleNewSessionCommand(sessionKey, agentId, channel, peerId);
-        },
-        onModels: async ({ sessionKey, agentId, channel, peerId }) => {
-          await this.handleModelsCommand(sessionKey, agentId, channel, peerId);
-        },
-        onSwitch: async ({ sessionKey, agentId, args, channel, peerId }) => {
-          await this.handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
-        },
-        onStop: async ({ sessionKey, channel, peerId }) => {
-          const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
-          await channel.send(peerId, {
-            text: interrupted
-              ? "Stopped active run. You can now /switch and continue."
-              : "No active run to stop.",
-          });
-        },
-        onRestart: async ({ channel, peerId }) => {
-          await this.handleRestartCommand(channel, peerId);
-        },
-        onCompact: async ({ sessionKey, agentId, channel, peerId }) => {
-          await this.handleCompactCommand({ sessionKey, agentId, channel, peerId });
-        },
-        onContext: async ({ sessionKey, agentId, channel, peerId }) => {
-          await this.handleContextCommand({ sessionKey, agentId, channel, peerId });
-        },
-        onThink: async ({ sessionKey, agentId, channel, peerId, args }) => {
-          await handleThinkCommand({
-            agentManager: this.agentManager,
-            sessionKey,
-            agentId,
-            channel,
-            peerId,
-            args,
-          });
-        },
-        onReasoning: async ({ sessionKey, channel, peerId, args }) => {
-          await handleReasoningCommand({
-            agentManager: this.agentManager,
-            sessionKey,
-            channel,
-            peerId,
-            args,
-          });
-        },
-        onAuth: async ({ action, agentId, message, channel, peerId, args }) => {
-          await this.handleAuthCommand({
-            args: `${action} ${args}`.trim(),
-            agentId,
-            senderId: message.senderId,
-            channel,
-            peerId,
-          });
-        },
-        onReminders: async ({ sessionKey, message, channel, peerId, args }) => {
-          await this.handleRemindersCommand({ sessionKey, message, channel, peerId, args });
-        },
-        onHeartbeat: async ({ agentId, channel, peerId, args }) => {
-          await this.handleHeartbeatCommand({ agentId, channel, peerId, args });
-        },
-      },
+      agentManager: this.agentManager,
+      interruptSession: async (sessionKey, reason) => await this.interruptSession(sessionKey, reason),
+      handleWhoamiCommand: async (params) => await this.handleWhoamiCommand(params),
+      handleStatusCommand: async (params) => await this.handleStatusCommand(params),
+      handleNewSessionCommand: async (sessionKey, agentId, targetChannel, peerId) =>
+        await this.handleNewSessionCommand(sessionKey, agentId, targetChannel, peerId),
+      handleModelsCommand: async (sessionKey, agentId, targetChannel, peerId) =>
+        await this.handleModelsCommand(sessionKey, agentId, targetChannel, peerId),
+      handleSwitchCommand: async (sessionKey, agentId, args, targetChannel, peerId) =>
+        await this.handleSwitchCommand(sessionKey, agentId, args, targetChannel, peerId),
+      handleRestartCommand: async (targetChannel, peerId) =>
+        await this.handleRestartCommand(targetChannel, peerId),
+      handleCompactCommand: async (params) => await this.handleCompactCommand(params),
+      handleContextCommand: async (params) => await this.handleContextCommand(params),
+      handleAuthCommand: async (params) => await this.handleAuthCommand(params),
+      handleRemindersCommand: async (params) => await this.handleRemindersCommand(params),
+      handleHeartbeatCommand: async (params) => await this.handleHeartbeatCommand(params),
     });
   }
 
