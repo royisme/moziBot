@@ -6,7 +6,7 @@ import path from "node:path";
 import type { MoziConfig } from "../../config";
 import type { DeliveryPlan } from "../../multimodal/capabilities";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
-import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
+import type { InboundMessage } from "../adapters/channels/types";
 import type { SecretScope } from "../auth/types";
 import type { Schedule } from "./cron/types";
 import type { SessionManager } from "./sessions/manager";
@@ -20,7 +20,6 @@ import {
 } from "../../memory/backend-config";
 import { FlushManager, type FlushMetadata } from "../../memory/flush-manager";
 import { ingestInboundMessage } from "../../multimodal/ingest";
-import { planOutboundByNegotiation } from "../../multimodal/outbound";
 import { buildProviderInputPayload } from "../../multimodal/provider-payload";
 import { reminders } from "../../storage/db";
 import { createRuntimeSecretBroker } from "../auth/broker";
@@ -31,17 +30,60 @@ import {
 } from "../context-management";
 import { SubagentRegistry } from "../subagent-registry";
 import { computeNextRun } from "./reminders/schedule";
-import {
-  getAssistantFailureReason,
-  isSilentReplyText,
-  renderAssistantReply,
-  type ReplyRenderOptions,
-} from "./reply-utils";
+import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
-import { SttService } from "./stt-service";
+import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { createSessionTools } from "./tools/sessions";
+import {
+  parseCommand as parseCommandService,
+  normalizeImplicitControlCommand as normalizeImplicitControlCommandService,
+} from "./commands/parser";
+import {
+  handleThinkCommand,
+  handleReasoningCommand,
+  parseInlineOverrides as parseInlineOverridesService,
+} from "./commands/reasoning";
+import type { ReasoningLevel } from "../model/thinking";
+import {
+  handleStatusCommand as handleStatusCommandService,
+  handleContextCommand as handleContextCommandService,
+} from "./commands/session";
+import type { OrchestratorDeps } from "./message-handler/contract";
+import { createMessageTurnContext } from "./message-handler/context";
+import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
+import {
+  createCommandHandlerMap,
+  type CommandHandlerMap,
+} from "./message-handler/services/command-handlers";
+import {
+  finalizeStreamingReply,
+  buildNegotiatedOutbound,
+  sendNegotiatedReply,
+} from "./message-handler/services/reply-dispatcher";
+import {
+  resolveLastAssistantReplyText,
+  shouldSuppressHeartbeatReply,
+  shouldSuppressSilentReply,
+} from "./message-handler/services/reply-finalizer";
+import {
+  StreamingBuffer as TurnStreamingBuffer,
+} from "./message-handler/services/streaming";
+import {
+  emitPhaseSafely as emitPhaseSafelyService,
+  startTypingIndicator as startTypingIndicatorService,
+  stopTypingIndicator as stopTypingIndicatorService,
+  type InteractionPhase,
+  type PhasePayload,
+} from "./message-handler/services/interaction-lifecycle";
+import {
+  toError as toErrorService,
+  isAbortError as isAbortErrorService,
+  createErrorReplyText as createErrorReplyTextService,
+} from "./message-handler/services/error-reply";
+import { resolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
+import { checkInputCapability as checkInputCapabilityService } from "./message-handler/services/capability";
 
 /**
  * Callback interface for streaming agent responses to channels.
@@ -55,93 +97,6 @@ export type StreamingCallback = (event: {
   isError?: boolean;
   fullText?: string;
 }) => void | Promise<void>;
-
-class StreamingBuffer {
-  private static readonly FLUSH_INTERVAL_MS = 500;
-  private static readonly MIN_CHARS_TO_FLUSH = 50;
-
-  private buffer = "";
-  private lastFlushTime = Date.now();
-  private messageId: string | null = null;
-  private flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-  constructor(
-    private channel: ChannelPlugin,
-    private peerId: string,
-    private onError: (err: Error) => void,
-  ) {}
-
-  async initialize(): Promise<void> {
-    this.messageId = await this.channel.send(this.peerId, { text: "⏳" });
-  }
-
-  append(text: string): void {
-    this.buffer += text;
-    this.scheduleFlush();
-  }
-
-  private scheduleFlush(): void {
-    if (this.flushTimer) {
-      return;
-    }
-
-    const timeSinceFlush = Date.now() - this.lastFlushTime;
-    const shouldFlushNow =
-      this.buffer.length >= StreamingBuffer.MIN_CHARS_TO_FLUSH &&
-      timeSinceFlush >= StreamingBuffer.FLUSH_INTERVAL_MS;
-
-    if (shouldFlushNow) {
-      void this.flush();
-    } else {
-      const delay = Math.max(0, StreamingBuffer.FLUSH_INTERVAL_MS - timeSinceFlush);
-      this.flushTimer = setTimeout(() => {
-        this.flushTimer = null;
-        void this.flush();
-      }, delay);
-    }
-  }
-
-  private async flush(): Promise<void> {
-    if (!this.messageId || !this.buffer || !this.channel.editMessage) {
-      return;
-    }
-
-    const textToSend = this.buffer;
-    this.lastFlushTime = Date.now();
-
-    try {
-      await this.channel.editMessage(this.messageId, this.peerId, textToSend);
-    } catch (err) {
-      this.onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  async finalize(finalText: string): Promise<string | null> {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-
-    if (!this.messageId) {
-      return null;
-    }
-
-    const text = finalText || this.buffer || "(no response)";
-    if (this.channel.editMessage) {
-      try {
-        await this.channel.editMessage(this.messageId, this.peerId, text);
-      } catch (err) {
-        this.onError(err instanceof Error ? err : new Error(String(err)));
-      }
-    }
-
-    return this.messageId;
-  }
-
-  getAccumulatedText(): string {
-    return this.buffer;
-  }
-}
 
 type LastRoute = {
   channelId: string;
@@ -209,9 +164,13 @@ export class MessageHandler {
     }
   >();
   private interruptedPromptRuns = new Set<string>();
+  private latestPromptMessages = new Map<
+    string,
+    import("./message-handler/services/reply-finalizer").AssistantMessageShape[]
+  >();
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
-  private sttService: SttService;
+  private mediaPreprocessor: InboundMediaPreprocessor;
   private secretBroker = createRuntimeSecretBroker();
 
   getAgentManager(): AgentManager {
@@ -236,7 +195,7 @@ export class MessageHandler {
   ) {
     this.config = config;
     this.runtimeControl = deps?.runtimeControl;
-    this.sttService = new SttService(config);
+    this.mediaPreprocessor = new InboundMediaPreprocessor(config);
     this.sessions = new SessionStore(config);
     this.router = new RuntimeRouter(config);
     this.providerRegistry = new ProviderRegistry(config);
@@ -269,7 +228,7 @@ export class MessageHandler {
    */
   async reloadConfig(config: MoziConfig): Promise<void> {
     this.config = config;
-    this.sttService.updateConfig(config);
+    this.mediaPreprocessor.updateConfig(config);
     this.router = new RuntimeRouter(config);
     this.providerRegistry = new ProviderRegistry(config);
     this.modelRegistry = new ModelRegistry(config);
@@ -595,34 +554,18 @@ export class MessageHandler {
     peerId: string;
   }): Promise<void> {
     const { sessionKey, agentId, message, channel, peerId } = params;
-    const current = await this.agentManager.getAgent(sessionKey, agentId);
-    const usage = this.agentManager.getContextUsage(sessionKey);
-    const runtimeStatus = this.runtimeControl?.getStatus?.();
-
-    const lines: string[] = [];
-
-    lines.push(`🤖 Mozi ${this.getVersion()}`);
-
-    lines.push(`🧠 Model: ${current.modelRef}`);
-
-    if (usage) {
-      lines.push(
-        `📚 Context: ${this.formatTokens(usage.usedTokens)}/${this.formatTokens(usage.totalTokens)} (${usage.percentage}%) · 📝 ${usage.messageCount} messages`,
-      );
-    }
-
-    lines.push(`🧵 Session: ${sessionKey}`);
-
-    const runtimeMode = runtimeStatus
-      ? `${runtimeStatus.running ? "running" : "stopped"} · pid=${runtimeStatus.pid ?? "n/a"} · uptime=${this.formatUptime(runtimeStatus.uptime)}`
-      : "direct";
-    lines.push(`⚙️ Runtime: ${runtimeMode}`);
-
-    lines.push(
-      `👤 User: ${message.senderId} · ${message.channel}:${message.peerType ?? "dm"}:${message.peerId}`,
-    );
-
-    await channel.send(peerId, { text: lines.join("\n") });
+    await handleStatusCommandService({
+      sessionKey,
+      agentId,
+      message,
+      channel,
+      peerId,
+      agentManager: this.agentManager,
+      runtimeControl: this.runtimeControl,
+      resolveCurrentReasoningLevel: (targetSessionKey, targetAgentId) =>
+        this.resolveCurrentReasoningLevel(targetSessionKey, targetAgentId),
+      version: this.getVersion(),
+    });
   }
 
   private getVersion(): string {
@@ -705,33 +648,70 @@ export class MessageHandler {
 
   private async handleContextCommand(params: {
     sessionKey: string;
+    agentId: string;
     channel: ChannelPlugin;
     peerId: string;
   }): Promise<void> {
-    const { sessionKey, channel, peerId } = params;
+    const { sessionKey, agentId, channel, peerId } = params;
+    await handleContextCommandService({
+      sessionKey,
+      agentId,
+      channel,
+      peerId,
+      config: this.config,
+      agentManager: this.agentManager,
+    });
+  }
 
-    const breakdown = this.agentManager.getContextBreakdown(sessionKey);
-    if (!breakdown) {
-      await channel.send(peerId, { text: "No active session." });
+  private resolveCurrentReasoningLevel(sessionKey: string, agentId: string): ReasoningLevel {
+    const metadata = this.agentManager.getSessionMetadata(sessionKey) as
+      | { reasoningLevel?: ReasoningLevel }
+      | undefined;
+    if (metadata?.reasoningLevel) {
+      return metadata.reasoningLevel;
+    }
+
+    const agents = (this.config.agents || {}) as Record<string, unknown>;
+    const defaults =
+      (agents.defaults as { output?: { reasoningLevel?: ReasoningLevel } } | undefined)?.output ||
+      undefined;
+    const entry =
+      (agents[agentId] as { output?: { reasoningLevel?: ReasoningLevel } } | undefined)?.output ||
+      undefined;
+    return entry?.reasoningLevel ?? defaults?.reasoningLevel ?? "off";
+  }
+
+  private async maybePreFlushBeforePrompt(params: {
+    sessionKey: string;
+    agentId: string;
+  }): Promise<void> {
+    const { sessionKey, agentId } = params;
+    const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
+    if (!memoryConfig.persistence.enabled || !memoryConfig.persistence.onOverflowCompaction) {
       return;
     }
 
     const usage = this.agentManager.getContextUsage(sessionKey);
-    const lines = [
-      "Context details:",
-      `  System prompt: ${this.formatTokens(breakdown.systemPromptTokens)}`,
-      `  User messages: ${this.formatTokens(breakdown.userMessageTokens)}`,
-      `  Assistant messages: ${this.formatTokens(breakdown.assistantMessageTokens)}`,
-      `  Tool results: ${this.formatTokens(breakdown.toolResultTokens)}`,
-      `  ---`,
-      `  Total: ${this.formatTokens(breakdown.totalTokens)}`,
-    ];
-
-    if (usage) {
-      lines.push(`  Usage: ${usage.usedTokens}/${usage.totalTokens} (${usage.percentage}%)`);
+    if (!usage || usage.percentage < 80) {
+      return;
     }
 
-    await channel.send(peerId, { text: lines.join("\n") });
+    const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
+    const success = await this.flushMemory(
+      sessionKey,
+      agentId,
+      agent.messages,
+      memoryConfig.persistence,
+    );
+
+    this.agentManager.updateSessionMetadata(sessionKey, {
+      memoryFlush: {
+        lastAttemptedCycle: 0,
+        lastTimestamp: Date.now(),
+        lastStatus: success ? "success" : "failure",
+        trigger: "pre_overflow",
+      },
+    });
   }
 
   private async handleWhoamiCommand(params: {
@@ -970,109 +950,16 @@ export class MessageHandler {
       | "listauth"
       | "checkauth"
       | "reminders"
-      | "heartbeat";
+      | "heartbeat"
+      | "think"
+      | "reasoning";
     args: string;
   } | null {
-    const trimmed = text.trim();
-    if (!trimmed.startsWith("/")) {
-      return null;
-    }
-    const token = trimmed.split(/\s+/, 1)[0] || "";
-    const normalized = token.split("@", 1)[0].toLowerCase();
-    const args = trimmed.slice(token.length).trim();
-    if (
-      normalized !== "/start" &&
-      normalized !== "/help" &&
-      normalized !== "/status" &&
-      normalized !== "/whoami" &&
-      normalized !== "/id" &&
-      normalized !== "/new" &&
-      normalized !== "/models" &&
-      normalized !== "/switch" &&
-      normalized !== "/model" &&
-      normalized !== "/stop" &&
-      normalized !== "/restart" &&
-      normalized !== "/compact" &&
-      normalized !== "/context" &&
-      normalized !== "/setauth" &&
-      normalized !== "/unsetauth" &&
-      normalized !== "/listauth" &&
-      normalized !== "/checkauth" &&
-      normalized !== "/reminders" &&
-      normalized !== "/heartbeat"
-    ) {
-      return null;
-    }
-    let commandName = normalized.slice(1);
-    if (commandName === "model") {
-      commandName = "switch";
-    }
-    if (commandName === "id") {
-      commandName = "whoami";
-    }
-    return {
-      name: commandName as
-        | "start"
-        | "help"
-        | "status"
-        | "whoami"
-        | "new"
-        | "models"
-        | "switch"
-        | "stop"
-        | "restart"
-        | "compact"
-        | "context"
-        | "setauth"
-        | "unsetauth"
-        | "listauth"
-        | "checkauth"
-        | "reminders"
-        | "heartbeat",
-      args,
-    };
+    return parseCommandService(text);
   }
 
   private normalizeImplicitControlCommand(text: string): string | null {
-    const trimmed = text.trim();
-    if (!trimmed || trimmed.startsWith("/")) {
-      return null;
-    }
-    const compact = trimmed.replace(/\s+/g, "").toLowerCase();
-    if (
-      compact === "取消心跳" ||
-      compact === "关闭心跳" ||
-      compact === "停止心跳" ||
-      compact === "暂停心跳" ||
-      compact === "心跳关闭" ||
-      compact === "心跳暂停" ||
-      compact === "cancelheartbeat" ||
-      compact === "stopheartbeat" ||
-      compact === "disableheartbeat"
-    ) {
-      return "/heartbeat off";
-    }
-    if (
-      compact === "开启心跳" ||
-      compact === "恢复心跳" ||
-      compact === "启动心跳" ||
-      compact === "打开心跳" ||
-      compact === "心跳开启" ||
-      compact === "resumeheartbeat" ||
-      compact === "startheartbeat" ||
-      compact === "enableheartbeat"
-    ) {
-      return "/heartbeat on";
-    }
-    if (
-      compact === "心跳状态" ||
-      compact === "查看心跳" ||
-      compact === "heartbeatstatus" ||
-      compact === "statusheartbeat"
-    ) {
-      return "/heartbeat status";
-    }
-    return null;
+    return normalizeImplicitControlCommandService(text);
   }
 
   private async handleHeartbeatCommand(params: {
@@ -1962,8 +1849,9 @@ export class MessageHandler {
     return new Error(String(error));
   }
 
-  private isAgentBusyError(error: Error): boolean {
-    return error.message.toLowerCase().includes("already processing a prompt");
+  private isAgentBusyError(error: unknown): boolean {
+    const normalized = this.toError(error);
+    return normalized.message.toLowerCase().includes("already processing a prompt");
   }
 
   private isAbortError(error: Error): boolean {
@@ -2248,589 +2136,423 @@ export class MessageHandler {
     };
   }
 
-  async handle(message: InboundMessage, channel: ChannelPlugin): Promise<void> {
-    const startedAt = Date.now();
-    const text = this.getText(message);
-    const normalizedControlCommand = this.normalizeImplicitControlCommand(text);
-    const media = message.media || [];
-    if (text.trim().length === 0 && media.length === 0) {
-      return;
-    }
-    const parsedCommand = this.parseCommand(normalizedControlCommand ?? text);
-    if (text.startsWith("/") && !parsedCommand) {
-      logger.debug(
-        { channel: message.channel, peerId: message.peerId, text },
-        "Ignoring unsupported command",
-      );
-      return;
-    }
-
-    const context = this.resolveSessionContext(message);
-    const agentId = context.agentId;
-    this.lastRoutes.set(agentId, {
-      channelId: message.channel,
-      peerId: message.peerId,
-      peerType: message.peerType ?? "dm",
-      accountId: message.accountId,
-      threadId: message.threadId,
-    });
-    const sessionKey = context.sessionKey;
-    const peerId = message.peerId;
-
-    if (
-      message.raw &&
-      typeof message.raw === "object" &&
-      (message.raw as { source?: string }).source === "reminder"
-    ) {
-      await channel.send(peerId, {
-        text: text.trim() || "Reminder",
-      });
-      logger.info(
-        {
-          sessionKey,
-          agentId,
-          messageId: message.id,
-          durationMs: Date.now() - startedAt,
-          source: "reminder",
-        },
-        "Reminder delivered",
-      );
-      return;
-    }
-
-    logger.info(
-      {
-        messageId: message.id,
-        channel: message.channel,
-        peerId: message.peerId,
-        senderId: message.senderId,
-        peerType: message.peerType ?? "dm",
-        agentId,
-        sessionKey,
-        dmScope: context.dmScope,
-        isCommand: Boolean(parsedCommand),
-      },
-      "Message handling started",
-    );
-    if (parsedCommand) {
-      logger.info(
-        { sessionKey, agentId, command: parsedCommand.name, args: parsedCommand.args },
-        "Command parsed",
-      );
-    }
-
-    try {
-      if (parsedCommand?.name === "help") {
+  private createCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
+    return createCommandHandlerMap({
+      start: async ({ peerId }) => {
         await channel.send(peerId, {
           text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
         });
-        logger.info(
-          { sessionKey, agentId, command: "help", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "whoami") {
-        await this.handleWhoamiCommand({ message, channel, peerId });
-        logger.info(
-          { sessionKey, agentId, command: "whoami", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "status") {
-        await this.handleStatusCommand({
-          sessionKey,
-          agentId,
-          message,
+      },
+      help: async ({ peerId }) => {
+        await channel.send(peerId, {
+          text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
+        });
+      },
+      whoami: async ({ message, peerId }) => {
+        await this.handleWhoamiCommand({
+          message: message as InboundMessage,
           channel,
           peerId,
         });
-        logger.info(
-          { sessionKey, agentId, command: "status", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "new") {
+      },
+      status: async ({ sessionKey, agentId, message, peerId }) => {
+        await this.handleStatusCommand({
+          sessionKey,
+          agentId,
+          message: message as InboundMessage,
+          channel,
+          peerId,
+        });
+      },
+      new: async ({ sessionKey, agentId, peerId }) => {
         await this.handleNewSessionCommand(sessionKey, agentId, channel, peerId);
-        logger.info(
-          { sessionKey, agentId, command: "new", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "models") {
+      },
+      models: async ({ sessionKey, agentId, peerId }) => {
         await this.handleModelsCommand(sessionKey, agentId, channel, peerId);
-        logger.info(
-          { sessionKey, agentId, command: "models", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "switch") {
-        await this.handleSwitchCommand(sessionKey, agentId, parsedCommand.args, channel, peerId);
-        logger.info(
-          { sessionKey, agentId, command: "switch", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "stop") {
+      },
+      switch: async ({ sessionKey, agentId, peerId }, args) => {
+        await this.handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
+      },
+      stop: async ({ sessionKey, peerId }) => {
         const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
         await channel.send(peerId, {
           text: interrupted
             ? "Stopped active run. You can now /switch and continue."
             : "No active run to stop.",
         });
-        logger.info(
-          {
-            sessionKey,
-            agentId,
-            command: "stop",
-            interrupted,
-            durationMs: Date.now() - startedAt,
-          },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "restart") {
+      },
+      restart: async ({ peerId }) => {
         await this.handleRestartCommand(channel, peerId);
-        logger.info(
-          { sessionKey, agentId, command: "restart", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "compact") {
+      },
+      compact: async ({ sessionKey, agentId, peerId }) => {
         await this.handleCompactCommand({ sessionKey, agentId, channel, peerId });
-        logger.info(
-          { sessionKey, agentId, command: "compact", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "context") {
-        await this.handleContextCommand({ sessionKey, channel, peerId });
-        logger.info(
-          { sessionKey, agentId, command: "context", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (
-        parsedCommand?.name === "setauth" ||
-        parsedCommand?.name === "unsetauth" ||
-        parsedCommand?.name === "listauth" ||
-        parsedCommand?.name === "checkauth"
-      ) {
-        const subcommand =
-          parsedCommand.name === "setauth"
-            ? "set"
-            : parsedCommand.name === "unsetauth"
-              ? "unset"
-              : parsedCommand.name === "listauth"
-                ? "list"
-                : "check";
-        const mergedArgs = `${subcommand} ${parsedCommand.args}`.trim();
-        await this.handleAuthCommand({
-          args: mergedArgs,
+      },
+      context: async ({ sessionKey, agentId, peerId }) => {
+        await this.handleContextCommand({ sessionKey, agentId, channel, peerId });
+      },
+      think: async ({ sessionKey, agentId, peerId }, args) => {
+        await handleThinkCommand({
+          agentManager: this.agentManager,
+          sessionKey,
           agentId,
-          senderId: message.senderId,
+          channel,
+          peerId,
+          args,
+        });
+      },
+      reasoning: async ({ sessionKey, peerId }, args) => {
+        await handleReasoningCommand({
+          agentManager: this.agentManager,
+          sessionKey,
+          channel,
+          peerId,
+          args,
+        });
+      },
+      setauth: async ({ agentId, message, peerId }, args) => {
+        await this.handleAuthCommand({
+          args: `set ${args}`.trim(),
+          agentId,
+          senderId: (message as InboundMessage).senderId,
           channel,
           peerId,
         });
-        logger.info(
-          { sessionKey, agentId, command: parsedCommand.name, durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (parsedCommand?.name === "reminders") {
+      },
+      unsetauth: async ({ agentId, message, peerId }, args) => {
+        await this.handleAuthCommand({
+          args: `unset ${args}`.trim(),
+          agentId,
+          senderId: (message as InboundMessage).senderId,
+          channel,
+          peerId,
+        });
+      },
+      listauth: async ({ agentId, message, peerId }, args) => {
+        await this.handleAuthCommand({
+          args: `list ${args}`.trim(),
+          agentId,
+          senderId: (message as InboundMessage).senderId,
+          channel,
+          peerId,
+        });
+      },
+      checkauth: async ({ agentId, message, peerId }, args) => {
+        await this.handleAuthCommand({
+          args: `check ${args}`.trim(),
+          agentId,
+          senderId: (message as InboundMessage).senderId,
+          channel,
+          peerId,
+        });
+      },
+      reminders: async ({ sessionKey, message, peerId }, args) => {
         await this.handleRemindersCommand({
           sessionKey,
-          message,
+          message: message as InboundMessage,
           channel,
           peerId,
-          args: parsedCommand.args,
+          args,
         });
-        logger.info(
-          { sessionKey, agentId, command: "reminders", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
+      },
+      heartbeat: async ({ agentId, peerId }, args) => {
+        await this.handleHeartbeatCommand({ agentId, channel, peerId, args });
+      },
+    });
+  }
 
-      if (parsedCommand?.name === "heartbeat") {
-        await this.handleHeartbeatCommand({
-          agentId,
-          channel,
-          peerId,
-          args: parsedCommand.args,
+  private createOrchestratorDeps(channel: ChannelPlugin): OrchestratorDeps {
+    const lifecycleChannel = {
+      beginTyping: channel.beginTyping
+        ? async (peerId: string) => (await channel.beginTyping!(peerId)) ?? undefined
+        : undefined,
+      emitPhase: channel.emitPhase
+        ? async (
+            peerId: string,
+            phase: InteractionPhase,
+            payload?: PhasePayload,
+          ) => {
+            await channel.emitPhase!(peerId, phase, payload);
+          }
+        : undefined,
+    };
+
+    const streamingChannel = {
+      send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) =>
+        channel.send(peerId, message),
+      editMessage: async (messageId: string, peerId: string, text: string) => {
+        if (channel.editMessage) {
+          await channel.editMessage(messageId, peerId, text);
+        }
+      },
+    };
+
+    return {
+      config: this.config,
+      logger,
+      getText: (payload) => this.getText(payload as InboundMessage),
+      getMedia: (payload) => (payload as InboundMessage).media || [],
+      normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text) ?? text,
+      parseCommand: (text) => this.parseCommand(text),
+      parseInlineOverrides: (parsedCommand) =>
+        parseInlineOverridesService(
+          parsedCommand
+            ? {
+                name: parsedCommand.name as
+                  | "start"
+                  | "help"
+                  | "status"
+                  | "whoami"
+                  | "new"
+                  | "models"
+                  | "switch"
+                  | "stop"
+                  | "restart"
+                  | "compact"
+                  | "context"
+                  | "setauth"
+                  | "unsetauth"
+                  | "listauth"
+                  | "checkauth"
+                  | "reminders"
+                  | "heartbeat"
+                  | "think"
+                  | "reasoning",
+                args: parsedCommand.args,
+              }
+            : null,
+        ),
+      resolveSessionContext: (payload) => this.resolveSessionContext(payload as InboundMessage),
+      rememberLastRoute: (agentId, payload) => {
+        const message = payload as InboundMessage;
+        this.lastRoutes.set(agentId, {
+          channelId: message.channel,
+          peerId: message.peerId,
+          peerType: message.peerType ?? "dm",
+          accountId: message.accountId,
+          threadId: message.threadId,
         });
-        logger.info(
-          { sessionKey, agentId, command: "heartbeat", durationMs: Date.now() - startedAt },
-          "Command handled",
-        );
-        return;
-      }
-
-      if (!parsedCommand && this.shouldRotateSessionForTemporalPolicy({ sessionKey, agentId })) {
+      },
+      sendDirect: async (peerId, text) => {
+        await channel.send(peerId, { text });
+      },
+      getCommandHandlerMap: () => this.createCommandHandlerMap(channel),
+      getChannel: () => ({
+        id: channel.id,
+        editMessage: channel.editMessage,
+        send: (peerId, message) => channel.send(peerId, message),
+      }),
+      resetSession: (sessionKey, agentId) => {
         this.agentManager.resetSession(sessionKey, agentId);
-        logger.info(
-          { sessionKey, agentId, trigger: "temporal_freshness" },
-          "Session auto-rotated by temporal lifecycle policy",
+      },
+      getSessionTimestamps: (sessionKey) => {
+        const session =
+          this.sessions.get(sessionKey) ||
+          this.sessions.getOrCreate(sessionKey, this.agentManager.resolveDefaultAgentId());
+        const now = Date.now();
+        return {
+          createdAt: session?.createdAt ?? now,
+          updatedAt: session?.updatedAt,
+        };
+      },
+      getSessionMetadata: (sessionKey) => {
+        const fromAgentManager = this.agentManager.getSessionMetadata(sessionKey);
+        if (fromAgentManager && Object.keys(fromAgentManager).length > 0) {
+          return fromAgentManager;
+        }
+        const fromSessionStore = this.sessions.get(sessionKey)?.metadata;
+        if (fromSessionStore && Object.keys(fromSessionStore).length > 0) {
+          return fromSessionStore;
+        }
+        const fromSessionStoreCreated = this.sessions.getOrCreate(
+          sessionKey,
+          this.agentManager.resolveDefaultAgentId(),
+        ).metadata;
+        return fromSessionStoreCreated || {};
+      },
+      updateSessionMetadata: (sessionKey, meta) => {
+        this.agentManager.updateSessionMetadata(sessionKey, meta);
+      },
+      revertToPreviousSegment: (sessionKey, agentId) =>
+        Boolean(this.sessions.revertToPreviousSegment(sessionKey, agentId)),
+      getConfigAgents: () => (this.config.agents || {}) as Record<string, unknown>,
+      getSessionMessages: (sessionKey) => {
+        const latest = this.latestPromptMessages.get(sessionKey);
+        if (latest && latest.length > 0) {
+          return latest;
+        }
+        const existing = this.sessions.get(sessionKey)?.context;
+        if (Array.isArray(existing) && existing.length > 0) {
+          return existing as import("./message-handler/services/reply-finalizer").AssistantMessageShape[];
+        }
+        const created = this.sessions.getOrCreate(
+          sessionKey,
+          this.agentManager.resolveDefaultAgentId(),
+        ).context;
+        return (created || []) as import("./message-handler/services/reply-finalizer").AssistantMessageShape[];
+      },
+      transcribeInboundMessage: async (payload) => {
+        const result = await this.mediaPreprocessor.preprocessInboundMessage(
+          payload as InboundMessage,
         );
-      }
-
-      if (!parsedCommand) {
-        const semantic = this.evaluateSemanticLifecycle({
+        return result.transcript ?? undefined;
+      },
+      checkInputCapability: async ({ sessionKey, agentId, message, peerId, hasAudioTranscript }) => {
+        return await checkInputCapabilityService({
+          sessionKey,
+          agentId,
+          peerId,
+          hasAudioTranscript,
+          media: ((message as InboundMessage).media || []).map((item, index) => ({
+            type: item.type,
+            mediaId: `media-${index + 1}`,
+          })),
+          deps: {
+            logger,
+            channel: {
+              send: async (targetPeerId, payload) => {
+                await channel.send(targetPeerId, payload);
+              },
+            },
+            agentManager: {
+              getAgent: async (targetSessionKey, targetAgentId) => {
+                const current = await this.agentManager.getAgent(targetSessionKey, targetAgentId);
+                return { modelRef: current.modelRef };
+              },
+              ensureSessionModelForInput: async ({ sessionKey, agentId, input }) => {
+                const routed = await this.agentManager.ensureSessionModelForInput({
+                  sessionKey,
+                  agentId,
+                  input,
+                });
+                if (routed.ok) {
+                  return {
+                    ok: true,
+                    switched: routed.switched,
+                    modelRef: routed.modelRef,
+                    candidates: [],
+                  };
+                }
+                return {
+                  ok: false,
+                  switched: false,
+                  modelRef: routed.modelRef,
+                  candidates: routed.candidates,
+                };
+              },
+            },
+          },
+        });
+      },
+      ingestInboundMessage: async ({ message, sessionKey, agentId }) => {
+        const inbound = message as InboundMessage;
+        const current = await this.agentManager.getAgent(sessionKey, agentId);
+        const modelSpec = this.modelRegistry.get(current.modelRef);
+        return ingestInboundMessage({
+          message: inbound,
+          sessionKey,
+          channelId: inbound.channel,
+          modelRef: current.modelRef,
+          modelSpec,
+        });
+      },
+      buildPromptText: ({ message, rawText, transcript, ingestPlan }) => {
+        const combined = this.buildRawTextWithTranscription(rawText, transcript ?? null);
+        return this.buildPromptText({
+          message: message as InboundMessage,
+          rawText: combined,
+          ingestPlan: ingestPlan as DeliveryPlan | null | undefined,
+        });
+      },
+      ensureChannelContext: async ({ sessionKey, agentId, message }) => {
+        await this.agentManager.ensureChannelContext({
+          sessionKey,
+          agentId,
+          message: message as InboundMessage,
+        });
+      },
+      startTypingIndicator: async ({ sessionKey, agentId, peerId }) => {
+        return await startTypingIndicatorService({
+          channel: lifecycleChannel,
+          peerId,
+          sessionKey,
+          agentId,
+          deps: { logger, toError: toErrorService },
+        });
+      },
+      emitPhaseSafely: async ({ phase, payload }) => {
+        const resolvedPeerId = payload.agentId
+          ? this.lastRoutes.get(payload.agentId)?.peerId
+          : undefined;
+        if (!resolvedPeerId) {
+          return;
+        }
+        await emitPhaseSafelyService({
+          channel: lifecycleChannel,
+          peerId: resolvedPeerId,
+          phase,
+          payload,
+          deps: { logger, toError: toErrorService },
+        });
+      },
+      createStreamingBuffer: ({ peerId, onError }) =>
+        new TurnStreamingBuffer(streamingChannel, peerId, onError),
+      runPromptWithFallback: async ({ sessionKey, agentId, text, onStream, onFallback }) => {
+        await this.runPromptWithFallback({
           sessionKey,
           agentId,
           text,
+          onStream,
+          onFallback,
         });
-        if (semantic.shouldRevert) {
-          const reverted = this.sessions.revertToPreviousSegment(sessionKey, agentId);
-          if (reverted) {
-            this.agentManager.disposeRuntimeSession(sessionKey);
-            this.agentManager.updateSessionMetadata(sessionKey, {
-              lifecycle: {
-                semantic: {
-                  lastRotationAt: Date.now(),
-                  lastRotationType: "semantic_revert",
-                  lastConfidence: semantic.confidence,
-                },
-              },
-            });
-            logger.info(
-              {
-                sessionKey,
-                agentId,
-                trigger: "semantic_revert",
-                confidence: semantic.confidence,
-                threshold: semantic.threshold,
-              },
-              "Session semantic misfire reverted",
-            );
-          }
-        } else if (semantic.shouldRotate) {
-          this.agentManager.resetSession(sessionKey, agentId);
-          this.agentManager.updateSessionMetadata(sessionKey, {
-            lifecycle: {
-              semantic: {
-                lastRotationAt: Date.now(),
-                lastRotationType: "semantic",
-                lastConfidence: semantic.confidence,
-                controlModelRef: semantic.controlModelRef,
-              },
-            },
-          });
-          logger.info(
-            {
-              sessionKey,
-              agentId,
-              trigger: "semantic_shift",
-              confidence: semantic.confidence,
-              threshold: semantic.threshold,
-              controlModelRef: semantic.controlModelRef,
-            },
-            "Session auto-rotated by semantic lifecycle policy",
-          );
-        }
-      }
-
-      const transcript = await this.sttService.transcribeInboundMessage(message);
-      const hasAudioTranscript = typeof transcript === "string" && transcript.trim().length > 0;
-
-      const capability = await this.checkInputCapability({
-        sessionKey,
-        agentId,
-        message,
-        channel,
-        peerId,
-        hasAudioTranscript,
-      });
-      if (!capability.ok) {
-        return;
-      }
-
-      const currentAgent = await this.agentManager.getAgent(sessionKey, agentId);
-      const modelSpec = this.modelRegistry.get(currentAgent.modelRef);
-
-      const ingestPlan = ingestInboundMessage({
-        message,
-        sessionKey,
-        channelId: channel.id,
-        modelRef: currentAgent.modelRef,
-        modelSpec,
-      });
-
-      this.agentManager.updateSessionMetadata(sessionKey, {
-        multimodal: {
-          inboundPlan: ingestPlan,
-        },
-      });
-
-      const textWithTranscription = this.buildRawTextWithTranscription(text, transcript);
-      const promptText = this.buildPromptText({
-        message,
-        rawText: textWithTranscription,
-        ingestPlan,
-      });
-
-      const stopTyping = await this.startTypingIndicator({
-        channel,
-        peerId,
-        sessionKey,
-        agentId,
-      });
-      await this.emitPhaseSafely({
-        channel,
-        peerId,
-        phase: "thinking",
-        payload: { sessionKey, agentId, messageId: message.id },
-      });
-
-      const supportsStreaming = typeof channel.editMessage === "function";
-      let streamingBuffer: StreamingBuffer | undefined;
-
-      try {
-        await this.agentManager.ensureChannelContext({ sessionKey, agentId, message });
-
-        if (supportsStreaming) {
-          streamingBuffer = new StreamingBuffer(channel, peerId, (err) => {
-            logger.warn({ err, sessionKey, agentId }, "Streaming buffer error");
-          });
-          await streamingBuffer.initialize();
-
-          await this.runPromptWithFallback({
-            sessionKey,
-            agentId,
-            text: promptText,
-            onFallback: async (info) => {
-              await channel.send(peerId, {
-                text: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`,
-              });
-            },
-            onStream: (event) => {
-              if (event.type === "text_delta" && event.delta) {
-                streamingBuffer?.append(event.delta);
-              } else if (event.type === "tool_start") {
-                void this.emitPhaseSafely({
-                  channel,
-                  peerId,
-                  phase: "executing",
-                  payload: {
-                    sessionKey,
-                    agentId,
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    messageId: message.id,
-                  },
-                });
-              } else if (event.type === "tool_end") {
-                void this.emitPhaseSafely({
-                  channel,
-                  peerId,
-                  phase: "thinking",
-                  payload: {
-                    sessionKey,
-                    agentId,
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    messageId: message.id,
-                  },
-                });
-              }
-            },
-          });
-
-          const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
-          const messages = agent.messages;
-          const lastAssistant = [...messages]
-            .toReversed()
-            .find((m: { role: string }) => m.role === "assistant");
-          const renderOptions = this.resolveReplyRenderOptions(agentId);
-          const replyText = renderAssistantReply(
-            (lastAssistant as { content?: unknown })?.content,
-            renderOptions,
-          );
-
-          if (isSilentReplyText(replyText)) {
-            logger.info({ sessionKey, agentId }, "Message handling skipped by silent reply token");
-            return;
-          }
-
-          if (
-            message.raw &&
-            (message.raw as { source?: string }).source === "heartbeat" &&
-            replyText.trim() === "HEARTBEAT_OK"
-          ) {
-            logger.debug({ sessionKey, agentId }, "Heartbeat reply suppressed");
-            return;
-          }
-
-          await this.emitPhaseSafely({
-            channel,
-            peerId,
-            phase: "speaking",
-            payload: { sessionKey, agentId, messageId: message.id },
-          });
-
-          const outboundId = await streamingBuffer.finalize(replyText);
-          logger.info(
-            {
-              sessionKey,
-              agentId,
-              outboundId,
-              replyChars: replyText?.length ?? 0,
-              durationMs: Date.now() - startedAt,
-              streaming: true,
-            },
-            "Message handling completed",
-          );
-        } else {
-          await this.runPromptWithFallback({
-            sessionKey,
-            agentId,
-            text: promptText,
-            onFallback: async (info) => {
-              await channel.send(peerId, {
-                text: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`,
-              });
-            },
-          });
-
-          const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
-          const messages = agent.messages;
-          const lastAssistant = [...messages]
-            .toReversed()
-            .find((m: { role: string }) => m.role === "assistant");
-          const renderOptions = this.resolveReplyRenderOptions(agentId);
-          const replyText = renderAssistantReply(
-            (lastAssistant as { content?: unknown })?.content,
-            renderOptions,
-          );
-          if (isSilentReplyText(replyText)) {
-            logger.info({ sessionKey, agentId }, "Message handling skipped by silent reply token");
-            return;
-          }
-
-          if (
-            message.raw &&
-            (message.raw as { source?: string }).source === "heartbeat" &&
-            replyText.trim() === "HEARTBEAT_OK"
-          ) {
-            logger.debug({ sessionKey, agentId }, "Heartbeat reply suppressed");
-            return;
-          }
-
-          await this.emitPhaseSafely({
-            channel,
-            peerId,
-            phase: "speaking",
-            payload: { sessionKey, agentId, messageId: message.id },
-          });
-
-          const outbound: OutboundMessage = planOutboundByNegotiation({
-            channelId: channel.id,
-            text: replyText || "(no response)",
-            inboundPlan: ingestPlan,
-          });
-          const outboundId = await channel.send(peerId, outbound);
-          logger.info(
-            {
-              sessionKey,
-              agentId,
-              outboundId,
-              replyChars: outbound.text?.length ?? 0,
-              durationMs: Date.now() - startedAt,
-            },
-            "Message handling completed",
-          );
-        }
-      } finally {
-        if (capability.restoreModelRef) {
-          try {
-            await this.agentManager.setSessionModel(sessionKey, capability.restoreModelRef);
-          } catch (error) {
-            logger.warn(
-              {
-                err: error,
-                sessionKey,
-                agentId,
-                restoreModelRef: capability.restoreModelRef,
-              },
-              "Failed to restore pre-routing session model",
-            );
-          }
-        }
-        await this.emitPhaseSafely({
-          channel,
-          peerId,
-          phase: "idle",
-          payload: { sessionKey, agentId, messageId: message.id },
-        });
-        await this.stopTypingIndicator({
-          stop: stopTyping,
+        const current = await this.agentManager.getAgent(sessionKey, agentId);
+        this.latestPromptMessages.set(
+          sessionKey,
+          current.agent.messages as import("./message-handler/services/reply-finalizer").AssistantMessageShape[],
+        );
+      },
+      maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) => {
+        await this.maybePreFlushBeforePrompt({ sessionKey, agentId });
+      },
+      resolveReplyRenderOptions: (agentId) =>
+        resolveReplyRenderOptionsFromConfig(agentId, (this.config.agents || {}) as Record<string, unknown>),
+      resolveLastAssistantReplyText: ({ messages, renderOptions }) =>
+        resolveLastAssistantReplyText({ messages, renderOptions }),
+      shouldSuppressSilentReply: (text) => shouldSuppressSilentReply(text),
+      shouldSuppressHeartbeatReply: (raw, text) =>
+        shouldSuppressHeartbeatReply(raw as { source?: string } | undefined, text),
+      finalizeStreamingReply: async ({ buffer, replyText }) =>
+        finalizeStreamingReply({ buffer, replyText }),
+      buildNegotiatedOutbound: ({ channelId, replyText, inboundPlan }) =>
+        buildNegotiatedOutbound({ channelId, replyText, inboundPlan }),
+      sendNegotiatedReply: async ({ peerId, outbound }) =>
+        sendNegotiatedReply({ channel, peerId, outbound }),
+      toError: (err) => toErrorService(err),
+      isAbortError: (err) => isAbortErrorService(err),
+      createErrorReplyText: (err) => createErrorReplyTextService(err),
+      setSessionModel: async (sessionKey, modelRef) => {
+        await this.agentManager.setSessionModel(sessionKey, modelRef);
+      },
+      stopTypingIndicator: async ({ stop, sessionKey, agentId, peerId }) => {
+        await stopTypingIndicatorService({
+          stop,
           sessionKey,
           agentId,
           peerId,
+          deps: { logger, toError: toErrorService },
         });
-      }
-    } catch (error) {
-      const err = this.toError(error);
-      await this.emitPhaseSafely({
-        channel,
-        peerId,
-        phase: "error",
-        payload: { sessionKey, agentId, messageId: message.id },
-      });
-      if (this.isAbortError(err)) {
-        logger.warn({ sessionKey, agentId, error: err.message }, "Message handling aborted");
-        return;
-      }
-      logger.error({ err, sessionKey }, "Failed to handle message");
-      try {
-        if (this.isMissingAuthError(err.message)) {
-          const key = this.parseMissingAuthKey(err.message);
-          const guidance = key
-            ? `Missing authentication secret ${key}. Set it with /setAuth set ${key}=<value> [--scope=agent|global].`
-            : "Missing authentication secret. Set it with /setAuth set KEY=<value> [--scope=agent|global].";
-          await channel.send(peerId, { text: guidance });
-          return;
-        }
-        await channel.send(peerId, {
-          text: `Sorry, an error occurred while processing the message: ${err.message}`,
-        });
-      } catch (sendError) {
-        logger.error(
-          {
-            sessionKey,
-            agentId,
-            peerId,
-            channelId: message.channel,
-            messageId: message.id,
-            originalError: err.message,
-            sendError: this.toError(sendError).message,
-          },
-          "Failed to deliver error reply to channel",
-        );
-      }
-      throw err;
-    }
+      },
+    };
+  }
+
+  async handle(message: InboundMessage, channel: ChannelPlugin): Promise<void> {
+    const input: import("./message-handler/types").MessageTurnInput = {
+      id: message.id,
+      type: "message",
+      payload: message,
+    };
+    const context = createMessageTurnContext(input);
+    const orchestrator = new MessageTurnOrchestrator(this.createOrchestratorDeps(channel));
+    await orchestrator.handle(context);
   }
 
   async handleInternalMessage(params: {

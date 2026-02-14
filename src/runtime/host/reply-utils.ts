@@ -4,6 +4,7 @@ export type ReplyToolCallMode = "off" | "summary";
 
 export type ReplyRenderOptions = {
   showThinking?: boolean;
+  reasoningLevel?: "off" | "on" | "stream";
   showToolCalls?: ReplyToolCallMode;
 };
 

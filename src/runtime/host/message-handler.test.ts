@@ -5,9 +5,9 @@ import type { InboundMessage } from "../adapters/channels/types";
 import { MessageHandler } from "./message-handler";
 
 const ingestInboundMessageMock = vi.fn((..._args: unknown[]) => null);
-const transcribeInboundMessageMock = vi.fn<(..._args: unknown[]) => Promise<string | null>>(
-  async (..._args: unknown[]) => null,
-);
+const preprocessInboundMessageMock = vi.fn<
+  (..._args: unknown[]) => Promise<{ transcript: string | null; hasAudioTranscript: boolean }>
+>(async (..._args: unknown[]) => ({ transcript: null, hasAudioTranscript: false }));
 const fsReadFileMock = vi.fn<(..._args: unknown[]) => Promise<string>>(
   async (..._args: unknown[]) => "",
 );
@@ -24,9 +24,9 @@ vi.mock("../../multimodal/ingest", async (importOriginal) => {
   };
 });
 
-vi.mock("./stt-service", () => ({
-  SttService: class {
-    transcribeInboundMessage = (...args: unknown[]) => transcribeInboundMessageMock(...args);
+vi.mock("../media-understanding/preprocess", () => ({
+  InboundMediaPreprocessor: class {
+    preprocessInboundMessage = (...args: unknown[]) => preprocessInboundMessageMock(...args);
 
     updateConfig() {}
   },
@@ -176,6 +176,8 @@ describe("MessageHandler commands", () => {
   let beginTyping: ReturnType<typeof vi.fn>;
   let stopTyping: ReturnType<typeof vi.fn>;
   let emitPhase: ReturnType<typeof vi.fn>;
+  let getSessionMetadata: ReturnType<typeof vi.fn>;
+  let resolveConfiguredThinkingLevel: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     send = vi.fn(async () => "out-1");
@@ -192,8 +194,10 @@ describe("MessageHandler commands", () => {
     stopTyping = vi.fn(async () => {});
     beginTyping = vi.fn(async () => stopTyping);
     emitPhase = vi.fn(async () => {});
+    getSessionMetadata = vi.fn(() => undefined);
+    resolveConfiguredThinkingLevel = vi.fn(() => "low");
     ingestInboundMessageMock.mockClear();
-    transcribeInboundMessageMock.mockClear();
+    preprocessInboundMessageMock.mockClear();
     fsReadFileMock.mockReset();
     fsWriteFileMock.mockReset();
     fsReadFileMock.mockResolvedValue("# HEARTBEAT.md\n");
@@ -268,6 +272,10 @@ describe("MessageHandler commands", () => {
         ensureChannelContext: (params: unknown) => Promise<void>;
         updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        getSessionMetadata: (sessionKey: string) => Record<string, unknown> | undefined;
+        resolveConfiguredThinkingLevel: (
+          agentId: string,
+        ) => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
         getContextUsage: (sessionKey: string) => unknown;
         getContextBreakdown: (sessionKey: string) => unknown;
         getWorkspaceDir: (agentId: string) => string | undefined;
@@ -320,6 +328,12 @@ describe("MessageHandler commands", () => {
         sessionKey: string,
         patch: unknown,
       ) => void,
+      getSessionMetadata: getSessionMetadata as unknown as (
+        sessionKey: string,
+      ) => Record<string, unknown> | undefined,
+      resolveConfiguredThinkingLevel: resolveConfiguredThinkingLevel as unknown as (
+        agentId: string,
+      ) => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
       getContextUsage: (() => null) as unknown as (sessionKey: string) => unknown,
       getContextBreakdown: (() => null) as unknown as (sessionKey: string) => unknown,
       getWorkspaceDir: (() => "/tmp/mozi-tests") as unknown as (
@@ -461,6 +475,226 @@ describe("MessageHandler commands", () => {
     expect(runPromptWithFallback).not.toHaveBeenCalled();
   });
 
+  it("handles /think with explicit level and persists session override", async () => {
+    await handler.handle(createMessage("/think high"), channel);
+
+    expect(updateSessionMetadata).toHaveBeenCalledWith(
+      "agent:mozi:telegram:dm:chat-1",
+      expect.objectContaining({ thinkingLevel: "high" }),
+    );
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Thinking level set to: high");
+  });
+
+  it("handles /think without args by showing current level", async () => {
+    getSessionMetadata.mockReturnValue({ thinkingLevel: "medium" });
+
+    await handler.handle(createMessage("/think"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Current thinking level: medium");
+  });
+
+  it("handles /reasoning and persists reasoning visibility", async () => {
+    await handler.handle(createMessage("/reasoning on"), channel);
+
+    expect(updateSessionMetadata).toHaveBeenCalledWith(
+      "agent:mozi:telegram:dm:chat-1",
+      expect.objectContaining({ reasoningLevel: "on" }),
+    );
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Reasoning level set to: on");
+  });
+
+  it("supports think/reasoning aliases", async () => {
+    await handler.handle(createMessage("/t low"), channel);
+    await handler.handle(createMessage("/reason off"), channel);
+
+    expect(updateSessionMetadata).toHaveBeenNthCalledWith(
+      1,
+      "agent:mozi:telegram:dm:chat-1",
+      expect.objectContaining({ thinkingLevel: "low" }),
+    );
+    expect(updateSessionMetadata).toHaveBeenNthCalledWith(
+      2,
+      "agent:mozi:telegram:dm:chat-1",
+      expect.objectContaining({ reasoningLevel: "off" }),
+    );
+  });
+
+  it("supports inline /think override for a single prompt turn", async () => {
+    await handler.handle(createMessage("/think high -- explain this quickly"), channel);
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const params = runPromptWithFallback.mock.calls[0]?.[0] as { text: string };
+    expect(params.text).toContain("explain this quickly");
+
+    const patches = updateSessionMetadata.mock.calls.map(
+      (call) => call[1] as Record<string, unknown>,
+    );
+    expect(patches.some((p) => p.thinkingLevel === "high")).toBe(true);
+    expect(patches.some((p) => Object.prototype.hasOwnProperty.call(p, "thinkingLevel"))).toBe(
+      true,
+    );
+  });
+
+  it("shows effective thinking/reasoning in /status", async () => {
+    getSessionMetadata.mockReturnValue({ thinkingLevel: "medium", reasoningLevel: "on" });
+
+    await handler.handle(createMessage("/status"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("🧭 Thinking: medium");
+    expect(payload.text).toContain("🪄 Reasoning: on");
+  });
+
+  it("shows pruning and memory policy in /context", async () => {
+    const h = handler as unknown as {
+      agentManager: {
+        getContextBreakdown: (sessionKey: string) => {
+          systemPromptTokens: number;
+          userMessageTokens: number;
+          assistantMessageTokens: number;
+          toolResultTokens: number;
+          totalTokens: number;
+        } | null;
+        getContextUsage: (sessionKey: string) => {
+          usedTokens: number;
+          totalTokens: number;
+          percentage: number;
+          messageCount: number;
+        } | null;
+      };
+    };
+    h.agentManager.getContextBreakdown = () => ({
+      systemPromptTokens: 120,
+      userMessageTokens: 300,
+      assistantMessageTokens: 220,
+      toolResultTokens: 80,
+      totalTokens: 720,
+    });
+    h.agentManager.getContextUsage = () => ({
+      usedTokens: 720,
+      totalTokens: 2000,
+      percentage: 36,
+      messageCount: 12,
+    });
+
+    await handler.handle(createMessage("/context"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Pruning:");
+    expect(payload.text).toContain("Memory persistence:");
+  });
+
+  it("hides think tags in final reply when reasoning level is stream", async () => {
+    getSessionMetadata.mockReturnValue({ reasoningLevel: "stream" });
+    const editMessage = vi.fn(async () => {});
+    (channel as unknown as { editMessage?: typeof editMessage }).editMessage = editMessage;
+
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{
+          agent: { messages: Array<{ role: string; content: string }> };
+          modelRef: string;
+        }>;
+      };
+      runPromptWithFallback: (params: {
+        sessionKey: string;
+        agentId: string;
+        text: string;
+        onStream?: (event: { type: "text_delta"; delta?: string }) => void;
+      }) => Promise<void>;
+    };
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      params.onStream?.({ type: "text_delta", delta: "partial" });
+    });
+    h.agentManager.getAgent = async () => ({
+      modelRef: "quotio/gemini-3-flash-preview",
+      agent: {
+        messages: [{ role: "assistant", content: "<think>secret</think>visible" }],
+      },
+    });
+
+    await handler.handle(createMessage("hello"), channel);
+
+    expect(editMessage).toHaveBeenCalled();
+    const finalCall = editMessage.mock.calls.at(-1) as unknown[] | undefined;
+    const finalText = typeof finalCall?.[2] === "string" ? finalCall[2] : "";
+    expect(finalText).toContain("visible");
+    expect(finalText).not.toContain("secret");
+  });
+
+  it("attempts pre-overflow memory flush when context usage is high", async () => {
+    const config = createConfig();
+    config.memory = {
+      persistence: {
+        enabled: true,
+        onOverflowCompaction: true,
+        onNewReset: true,
+        maxMessages: 4,
+        maxChars: 500,
+        timeoutMs: 100,
+      },
+      backend: "builtin",
+      citations: "auto",
+    };
+    const flushHandler = new MessageHandler(config);
+
+    const fh = flushHandler as unknown as {
+      router: { resolve: (msg: InboundMessage, defaultAgentId: string) => { agentId: string } };
+      runPromptWithFallback: (params: unknown) => Promise<void>;
+      agentManager: {
+        resolveDefaultAgentId: () => string;
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        ensureChannelContext: (params: unknown) => Promise<void>;
+        updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        getContextUsage: (sessionKey: string) => {
+          usedTokens: number;
+          totalTokens: number;
+          percentage: number;
+          messageCount: number;
+        } | null;
+      };
+    };
+    const update = vi.fn(() => {});
+    fh.router = { resolve: () => ({ agentId: "mozi" }) };
+    fh.runPromptWithFallback = vi.fn(async () => {});
+    fh.agentManager.resolveDefaultAgentId = () => "mozi";
+    fh.agentManager.ensureChannelContext = async () => {};
+    fh.agentManager.getContextUsage = () => ({
+      usedTokens: 900,
+      totalTokens: 1000,
+      percentage: 90,
+      messageCount: 20,
+    });
+    fh.agentManager.updateSessionMetadata = update;
+    fh.agentManager.getAgent = async () => ({
+      modelRef: "quotio/gemini-3-flash-preview",
+      agent: {
+        messages: [{ role: "user", content: "hi" }],
+      },
+    });
+
+    await flushHandler.handle(createMessage("ping"), channel);
+
+    const updateCalls = update.mock.calls as unknown[][];
+    expect(
+      updateCalls.some(
+        (call) =>
+          typeof call[1] === "object" &&
+          call[1] !== null &&
+          "memoryFlush" in (call[1] as Record<string, unknown>),
+      ),
+    ).toBe(true);
+  });
+
   it("auto switches to vision model for media input", async () => {
     let activeModelRef = "quotio/gemini-3-flash-preview";
     const h = handler as unknown as {
@@ -563,7 +797,10 @@ describe("MessageHandler commands", () => {
       modelRef: "quotio/gemini-3-flash-preview",
       candidates: [],
     });
-    transcribeInboundMessageMock.mockResolvedValue("transcribed audio content");
+    preprocessInboundMessageMock.mockResolvedValue({
+      transcript: "transcribed audio content",
+      hasAudioTranscript: true,
+    });
 
     await handler.handle(createAudioMessage(""), channel);
 
@@ -575,7 +812,10 @@ describe("MessageHandler commands", () => {
   });
 
   it("skips audio capability routing when transcript is available", async () => {
-    transcribeInboundMessageMock.mockResolvedValue("audio transcript");
+    preprocessInboundMessageMock.mockResolvedValue({
+      transcript: "audio transcript",
+      hasAudioTranscript: true,
+    });
 
     await handler.handle(createAudioMessage("listen this"), channel);
 
@@ -585,7 +825,10 @@ describe("MessageHandler commands", () => {
   });
 
   it("injects voice transcript into prompt when available", async () => {
-    transcribeInboundMessageMock.mockResolvedValue("This is a voice transcript");
+    preprocessInboundMessageMock.mockResolvedValue({
+      transcript: "This is a voice transcript",
+      hasAudioTranscript: true,
+    });
 
     await handler.handle(createAudioMessage(""), channel);
 

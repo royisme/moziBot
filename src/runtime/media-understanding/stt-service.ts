@@ -238,8 +238,6 @@ export class SttService {
 
       const outputPath = path.join(dir, `output-${randomUUID()}.wav`);
 
-      // Convert to Whisper-compatible WAV (16kHz, mono, 16-bit PCM)
-      // This ensures consistent performance across different audio sources/formats
       await execa("ffmpeg", [
         "-i",
         inputPath,
