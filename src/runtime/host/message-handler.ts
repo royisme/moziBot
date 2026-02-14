@@ -30,6 +30,11 @@ import {
   handleModelsCommand as handleModelsCommandService,
   handleSwitchCommand as handleSwitchCommandService,
 } from "./message-handler/services/models-command";
+import {
+  handleCompactCommand as handleCompactCommandService,
+  handleNewSessionCommand as handleNewSessionCommandService,
+  handleRestartCommand as handleRestartCommandService,
+} from "./message-handler/services/session-control-command";
 import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -559,38 +564,24 @@ export class MessageHandler {
     channel: ChannelPlugin,
     peerId: string,
   ): Promise<void> {
-    const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
-    if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
-      const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
-      const success = await this.flushMemory(
-        sessionKey,
-        agentId,
-        agent.messages,
-        memoryConfig.persistence,
-      );
-      this.agentManager.updateSessionMetadata(sessionKey, {
-        memoryFlush: {
-          lastAttemptedCycle: 0,
-          lastTimestamp: Date.now(),
-          lastStatus: success ? "success" : "failure",
-          trigger: "new",
-        },
-      });
-    }
-
-    this.agentManager.resetSession(sessionKey, agentId);
-    await channel.send(peerId, { text: "New session started (rotated to a new session segment)." });
+    await handleNewSessionCommandService({
+      sessionKey,
+      agentId,
+      channel,
+      peerId,
+      config: this.config,
+      agentManager: this.agentManager,
+      flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
+        await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
+    });
   }
 
   private async handleRestartCommand(channel: ChannelPlugin, peerId: string): Promise<void> {
-    if (!this.runtimeControl?.restart) {
-      await channel.send(peerId, {
-        text: "Current runtime mode does not support /restart. Please run 'mozi runtime restart' on the host.",
-      });
-      return;
-    }
-    await channel.send(peerId, { text: "Restarting runtime..." });
-    await this.runtimeControl.restart();
+    await handleRestartCommandService({
+      channel,
+      peerId,
+      runtimeControl: this.runtimeControl,
+    });
   }
 
   private async handleCompactCommand(params: {
@@ -600,18 +591,13 @@ export class MessageHandler {
     peerId: string;
   }): Promise<void> {
     const { sessionKey, agentId, channel, peerId } = params;
-    await channel.send(peerId, { text: "Compacting session..." });
-
-    const result = await this.agentManager.compactSession(sessionKey, agentId);
-    if (result.success) {
-      await channel.send(peerId, {
-        text: `Session compacted, freed approximately ${result.tokensReclaimed} tokens.`,
-      });
-    } else {
-      await channel.send(peerId, {
-        text: `Compaction failed: ${result.reason || "Unknown error"}`,
-      });
-    }
+    await handleCompactCommandService({
+      sessionKey,
+      agentId,
+      channel,
+      peerId,
+      agentManager: this.agentManager,
+    });
   }
 
   private async handleContextCommand(params: {
