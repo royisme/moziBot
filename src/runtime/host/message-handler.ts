@@ -35,7 +35,12 @@ import {
   handleNewSessionCommand as handleNewSessionCommandService,
   handleRestartCommand as handleRestartCommandService,
 } from "./message-handler/services/session-control-command";
-import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
+import {
+  runPromptWithFallback as runPromptWithFallbackService,
+  waitForAgentIdle,
+  type PromptAgent,
+} from "./message-handler/services/prompt-runner";
+import { getAssistantFailureReason } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -110,22 +115,6 @@ type LastRoute = {
   peerType: "dm" | "group" | "channel";
   accountId?: string;
   threadId?: string | number;
-};
-
-type LifecycleTemporalPolicy = {
-  enabled?: boolean;
-  activeWindowHours?: number;
-  dayBoundaryRollover?: boolean;
-};
-
-type LifecycleConfig = {
-  temporal?: LifecycleTemporalPolicy;
-  semantic?: {
-    enabled?: boolean;
-    threshold?: number;
-    debounceSeconds?: number;
-    reversible?: boolean;
-  };
 };
 
 type ResolvedSessionContext = {
@@ -252,238 +241,6 @@ export class MessageHandler {
 
   private getText(message: InboundMessage): string {
     return (message.text || "").toString();
-  }
-
-  private resolveReplyRenderOptions(agentId: string): ReplyRenderOptions {
-    const agents = (this.config.agents || {}) as Record<string, unknown>;
-    const defaults =
-      (agents.defaults as { output?: ReplyRenderOptions } | undefined)?.output || undefined;
-    const entry =
-      (agents[agentId] as { output?: ReplyRenderOptions } | undefined)?.output || undefined;
-    return {
-      showThinking: entry?.showThinking ?? defaults?.showThinking ?? false,
-      showToolCalls: entry?.showToolCalls ?? defaults?.showToolCalls ?? "off",
-    };
-  }
-
-  private resolveTemporalLifecyclePolicy(agentId: string): Required<LifecycleTemporalPolicy> {
-    const agents = (this.config.agents || {}) as Record<string, unknown>;
-    const defaults = (agents.defaults as { lifecycle?: LifecycleConfig } | undefined)?.lifecycle
-      ?.temporal;
-    const entry = (agents[agentId] as { lifecycle?: LifecycleConfig } | undefined)?.lifecycle
-      ?.temporal;
-
-    return {
-      enabled: entry?.enabled ?? defaults?.enabled ?? true,
-      activeWindowHours: entry?.activeWindowHours ?? defaults?.activeWindowHours ?? 12,
-      dayBoundaryRollover: entry?.dayBoundaryRollover ?? defaults?.dayBoundaryRollover ?? true,
-    };
-  }
-
-  private shouldRotateSessionForTemporalPolicy(params: {
-    sessionKey: string;
-    agentId: string;
-    nowMs?: number;
-  }): boolean {
-    const { sessionKey, agentId, nowMs = Date.now() } = params;
-    const policy = this.resolveTemporalLifecyclePolicy(agentId);
-    if (!policy.enabled) {
-      return false;
-    }
-
-    const session = this.sessions.getOrCreate(sessionKey, agentId);
-    const lastActivityMs = session.updatedAt || session.createdAt || nowMs;
-    const activeWindowMs = Math.max(1, policy.activeWindowHours) * 60 * 60 * 1000;
-
-    if (nowMs - lastActivityMs > activeWindowMs) {
-      return true;
-    }
-
-    if (policy.dayBoundaryRollover && !this.isSameLocalDay(lastActivityMs, nowMs)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private isSameLocalDay(aMs: number, bMs: number): boolean {
-    const a = new Date(aMs);
-    const b = new Date(bMs);
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
-  }
-
-  private resolveSemanticLifecyclePolicy(agentId: string): {
-    enabled: boolean;
-    threshold: number;
-    debounceSeconds: number;
-    reversible: boolean;
-  } {
-    const agents = (this.config.agents || {}) as Record<string, unknown>;
-    const defaults =
-      ((agents.defaults as { lifecycle?: LifecycleConfig } | undefined)?.lifecycle?.semantic as
-        | { enabled?: boolean; threshold?: number; debounceSeconds?: number; reversible?: boolean }
-        | undefined) || undefined;
-    const entry =
-      ((agents[agentId] as { lifecycle?: LifecycleConfig } | undefined)?.lifecycle?.semantic as
-        | { enabled?: boolean; threshold?: number; debounceSeconds?: number; reversible?: boolean }
-        | undefined) || undefined;
-
-    return {
-      enabled: entry?.enabled ?? defaults?.enabled ?? false,
-      threshold: entry?.threshold ?? defaults?.threshold ?? 0.8,
-      debounceSeconds: entry?.debounceSeconds ?? defaults?.debounceSeconds ?? 60,
-      reversible: entry?.reversible ?? defaults?.reversible ?? true,
-    };
-  }
-
-  private extractLastUserTextFromContext(messages: unknown[]): string {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i] as { role?: string; content?: unknown };
-      if (msg?.role !== "user") {
-        continue;
-      }
-      const text = this.extractTextFromContent(msg.content);
-      if (text.trim().length > 0) {
-        return text;
-      }
-    }
-    return "";
-  }
-
-  private extractTextFromContent(content: unknown): string {
-    if (typeof content === "string") {
-      return content;
-    }
-    if (Array.isArray(content)) {
-      return content
-        .map((part) => {
-          const maybe = part as { type?: string; text?: string; content?: string };
-          if (typeof maybe?.text === "string") {
-            return maybe.text;
-          }
-          if (maybe?.type === "text" && typeof maybe?.content === "string") {
-            return maybe.content;
-          }
-          return "";
-        })
-        .join(" ");
-    }
-    return "";
-  }
-
-  private tokenizeTopic(text: string): Set<string> {
-    const words = text
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
-      .split(/\s+/)
-      .filter((w) => w.length >= 3)
-      .filter((w) => !new Set(["the", "and", "for", "with", "that", "this", "you", "are"]).has(w));
-    return new Set(words);
-  }
-
-  private estimateSemanticShiftConfidence(prevText: string, nextText: string): number {
-    if (!prevText.trim()) {
-      return 0;
-    }
-    const prev = this.tokenizeTopic(prevText);
-    const next = this.tokenizeTopic(nextText);
-    if (prev.size === 0 || next.size === 0) {
-      return 0;
-    }
-
-    let intersection = 0;
-    for (const token of prev) {
-      if (next.has(token)) {
-        intersection += 1;
-      }
-    }
-    const union = new Set([...prev, ...next]).size;
-    const similarity = union > 0 ? intersection / union : 0;
-    let confidence = 1 - similarity;
-    const explicitShiftPattern = /^(new\s+topic|switch\s+topic|换个话题|另外一个问题)\b/i;
-    if (explicitShiftPattern.test(nextText.trim())) {
-      confidence = Math.min(1, confidence + 0.2);
-    }
-    return Number(confidence.toFixed(4));
-  }
-
-  private evaluateSemanticLifecycle(params: {
-    sessionKey: string;
-    agentId: string;
-    text: string;
-    nowMs?: number;
-  }): {
-    shouldRotate: boolean;
-    shouldRevert: boolean;
-    confidence: number;
-    threshold: number;
-    controlModelRef?: string;
-  } {
-    const { sessionKey, agentId, text, nowMs = Date.now() } = params;
-    const policy = this.resolveSemanticLifecyclePolicy(agentId);
-    if (!policy.enabled) {
-      return {
-        shouldRotate: false,
-        shouldRevert: false,
-        confidence: 0,
-        threshold: policy.threshold,
-      };
-    }
-
-    let controlModelRef: string | undefined;
-    try {
-      controlModelRef = this.agentManager.resolveLifecycleControlModel({
-        sessionKey,
-        agentId,
-      }).modelRef;
-    } catch {
-      controlModelRef = undefined;
-    }
-
-    const session = this.sessions.getOrCreate(sessionKey, agentId);
-    const lifecycleMeta =
-      (session.metadata?.lifecycle as Record<string, unknown> | undefined) || {};
-    const semanticMeta =
-      (lifecycleMeta.semantic as
-        | {
-            lastRotationAt?: number;
-            lastTrigger?: string;
-            lastConfidence?: number;
-            lastRotationType?: string;
-          }
-        | undefined) || undefined;
-
-    const previousUserText = this.extractLastUserTextFromContext(
-      Array.isArray(session.context) ? session.context : [],
-    );
-    const confidence = this.estimateSemanticShiftConfidence(previousUserText, text);
-
-    const lastRotationAt = semanticMeta?.lastRotationAt ?? 0;
-    if (policy.debounceSeconds > 0 && nowMs - lastRotationAt < policy.debounceSeconds * 1000) {
-      const canRevert =
-        policy.reversible &&
-        semanticMeta?.lastRotationType === "semantic" &&
-        confidence < Math.max(0.15, policy.threshold * 0.5);
-      return {
-        shouldRotate: false,
-        shouldRevert: canRevert,
-        confidence,
-        threshold: policy.threshold,
-        controlModelRef,
-      };
-    }
-
-    return {
-      shouldRotate: confidence >= policy.threshold,
-      shouldRevert: false,
-      confidence,
-      threshold: policy.threshold,
-      controlModelRef,
-    };
   }
 
   private async handleModelsCommand(
@@ -754,398 +511,103 @@ export class MessageHandler {
     }) => Promise<void> | void;
   }): Promise<void> {
     const { sessionKey, agentId, text, onStream, onFallback } = params;
-    const fallbacks = this.agentManager.getAgentFallbacks(agentId);
-    const tried = new Set<string>();
-    const transientRetryCounts = new Map<string, number>();
-    let attempt = 0;
-    let overflowCompactionAttempts = 0;
+    await runPromptWithFallbackService({
+      sessionKey,
+      agentId,
+      text,
+      onStream,
+      onFallback,
+      onContextOverflow: async (attempt) => {
+        logger.warn(
+          { sessionKey, agentId, attempt },
+          "Context overflow detected, triggering auto-compaction",
+        );
 
-    try {
-      while (true) {
-        const { agent, modelRef } = await this.agentManager.getAgent(sessionKey, agentId);
-        attempt += 1;
-        const startedAt = Date.now();
-        const progressTimer = setInterval(() => {
-          logger.warn(
-            {
+        const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
+        const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
+        if (memoryConfig.persistence.enabled && memoryConfig.persistence.onOverflowCompaction) {
+          const meta = this.agentManager.getSessionMetadata(sessionKey)?.memoryFlush as
+            | FlushMetadata
+            | undefined;
+          if (!meta || meta.lastAttemptedCycle < attempt) {
+            const success = await this.flushMemory(
               sessionKey,
               agentId,
-              modelRef,
-              attempt,
-              elapsedMs: Date.now() - startedAt,
-              textChars: text.length,
-            },
-            "Agent prompt still running",
-          );
-        }, MessageHandler.PROMPT_PROGRESS_LOG_INTERVAL_MS);
-
-        let unsubscribe: (() => void) | undefined;
-        let accumulatedText = "";
-        const activeToolCalls = new Map<string, { toolName: string; startedAt: number }>();
-
-        try {
-          this.registerActivePromptRun({
-            sessionKey,
-            agentId,
-            modelRef,
-            startedAt,
-            agent,
-          });
-          logger.info(
-            { sessionKey, agentId, modelRef, attempt, textChars: text.length },
-            "Agent prompt started",
-          );
-
-          if (onStream && typeof agent.subscribe === "function") {
-            unsubscribe = agent.subscribe((event: AgentSessionEvent) => {
-              if (event.type === "tool_execution_start") {
-                const eventStartedAt = Date.now();
-                activeToolCalls.set(event.toolCallId, {
-                  toolName: event.toolName,
-                  startedAt: eventStartedAt,
-                });
-                logger.info(
-                  {
-                    sessionKey,
-                    agentId,
-                    modelRef,
-                    attempt,
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    elapsedMsFromPromptStart: eventStartedAt - startedAt,
-                  },
-                  "Agent tool execution started",
-                );
-              } else if (event.type === "tool_execution_end") {
-                const endedAt = Date.now();
-                const started = activeToolCalls.get(event.toolCallId);
-                const toolDurationMs = started ? endedAt - started.startedAt : undefined;
-                activeToolCalls.delete(event.toolCallId);
-                logger.info(
-                  {
-                    sessionKey,
-                    agentId,
-                    modelRef,
-                    attempt,
-                    toolName: event.toolName,
-                    toolCallId: event.toolCallId,
-                    isError: event.isError,
-                    toolDurationMs,
-                    elapsedMsFromPromptStart: endedAt - startedAt,
-                  },
-                  "Agent tool execution ended",
-                );
-              }
-              void this.handleAgentStreamEvent(event, onStream, (text) => {
-                accumulatedText = text;
-              });
-            });
-          }
-
-          const runAbortController = new AbortController();
-          let aborted = false;
-          const abortRun = (reason?: unknown): void => {
-            if (aborted) {
-              return;
-            }
-            aborted = true;
-            runAbortController.abort(reason);
-            if (typeof agent.abort === "function") {
-              void Promise.resolve(agent.abort()).catch((abortError) => {
-                logger.warn(
-                  {
-                    sessionKey,
-                    agentId,
-                    modelRef,
-                    attempt,
-                    error: this.toError(abortError).message,
-                  },
-                  "Agent abort failed after timeout",
-                );
-              });
-            }
-          };
-          const abortable = async <T>(promise: Promise<T>): Promise<T> => {
-            const signal = runAbortController.signal;
-            if (signal.aborted) {
-              throw this.toError(signal.reason ?? new Error("Agent prompt aborted"));
-            }
-
-            return await new Promise<T>((resolve, reject) => {
-              const onAbort = () => {
-                reject(this.toError(signal.reason ?? new Error("Agent prompt aborted")));
-              };
-
-              signal.addEventListener("abort", onAbort, { once: true });
-              promise.then(
-                (value) => {
-                  signal.removeEventListener("abort", onAbort);
-                  resolve(value);
-                },
-                (err) => {
-                  signal.removeEventListener("abort", onAbort);
-                  reject(err);
-                },
-              );
-            });
-          };
-          const promptTimeoutMs = this.agentManager.resolvePromptTimeoutMs(agentId);
-          const timeoutHandle = setTimeout(() => {
-            abortRun(new Error("Agent prompt timeout"));
-          }, promptTimeoutMs);
-
-          try {
-            await abortable(Promise.resolve(agent.prompt(text)));
-          } finally {
-            clearTimeout(timeoutHandle);
-          }
-
-          if (onStream && accumulatedText) {
-            await onStream({ type: "agent_end", fullText: accumulatedText });
-          }
-
-          const latestAssistant = [...(agent.messages as Array<{ role?: string }>)]
-            .toReversed()
-            .find((m) => m && m.role === "assistant");
-          const failureReason = getAssistantFailureReason(latestAssistant);
-          if (failureReason) {
-            throw new Error(failureReason);
-          }
-          this.agentManager.updateSessionContext(sessionKey, agent.messages);
-          const usage = this.agentManager.getContextUsage(sessionKey);
-          if (usage) {
-            logger.debug(
-              {
-                sessionKey,
-                agentId,
-                responseTokens: latestAssistant
-                  ? estimateMessagesTokens([latestAssistant as AgentMessage])
-                  : 0,
-                totalContextTokens: usage.usedTokens,
-                contextWindow: usage.totalTokens,
-                fillPercentage: usage.percentage,
+              agent.messages,
+              memoryConfig.persistence,
+            );
+            this.agentManager.updateSessionMetadata(sessionKey, {
+              memoryFlush: {
+                lastAttemptedCycle: attempt,
+                lastTimestamp: Date.now(),
+                lastStatus: success ? "success" : "failure",
+                trigger: "overflow",
               },
-              "Prompt completed with usage stats",
-            );
+            });
           }
-          logger.info(
-            { sessionKey, agentId, modelRef, attempt, elapsedMs: Date.now() - startedAt },
-            "Agent prompt completed",
-          );
-          return;
-        } catch (error) {
-          const err = this.toError(error);
-          if (this.interruptedPromptRuns.has(sessionKey)) {
-            const abortError = new Error("Interrupted by queue mode", { cause: err });
-            abortError.name = "AbortError";
-            throw abortError;
-          }
-          if (this.isAbortError(err)) {
-            throw err;
-          }
-          if (this.isAgentBusyError(err)) {
-            logger.warn(
-              { sessionKey, agentId, modelRef, attempt, error: err.message },
-              "Agent busy; waiting for idle and retrying current model",
-            );
-            await this.waitForAgentIdle(agent);
-            continue;
-          }
-          if (this.isCapabilityError(err)) {
-            throw err;
-          }
-
-          const modelSpec = this.modelRegistry.get(modelRef);
-          const latestAssistant = [...((agent.messages as unknown[]) || [])]
-            .toReversed()
-            .find((m) =>
-              Boolean(m && typeof m === "object" && (m as { role?: unknown }).role === "assistant"),
-            );
-          const latestAssistantRecord =
-            latestAssistant && typeof latestAssistant === "object"
-              ? (latestAssistant as Record<string, unknown>)
-              : undefined;
-          const assistantStopReason =
-            latestAssistantRecord && typeof latestAssistantRecord.stopReason === "string"
-              ? latestAssistantRecord.stopReason
-              : undefined;
-          const assistantErrorMessage =
-            latestAssistantRecord && typeof latestAssistantRecord.errorMessage === "string"
-              ? latestAssistantRecord.errorMessage
-              : undefined;
-          const assistantFailureReason = getAssistantFailureReason(latestAssistantRecord);
-          const content = latestAssistantRecord?.content;
-          const assistantContentKind = Array.isArray(content) ? "array" : typeof content;
-          const isJsonParseError = /unexpected non-whitespace character after json/i.test(
-            err.message,
-          );
-          const isTimeoutError = err.message === "Agent prompt timeout";
-          const inFlightToolCalls = Array.from(activeToolCalls.entries()).map(
-            ([toolCallId, entry]) => ({
-              toolCallId,
-              toolName: entry.toolName,
-              elapsedMs: Date.now() - entry.startedAt,
-            }),
-          );
-
-          logger.warn(
-            {
-              sessionKey,
-              agentId,
-              modelRef,
-              attempt,
-              elapsedMs: Date.now() - startedAt,
-              errorName: err.name,
-              error: err.message,
-              isTimeoutError,
-              isJsonParseError,
-              provider: modelSpec?.provider,
-              modelApi: modelSpec?.api,
-              baseUrl: modelSpec?.baseUrl,
-              hasAssistantMessage: Boolean(latestAssistantRecord),
-              assistantStopReason,
-              assistantErrorMessage,
-              assistantFailureReason,
-              assistantContentKind,
-              inFlightToolCalls,
-              fallbackCandidates: fallbacks.filter(
-                (fallback) => fallback !== modelRef && !tried.has(fallback),
-              ),
-            },
-            "Agent prompt attempt failed diagnostics",
-          );
-
-          const errorText = err.message || String(err);
-          if (isContextOverflowError(errorText) && !isCompactionFailureError(errorText)) {
-            if (overflowCompactionAttempts < MessageHandler.MAX_OVERFLOW_COMPACTION_ATTEMPTS) {
-              overflowCompactionAttempts++;
-              logger.warn(
-                { sessionKey, agentId, attempt: overflowCompactionAttempts },
-                "Context overflow detected, triggering auto-compaction",
-              );
-
-              const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
-              if (
-                memoryConfig.persistence.enabled &&
-                memoryConfig.persistence.onOverflowCompaction
-              ) {
-                const meta = this.agentManager.getSessionMetadata(sessionKey)?.memoryFlush as
-                  | FlushMetadata
-                  | undefined;
-                if (!meta || meta.lastAttemptedCycle < overflowCompactionAttempts) {
-                  const success = await this.flushMemory(
-                    sessionKey,
-                    agentId,
-                    agent.messages,
-                    memoryConfig.persistence,
-                  );
-                  this.agentManager.updateSessionMetadata(sessionKey, {
-                    memoryFlush: {
-                      lastAttemptedCycle: overflowCompactionAttempts,
-                      lastTimestamp: Date.now(),
-                      lastStatus: success ? "success" : "failure",
-                      trigger: "overflow",
-                    },
-                  });
-                }
-              }
-
-              const compactResult = await this.agentManager.compactSession(sessionKey, agentId);
-              if (compactResult.success) {
-                logger.info(
-                  { sessionKey, tokensReclaimed: compactResult.tokensReclaimed },
-                  "Auto-compaction succeeded, retrying prompt",
-                );
-                continue;
-              }
-              logger.warn({ sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
-            }
-            logger.error(
-              { sessionKey, agentId },
-              "Context overflow: prompt too large. Try /compact or /new.",
-            );
-            throw err;
-          }
-
-          if (isTransientError(errorText) && !isTimeoutError) {
-            const transientAttempts = transientRetryCounts.get(modelRef) ?? 0;
-            if (transientAttempts < 2) {
-              transientRetryCounts.set(modelRef, transientAttempts + 1);
-              const delayMs = 1000 * 2 ** transientAttempts;
-              logger.warn(
-                { sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
-                "Transient error, retrying current model after backoff",
-              );
-              await new Promise((r) => setTimeout(r, delayMs));
-              continue;
-            }
-          }
-
-          tried.add(modelRef);
-          const nextFallback = fallbacks.find((m) => !tried.has(m));
-          if (!nextFallback) {
-            throw err;
-          }
-          const nextFallbackSpec = this.modelRegistry.get(nextFallback);
-          logger.warn(
-            {
-              sessionKey,
-              agentId,
-              fromModel: modelRef,
-              fromModelApi: modelSpec?.api,
-              fromProvider: modelSpec?.provider,
-              toModel: nextFallback,
-              toModelApi: nextFallbackSpec?.api,
-              toProvider: nextFallbackSpec?.provider,
-              attempt,
-              error: err.message,
-            },
-            "Agent prompt failed, switching to fallback model",
-          );
-          await this.agentManager.setSessionModel(sessionKey, nextFallback, { persist: false });
-          await onFallback?.({
-            fromModel: modelRef,
-            toModel: nextFallback,
-            attempt,
-            error: err.message,
-          });
-        } finally {
-          if (unsubscribe) {
-            unsubscribe();
-          }
-          this.clearActivePromptRun(sessionKey);
-          clearInterval(progressTimer);
         }
-      }
-    } finally {
-      this.agentManager.clearRuntimeModelOverride(sessionKey);
-    }
-  }
 
-  private async handleAgentStreamEvent(
-    event: AgentSessionEvent,
-    onStream: StreamingCallback,
-    updateAccumulated: (text: string) => void,
-  ): Promise<void> {
-    if (event.type === "message_update") {
-      const assistantEvent = event.assistantMessageEvent;
-      if (assistantEvent.type === "text_delta") {
-        updateAccumulated(assistantEvent.delta);
-        await onStream({ type: "text_delta", delta: assistantEvent.delta });
-      }
-    } else if (event.type === "tool_execution_start") {
-      await onStream({
-        type: "tool_start",
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-      });
-    } else if (event.type === "tool_execution_end") {
-      await onStream({
-        type: "tool_end",
-        toolName: event.toolName,
-        toolCallId: event.toolCallId,
-        isError: event.isError,
-      });
+        const compactResult = await this.agentManager.compactSession(sessionKey, agentId);
+        if (!compactResult.success) {
+          logger.warn({ sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
+          throw new Error("Auto-compaction failed");
+        }
+        logger.info(
+          { sessionKey, tokensReclaimed: compactResult.tokensReclaimed },
+          "Auto-compaction succeeded, retrying prompt",
+        );
+      },
+      deps: {
+        logger,
+        agentManager: {
+          getAgent: async (targetSessionKey, targetAgentId) => {
+            const current = await this.agentManager.getAgent(targetSessionKey, targetAgentId);
+            return { agent: current.agent as PromptAgent, modelRef: current.modelRef };
+          },
+          getAgentFallbacks: (targetAgentId) => this.agentManager.getAgentFallbacks(targetAgentId),
+          setSessionModel: async (targetSessionKey, modelRef, options) => {
+            await this.agentManager.setSessionModel(targetSessionKey, modelRef, options);
+          },
+          clearRuntimeModelOverride: (targetSessionKey) =>
+            this.agentManager.clearRuntimeModelOverride(targetSessionKey),
+          resolvePromptTimeoutMs: (targetAgentId) =>
+            this.agentManager.resolvePromptTimeoutMs(targetAgentId),
+        },
+        errorClassifiers: {
+          isAgentBusyError: (err) => this.isAgentBusyError(err),
+          isContextOverflowError: (message) =>
+            isContextOverflowError(message) && !isCompactionFailureError(message),
+          isAbortError: (error) => this.isAbortError(error),
+          isTransientError: (message) => isTransientError(message),
+          toError: (err) => this.toError(err),
+        },
+      },
+      activeMap: this.activePromptRuns,
+      interruptedSet: this.interruptedPromptRuns,
+    });
+
+    const current = await this.agentManager.getAgent(sessionKey, agentId);
+    const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)].toReversed().find(
+      (m) => m && m.role === "assistant",
+    );
+    const failureReason = getAssistantFailureReason(latestAssistant);
+    if (failureReason) {
+      throw new Error(failureReason);
+    }
+    this.agentManager.updateSessionContext(sessionKey, current.agent.messages);
+    const usage = this.agentManager.getContextUsage(sessionKey);
+    if (usage) {
+      logger.debug(
+        {
+          sessionKey,
+          agentId,
+          responseTokens: latestAssistant ? estimateMessagesTokens([latestAssistant as AgentMessage]) : 0,
+          totalContextTokens: usage.usedTokens,
+          contextWindow: usage.totalTokens,
+          fillPercentage: usage.percentage,
+        },
+        "Prompt completed with usage stats",
+      );
     }
   }
 
@@ -1239,32 +701,8 @@ export class MessageHandler {
     }
   }
 
-  private registerActivePromptRun(params: {
-    sessionKey: string;
-    agentId: string;
-    modelRef: string;
-    startedAt: number;
-    agent: ActivePromptAgent;
-  }): void {
-    this.interruptedPromptRuns.delete(params.sessionKey);
-    this.activePromptRuns.set(params.sessionKey, {
-      agentId: params.agentId,
-      modelRef: params.modelRef,
-      startedAt: params.startedAt,
-      agent: params.agent,
-    });
-  }
-
-  private clearActivePromptRun(sessionKey: string): void {
-    this.activePromptRuns.delete(sessionKey);
-    this.interruptedPromptRuns.delete(sessionKey);
-  }
-
-  private async waitForAgentIdle(_agent: ActivePromptAgent, timeoutMs?: number): Promise<void> {
-    const SETTLE_DELAY_MS = 50;
-    await new Promise<void>((resolve) =>
-      setTimeout(resolve, Math.min(timeoutMs ?? SETTLE_DELAY_MS, SETTLE_DELAY_MS)),
-    );
+  private async waitForAgentIdle(agent: ActivePromptAgent, timeoutMs?: number): Promise<void> {
+    await waitForAgentIdle(agent as PromptAgent, timeoutMs);
   }
 
   private async flushMemory(
