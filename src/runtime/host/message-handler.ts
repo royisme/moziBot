@@ -28,6 +28,7 @@ import {
   isCompactionFailureError,
   estimateMessagesTokens,
 } from "../context-management";
+import { isTransientError } from "../core/error-policy";
 import { SubagentRegistry } from "../subagent-registry";
 import { computeNextRun } from "./reminders/schedule";
 import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
@@ -54,9 +55,9 @@ import type { OrchestratorDeps } from "./message-handler/contract";
 import { createMessageTurnContext } from "./message-handler/context";
 import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
 import {
-  createCommandHandlerMap,
   type CommandHandlerMap,
 } from "./message-handler/services/command-handlers";
+import { buildMessageCommandHandlerMap } from "./message-handler/services/command-registry";
 import {
   finalizeStreamingReply,
   buildNegotiatedOutbound,
@@ -144,7 +145,6 @@ type ActivePromptAgent = {
 
 export class MessageHandler {
   private static readonly PROMPT_PROGRESS_LOG_INTERVAL_MS = 30_000;
-  private static readonly PROMPT_EXECUTION_TIMEOUT_MS = 60_000;
   private static readonly INTERRUPT_WAIT_TIMEOUT_MS = 5_000;
   private static readonly MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3;
   private sessions: SessionStore;
@@ -1322,6 +1322,7 @@ export class MessageHandler {
     const { sessionKey, agentId, text, onStream, onFallback } = params;
     const fallbacks = this.agentManager.getAgentFallbacks(agentId);
     const tried = new Set<string>();
+    const transientRetryCounts = new Map<string, number>();
     let attempt = 0;
     let overflowCompactionAttempts = 0;
 
@@ -1454,9 +1455,10 @@ export class MessageHandler {
               );
             });
           };
+          const promptTimeoutMs = this.agentManager.resolvePromptTimeoutMs(agentId);
           const timeoutHandle = setTimeout(() => {
             abortRun(new Error("Agent prompt timeout"));
-          }, MessageHandler.PROMPT_EXECUTION_TIMEOUT_MS);
+          }, promptTimeoutMs);
 
           try {
             await abortable(Promise.resolve(agent.prompt(text)));
@@ -1629,6 +1631,20 @@ export class MessageHandler {
               "Context overflow: prompt too large. Try /compact or /new.",
             );
             throw err;
+          }
+
+          if (isTransientError(errorText) && !isTimeoutError) {
+            const transientAttempts = transientRetryCounts.get(modelRef) ?? 0;
+            if (transientAttempts < 2) {
+              transientRetryCounts.set(modelRef, transientAttempts + 1);
+              const delayMs = 1000 * 2 ** transientAttempts;
+              logger.warn(
+                { sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
+                "Transient error, retrying current model after backoff",
+              );
+              await new Promise((r) => setTimeout(r, delayMs));
+              continue;
+            }
           }
 
           tried.add(modelRef);
@@ -2137,43 +2153,28 @@ export class MessageHandler {
   }
 
   private createCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
-    return createCommandHandlerMap({
-      start: async ({ peerId }) => {
-        await channel.send(peerId, {
-          text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
-        });
+    return buildMessageCommandHandlerMap({
+      channel: {
+        send: async (peerId, payload) => {
+          await channel.send(peerId, payload);
+        },
       },
-      help: async ({ peerId }) => {
-        await channel.send(peerId, {
-          text: "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]",
-        });
+      onWhoami: async ({ message, peerId }) => {
+        await this.handleWhoamiCommand({ message, channel, peerId });
       },
-      whoami: async ({ message, peerId }) => {
-        await this.handleWhoamiCommand({
-          message: message as InboundMessage,
-          channel,
-          peerId,
-        });
+      onStatus: async ({ sessionKey, agentId, message, peerId }) => {
+        await this.handleStatusCommand({ sessionKey, agentId, message, channel, peerId });
       },
-      status: async ({ sessionKey, agentId, message, peerId }) => {
-        await this.handleStatusCommand({
-          sessionKey,
-          agentId,
-          message: message as InboundMessage,
-          channel,
-          peerId,
-        });
-      },
-      new: async ({ sessionKey, agentId, peerId }) => {
+      onNew: async ({ sessionKey, agentId, peerId }) => {
         await this.handleNewSessionCommand(sessionKey, agentId, channel, peerId);
       },
-      models: async ({ sessionKey, agentId, peerId }) => {
+      onModels: async ({ sessionKey, agentId, peerId }) => {
         await this.handleModelsCommand(sessionKey, agentId, channel, peerId);
       },
-      switch: async ({ sessionKey, agentId, peerId }, args) => {
+      onSwitch: async ({ sessionKey, agentId, peerId, args }) => {
         await this.handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
       },
-      stop: async ({ sessionKey, peerId }) => {
+      onStop: async ({ sessionKey, peerId }) => {
         const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
         await channel.send(peerId, {
           text: interrupted
@@ -2181,16 +2182,16 @@ export class MessageHandler {
             : "No active run to stop.",
         });
       },
-      restart: async ({ peerId }) => {
+      onRestart: async ({ peerId }) => {
         await this.handleRestartCommand(channel, peerId);
       },
-      compact: async ({ sessionKey, agentId, peerId }) => {
+      onCompact: async ({ sessionKey, agentId, peerId }) => {
         await this.handleCompactCommand({ sessionKey, agentId, channel, peerId });
       },
-      context: async ({ sessionKey, agentId, peerId }) => {
+      onContext: async ({ sessionKey, agentId, peerId }) => {
         await this.handleContextCommand({ sessionKey, agentId, channel, peerId });
       },
-      think: async ({ sessionKey, agentId, peerId }, args) => {
+      onThink: async ({ sessionKey, agentId, peerId, args }) => {
         await handleThinkCommand({
           agentManager: this.agentManager,
           sessionKey,
@@ -2200,7 +2201,7 @@ export class MessageHandler {
           args,
         });
       },
-      reasoning: async ({ sessionKey, peerId }, args) => {
+      onReasoning: async ({ sessionKey, peerId, args }) => {
         await handleReasoningCommand({
           agentManager: this.agentManager,
           sessionKey,
@@ -2209,52 +2210,46 @@ export class MessageHandler {
           args,
         });
       },
-      setauth: async ({ agentId, message, peerId }, args) => {
+      onSetAuth: async ({ agentId, message, peerId, args }) => {
         await this.handleAuthCommand({
           args: `set ${args}`.trim(),
           agentId,
-          senderId: (message as InboundMessage).senderId,
+          senderId: message.senderId,
           channel,
           peerId,
         });
       },
-      unsetauth: async ({ agentId, message, peerId }, args) => {
+      onUnsetAuth: async ({ agentId, message, peerId, args }) => {
         await this.handleAuthCommand({
           args: `unset ${args}`.trim(),
           agentId,
-          senderId: (message as InboundMessage).senderId,
+          senderId: message.senderId,
           channel,
           peerId,
         });
       },
-      listauth: async ({ agentId, message, peerId }, args) => {
+      onListAuth: async ({ agentId, message, peerId, args }) => {
         await this.handleAuthCommand({
           args: `list ${args}`.trim(),
           agentId,
-          senderId: (message as InboundMessage).senderId,
+          senderId: message.senderId,
           channel,
           peerId,
         });
       },
-      checkauth: async ({ agentId, message, peerId }, args) => {
+      onCheckAuth: async ({ agentId, message, peerId, args }) => {
         await this.handleAuthCommand({
           args: `check ${args}`.trim(),
           agentId,
-          senderId: (message as InboundMessage).senderId,
+          senderId: message.senderId,
           channel,
           peerId,
         });
       },
-      reminders: async ({ sessionKey, message, peerId }, args) => {
-        await this.handleRemindersCommand({
-          sessionKey,
-          message: message as InboundMessage,
-          channel,
-          peerId,
-          args,
-        });
+      onReminders: async ({ sessionKey, message, peerId, args }) => {
+        await this.handleRemindersCommand({ sessionKey, message, channel, peerId, args });
       },
-      heartbeat: async ({ agentId, peerId }, args) => {
+      onHeartbeat: async ({ agentId, peerId, args }) => {
         await this.handleHeartbeatCommand({ agentId, channel, peerId, args });
       },
     });
