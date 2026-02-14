@@ -34,6 +34,7 @@ import {
 import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
+import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -230,23 +231,6 @@ export class MessageHandler {
     return "1.0.2";
   }
 
-  private async maybePreFlushBeforePrompt(params: {
-    sessionKey: string;
-    agentId: string;
-  }): Promise<void> {
-    const { sessionKey, agentId } = params;
-    await maybePreFlushBeforePromptService({
-      sessionKey,
-      agentId,
-      config: this.config,
-      agentManager: this.agentManager,
-      flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
-        await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
-    });
-  }
-
-
-
   private async runPromptWithFallback(params: {
     sessionKey: string;
     agentId: string;
@@ -263,34 +247,7 @@ export class MessageHandler {
       ...params,
       config: this.config,
       logger,
-      agentManager: this.agentManager as unknown as {
-        getAgent(sessionKey: string, agentId: string): Promise<{
-          agent: PromptAgent & { messages: AgentMessage[] };
-          modelRef: string;
-        }>;
-        getAgentFallbacks(agentId: string): string[];
-        setSessionModel(
-          sessionKey: string,
-          modelRef: string,
-          options: { persist: boolean },
-        ): Promise<void>;
-        clearRuntimeModelOverride(sessionKey: string): void;
-        resolvePromptTimeoutMs(agentId: string): number;
-        getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined;
-        updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void;
-        compactSession(
-          sessionKey: string,
-          agentId: string,
-        ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
-        updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
-        getContextUsage(sessionKey: string):
-          | {
-              usedTokens: number;
-              totalTokens: number;
-              percentage: number;
-            }
-          | null;
-      },
+      agentManager: toPromptCoordinatorAgentManager(this.agentManager),
       activeMap: this.activePromptRuns,
       interruptedSet: this.interruptedPromptRuns,
       flushMemory: async (sessionKey, agentId, messages, config) =>
@@ -373,7 +330,7 @@ export class MessageHandler {
       if (typeof active.agent.abort === "function") {
         await Promise.resolve(active.agent.abort());
       }
-      await this.waitForAgentIdle(active.agent, MessageHandler.INTERRUPT_WAIT_TIMEOUT_MS);
+      await waitForAgentIdle(active.agent as PromptAgent, MessageHandler.INTERRUPT_WAIT_TIMEOUT_MS);
       return true;
     } catch (error) {
       logger.warn(
@@ -386,10 +343,6 @@ export class MessageHandler {
       );
       return true;
     }
-  }
-
-  private async waitForAgentIdle(agent: ActivePromptAgent, timeoutMs?: number): Promise<void> {
-    await waitForAgentIdle(agent as PromptAgent, timeoutMs);
   }
 
   private async flushMemory(
@@ -547,7 +500,15 @@ export class MessageHandler {
       normalizeImplicitControlCommand: (text) => normalizeImplicitControlCommand(text),
       createCommandHandlerMap: (targetChannel) => this.createCommandHandlerMap(targetChannel),
       runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
-      maybePreFlushBeforePrompt: async (params) => await this.maybePreFlushBeforePrompt(params),
+      maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) =>
+        await maybePreFlushBeforePromptService({
+          sessionKey,
+          agentId,
+          config: this.config,
+          agentManager: this.agentManager,
+          flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
+            await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
+        }),
     });
   }
 
