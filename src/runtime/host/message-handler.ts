@@ -45,6 +45,11 @@ import {
 } from "./message-handler/services/prompt-text";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
 import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
+import {
+  resolveSessionMessages as resolveSessionMessagesService,
+  resolveSessionMetadata as resolveSessionMetadataService,
+  resolveSessionTimestamps as resolveSessionTimestampsService,
+} from "./message-handler/services/orchestrator-session";
 import { getAssistantFailureReason } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -902,29 +907,18 @@ export class MessageHandler {
         this.agentManager.resetSession(sessionKey, agentId);
       },
       getSessionTimestamps: (sessionKey) => {
-        const session =
-          this.sessions.get(sessionKey) ||
-          this.sessions.getOrCreate(sessionKey, this.agentManager.resolveDefaultAgentId());
-        const now = Date.now();
-        return {
-          createdAt: session?.createdAt ?? now,
-          updatedAt: session?.updatedAt,
-        };
+        return resolveSessionTimestampsService({
+          sessionKey,
+          sessions: this.sessions,
+          agentManager: this.agentManager,
+        });
       },
       getSessionMetadata: (sessionKey) => {
-        const fromAgentManager = this.agentManager.getSessionMetadata(sessionKey);
-        if (fromAgentManager && Object.keys(fromAgentManager).length > 0) {
-          return fromAgentManager;
-        }
-        const fromSessionStore = this.sessions.get(sessionKey)?.metadata;
-        if (fromSessionStore && Object.keys(fromSessionStore).length > 0) {
-          return fromSessionStore;
-        }
-        const fromSessionStoreCreated = this.sessions.getOrCreate(
+        return resolveSessionMetadataService({
           sessionKey,
-          this.agentManager.resolveDefaultAgentId(),
-        ).metadata;
-        return fromSessionStoreCreated || {};
+          sessions: this.sessions,
+          agentManager: this.agentManager,
+        });
       },
       updateSessionMetadata: (sessionKey, meta) => {
         this.agentManager.updateSessionMetadata(sessionKey, meta);
@@ -933,19 +927,12 @@ export class MessageHandler {
         Boolean(this.sessions.revertToPreviousSegment(sessionKey, agentId)),
       getConfigAgents: () => (this.config.agents || {}) as Record<string, unknown>,
       getSessionMessages: (sessionKey) => {
-        const latest = this.latestPromptMessages.get(sessionKey);
-        if (latest && latest.length > 0) {
-          return latest;
-        }
-        const existing = this.sessions.get(sessionKey)?.context;
-        if (Array.isArray(existing) && existing.length > 0) {
-          return existing as import("./message-handler/services/reply-finalizer").AssistantMessageShape[];
-        }
-        const created = this.sessions.getOrCreate(
+        return resolveSessionMessagesService({
           sessionKey,
-          this.agentManager.resolveDefaultAgentId(),
-        ).context;
-        return (created || []) as import("./message-handler/services/reply-finalizer").AssistantMessageShape[];
+          sessions: this.sessions,
+          agentManager: this.agentManager,
+          latestPromptMessages: this.latestPromptMessages,
+        });
       },
       transcribeInboundMessage: async (payload) => {
         const result = await this.mediaPreprocessor.preprocessInboundMessage(
