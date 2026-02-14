@@ -44,6 +44,7 @@ import {
   buildRawTextWithTranscription as buildRawTextWithTranscriptionService,
 } from "./message-handler/services/prompt-text";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
+import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
 import { getAssistantFailureReason } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -361,21 +362,13 @@ export class MessageHandler {
   }
 
   private resolveCurrentReasoningLevel(sessionKey: string, agentId: string): ReasoningLevel {
-    const metadata = this.agentManager.getSessionMetadata(sessionKey) as
-      | { reasoningLevel?: ReasoningLevel }
-      | undefined;
-    if (metadata?.reasoningLevel) {
-      return metadata.reasoningLevel;
-    }
-
-    const agents = (this.config.agents || {}) as Record<string, unknown>;
-    const defaults =
-      (agents.defaults as { output?: { reasoningLevel?: ReasoningLevel } } | undefined)?.output ||
-      undefined;
-    const entry =
-      (agents[agentId] as { output?: { reasoningLevel?: ReasoningLevel } } | undefined)?.output ||
-      undefined;
-    return entry?.reasoningLevel ?? defaults?.reasoningLevel ?? "off";
+    return resolveCurrentReasoningLevelService({
+      sessionMetadata: this.agentManager.getSessionMetadata(sessionKey) as
+        | { reasoningLevel?: ReasoningLevel }
+        | undefined,
+      agentsConfig: (this.config.agents || {}) as Record<string, unknown>,
+      agentId,
+    });
   }
 
   private async maybePreFlushBeforePrompt(params: {
