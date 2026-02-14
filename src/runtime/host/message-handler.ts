@@ -1,7 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
-import type { DeliveryPlan } from "../../multimodal/capabilities";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { SessionManager } from "./sessions/manager";
@@ -10,7 +9,6 @@ import { logger } from "../../logger";
 import {
   type ResolvedMemoryPersistenceConfig,
 } from "../../memory/backend-config";
-import { ingestInboundMessage } from "../../multimodal/ingest";
 import { SubagentRegistry } from "../subagent-registry";
 import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
 import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
@@ -28,23 +26,14 @@ import {
   waitForAgentIdle,
   type PromptAgent,
 } from "./message-handler/services/prompt-runner";
-import {
-  buildPromptText as buildPromptTextService,
-  buildRawTextWithTranscription as buildRawTextWithTranscriptionService,
-} from "./message-handler/services/prompt-text";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
 import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
 import {
-  isAbortError as isAbortErrorService,
   toError as toErrorService,
 } from "./message-handler/services/error-utils";
 import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
-import {
-  resolveSessionMessages as resolveSessionMessagesService,
-  resolveSessionMetadata as resolveSessionMetadataService,
-  resolveSessionTimestamps as resolveSessionTimestampsService,
-} from "./message-handler/services/orchestrator-session";
+import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -55,7 +44,7 @@ import {
   normalizeImplicitControlCommand as normalizeImplicitControlCommandService,
 } from "./commands/parser";
 import {
-  parseInlineOverrides as parseInlineOverridesService,
+  parseInlineOverrides as _unusedParseInlineOverridesService,
 } from "./commands/reasoning";
 import type { ReasoningLevel } from "../model/thinking";
 import {
@@ -71,30 +60,30 @@ import {
 } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
 import {
-  finalizeStreamingReply,
-  buildNegotiatedOutbound,
-  sendNegotiatedReply,
+  finalizeStreamingReply as _unusedFinalizeStreamingReply,
+  buildNegotiatedOutbound as _unusedBuildNegotiatedOutbound,
+  sendNegotiatedReply as _unusedSendNegotiatedReply,
 } from "./message-handler/services/reply-dispatcher";
 import {
-  resolveLastAssistantReplyText,
-  shouldSuppressHeartbeatReply,
-  shouldSuppressSilentReply,
+  resolveLastAssistantReplyText as _unusedResolveLastAssistantReplyText,
+  shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
+  shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
 import {
-  StreamingBuffer as TurnStreamingBuffer,
+  StreamingBuffer as _unusedTurnStreamingBuffer,
 } from "./message-handler/services/streaming";
 import {
-  emitPhaseSafely as emitPhaseSafelyService,
-  startTypingIndicator as startTypingIndicatorService,
-  stopTypingIndicator as stopTypingIndicatorService,
-  type InteractionPhase,
-  type PhasePayload,
+  emitPhaseSafely as _unusedEmitPhaseSafelyService,
+  startTypingIndicator as _unusedStartTypingIndicatorService,
+  stopTypingIndicator as _unusedStopTypingIndicatorService,
+  type InteractionPhase as _unusedInteractionPhase,
+  type PhasePayload as _unusedPhasePayload,
 } from "./message-handler/services/interaction-lifecycle";
 import {
-  createErrorReplyText as createErrorReplyTextService,
+  createErrorReplyText as _unusedCreateErrorReplyTextService,
 } from "./message-handler/services/error-reply";
-import { resolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
-import { checkInputCapability as checkInputCapabilityService } from "./message-handler/services/capability";
+import { resolveReplyRenderOptionsFromConfig as _unusedResolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
+import { checkInputCapability as _unusedCheckInputCapabilityService } from "./message-handler/services/capability";
 
 /**
  * Callback interface for streaming agent responses to channels.
@@ -672,269 +661,23 @@ export class MessageHandler {
   }
 
   private createOrchestratorDeps(channel: ChannelPlugin): OrchestratorDeps {
-    const lifecycleChannel = {
-      beginTyping: channel.beginTyping
-        ? async (peerId: string) => (await channel.beginTyping!(peerId)) ?? undefined
-        : undefined,
-      emitPhase: channel.emitPhase
-        ? async (
-            peerId: string,
-            phase: InteractionPhase,
-            payload?: PhasePayload,
-          ) => {
-            await channel.emitPhase!(peerId, phase, payload);
-          }
-        : undefined,
-    };
-
-    const streamingChannel = {
-      send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) =>
-        channel.send(peerId, message),
-      editMessage: async (messageId: string, peerId: string, text: string) => {
-        if (channel.editMessage) {
-          await channel.editMessage(messageId, peerId, text);
-        }
-      },
-    };
-
-    return {
+    return buildOrchestratorDepsService({
+      channel,
       config: this.config,
       logger,
-      getText: (payload) => ((payload as InboundMessage).text || "").toString(),
-      getMedia: (payload) => (payload as InboundMessage).media || [],
-      normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text) ?? text,
+      sessions: this.sessions,
+      agentManager: this.agentManager,
+      modelRegistry: this.modelRegistry,
+      mediaPreprocessor: this.mediaPreprocessor,
+      lastRoutes: this.lastRoutes,
+      latestPromptMessages: this.latestPromptMessages,
+      resolveSessionContext: (message) => this.resolveSessionContext(message),
       parseCommand: (text) => this.parseCommand(text),
-      parseInlineOverrides: (parsedCommand) =>
-        parseInlineOverridesService(
-          parsedCommand
-            ? {
-                name: parsedCommand.name as
-                  | "start"
-                  | "help"
-                  | "status"
-                  | "whoami"
-                  | "new"
-                  | "models"
-                  | "switch"
-                  | "stop"
-                  | "restart"
-                  | "compact"
-                  | "context"
-                  | "setauth"
-                  | "unsetauth"
-                  | "listauth"
-                  | "checkauth"
-                  | "reminders"
-                  | "heartbeat"
-                  | "think"
-                  | "reasoning",
-                args: parsedCommand.args,
-              }
-            : null,
-        ),
-      resolveSessionContext: (payload) => this.resolveSessionContext(payload as InboundMessage),
-      rememberLastRoute: (agentId, payload) => {
-        const message = payload as InboundMessage;
-        this.lastRoutes.set(agentId, {
-          channelId: message.channel,
-          peerId: message.peerId,
-          peerType: message.peerType ?? "dm",
-          accountId: message.accountId,
-          threadId: message.threadId,
-        });
-      },
-      sendDirect: async (peerId, text) => {
-        await channel.send(peerId, { text });
-      },
-      getCommandHandlerMap: () => this.createCommandHandlerMap(channel),
-      getChannel: () => ({
-        id: channel.id,
-        editMessage: channel.editMessage,
-        send: (peerId, message) => channel.send(peerId, message),
-      }),
-      resetSession: (sessionKey, agentId) => {
-        this.agentManager.resetSession(sessionKey, agentId);
-      },
-      getSessionTimestamps: (sessionKey) => {
-        return resolveSessionTimestampsService({
-          sessionKey,
-          sessions: this.sessions,
-          agentManager: this.agentManager,
-        });
-      },
-      getSessionMetadata: (sessionKey) => {
-        return resolveSessionMetadataService({
-          sessionKey,
-          sessions: this.sessions,
-          agentManager: this.agentManager,
-        });
-      },
-      updateSessionMetadata: (sessionKey, meta) => {
-        this.agentManager.updateSessionMetadata(sessionKey, meta);
-      },
-      revertToPreviousSegment: (sessionKey, agentId) =>
-        Boolean(this.sessions.revertToPreviousSegment(sessionKey, agentId)),
-      getConfigAgents: () => (this.config.agents || {}) as Record<string, unknown>,
-      getSessionMessages: (sessionKey) => {
-        return resolveSessionMessagesService({
-          sessionKey,
-          sessions: this.sessions,
-          agentManager: this.agentManager,
-          latestPromptMessages: this.latestPromptMessages,
-        });
-      },
-      transcribeInboundMessage: async (payload) => {
-        const result = await this.mediaPreprocessor.preprocessInboundMessage(
-          payload as InboundMessage,
-        );
-        return result.transcript ?? undefined;
-      },
-      checkInputCapability: async ({ sessionKey, agentId, message, peerId, hasAudioTranscript }) => {
-        return await checkInputCapabilityService({
-          sessionKey,
-          agentId,
-          peerId,
-          hasAudioTranscript,
-          media: ((message as InboundMessage).media || []).map((item, index) => ({
-            type: item.type,
-            mediaId: `media-${index + 1}`,
-          })),
-          deps: {
-            logger,
-            channel: {
-              send: async (targetPeerId, payload) => {
-                await channel.send(targetPeerId, payload);
-              },
-            },
-            agentManager: {
-              getAgent: async (targetSessionKey, targetAgentId) => {
-                const current = await this.agentManager.getAgent(targetSessionKey, targetAgentId);
-                return { modelRef: current.modelRef };
-              },
-              ensureSessionModelForInput: async ({ sessionKey, agentId, input }) => {
-                const routed = await this.agentManager.ensureSessionModelForInput({
-                  sessionKey,
-                  agentId,
-                  input,
-                });
-                if (routed.ok) {
-                  return {
-                    ok: true,
-                    switched: routed.switched,
-                    modelRef: routed.modelRef,
-                    candidates: [],
-                  };
-                }
-                return {
-                  ok: false,
-                  switched: false,
-                  modelRef: routed.modelRef,
-                  candidates: routed.candidates,
-                };
-              },
-            },
-          },
-        });
-      },
-      ingestInboundMessage: async ({ message, sessionKey, agentId }) => {
-        const inbound = message as InboundMessage;
-        const current = await this.agentManager.getAgent(sessionKey, agentId);
-        const modelSpec = this.modelRegistry.get(current.modelRef);
-        return ingestInboundMessage({
-          message: inbound,
-          sessionKey,
-          channelId: inbound.channel,
-          modelRef: current.modelRef,
-          modelSpec,
-        });
-      },
-      buildPromptText: ({ message, rawText, transcript, ingestPlan }) => {
-        const combined = buildRawTextWithTranscriptionService(rawText, transcript ?? null);
-        return buildPromptTextService({
-          message: message as InboundMessage,
-          rawText: combined,
-          ingestPlan: ingestPlan as DeliveryPlan | null | undefined,
-        });
-      },
-      ensureChannelContext: async ({ sessionKey, agentId, message }) => {
-        await this.agentManager.ensureChannelContext({
-          sessionKey,
-          agentId,
-          message: message as InboundMessage,
-        });
-      },
-      startTypingIndicator: async ({ sessionKey, agentId, peerId }) => {
-        return await startTypingIndicatorService({
-          channel: lifecycleChannel,
-          peerId,
-          sessionKey,
-          agentId,
-          deps: { logger, toError: toErrorService },
-        });
-      },
-      emitPhaseSafely: async ({ phase, payload }) => {
-        const resolvedPeerId = payload.agentId
-          ? this.lastRoutes.get(payload.agentId)?.peerId
-          : undefined;
-        if (!resolvedPeerId) {
-          return;
-        }
-        await emitPhaseSafelyService({
-          channel: lifecycleChannel,
-          peerId: resolvedPeerId,
-          phase,
-          payload,
-          deps: { logger, toError: toErrorService },
-        });
-      },
-      createStreamingBuffer: ({ peerId, onError }) =>
-        new TurnStreamingBuffer(streamingChannel, peerId, onError),
-      runPromptWithFallback: async ({ sessionKey, agentId, text, onStream, onFallback }) => {
-        await this.runPromptWithFallback({
-          sessionKey,
-          agentId,
-          text,
-          onStream,
-          onFallback,
-        });
-        const current = await this.agentManager.getAgent(sessionKey, agentId);
-        this.latestPromptMessages.set(
-          sessionKey,
-          current.agent.messages as import("./message-handler/services/reply-finalizer").AssistantMessageShape[],
-        );
-      },
-      maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) => {
-        await this.maybePreFlushBeforePrompt({ sessionKey, agentId });
-      },
-      resolveReplyRenderOptions: (agentId) =>
-        resolveReplyRenderOptionsFromConfig(agentId, (this.config.agents || {}) as Record<string, unknown>),
-      resolveLastAssistantReplyText: ({ messages, renderOptions }) =>
-        resolveLastAssistantReplyText({ messages, renderOptions }),
-      shouldSuppressSilentReply: (text) => shouldSuppressSilentReply(text),
-      shouldSuppressHeartbeatReply: (raw, text) =>
-        shouldSuppressHeartbeatReply(raw as { source?: string } | undefined, text),
-      finalizeStreamingReply: async ({ buffer, replyText }) =>
-        finalizeStreamingReply({ buffer, replyText }),
-      buildNegotiatedOutbound: ({ channelId, replyText, inboundPlan }) =>
-        buildNegotiatedOutbound({ channelId, replyText, inboundPlan }),
-      sendNegotiatedReply: async ({ peerId, outbound }) =>
-        sendNegotiatedReply({ channel, peerId, outbound }),
-      toError: (err) => toErrorService(err),
-      isAbortError: (err) => isAbortErrorService(err),
-      createErrorReplyText: (err) => createErrorReplyTextService(err),
-      setSessionModel: async (sessionKey, modelRef) => {
-        await this.agentManager.setSessionModel(sessionKey, modelRef);
-      },
-      stopTypingIndicator: async ({ stop, sessionKey, agentId, peerId }) => {
-        await stopTypingIndicatorService({
-          stop,
-          sessionKey,
-          agentId,
-          peerId,
-          deps: { logger, toError: toErrorService },
-        });
-      },
-    };
+      normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text),
+      createCommandHandlerMap: (targetChannel) => this.createCommandHandlerMap(targetChannel),
+      runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
+      maybePreFlushBeforePrompt: async (params) => await this.maybePreFlushBeforePrompt(params),
+    });
   }
 
   async handle(message: InboundMessage, channel: ChannelPlugin): Promise<void> {
