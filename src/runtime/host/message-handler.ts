@@ -52,6 +52,7 @@ import {
 } from "./commands/reasoning";
 import type { ReasoningLevel } from "../model/thinking";
 import {
+  handleWhoamiCommand as handleWhoamiCommandService,
   handleStatusCommand as handleStatusCommandService,
   handleContextCommand as handleContextCommandService,
 } from "./commands/session";
@@ -545,19 +546,6 @@ export class MessageHandler {
     return "1.0.2";
   }
 
-  private formatUptime(seconds: number): string {
-    if (seconds < 60) {
-      return `${seconds}s`;
-    }
-    if (seconds < 3600) {
-      return `${Math.floor(seconds / 60)}m`;
-    }
-    if (seconds < 86400) {
-      return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-    }
-    return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
-  }
-
   private async handleNewSessionCommand(
     sessionKey: string,
     agentId: string,
@@ -673,25 +661,7 @@ export class MessageHandler {
     channel: ChannelPlugin;
     peerId: string;
   }): Promise<void> {
-    const { message, channel, peerId } = params;
-
-    const lines = [
-      "Identity information:",
-      `  User ID: ${message.senderId}`,
-      `  Username: ${message.senderName || "(unknown)"}`,
-      `  Channel: ${message.channel}`,
-      `  Chat ID: ${message.peerId}`,
-      `  Chat type: ${message.peerType ?? "dm"}`,
-    ];
-
-    if (message.accountId) {
-      lines.push(`  Account ID: ${message.accountId}`);
-    }
-    if (message.threadId) {
-      lines.push(`  Thread ID: ${message.threadId}`);
-    }
-
-    await channel.send(peerId, { text: lines.join("\n") });
+    await handleWhoamiCommandService(params);
   }
 
   private async handleAuthCommand(params: {
@@ -711,37 +681,6 @@ export class MessageHandler {
       config: this.config,
       toError: (error) => this.toError(error),
     });
-  }
-
-  private parseMissingAuthKey(message: string): string | null {
-    const marker = /AUTH_MISSING[:\s]+([A-Z0-9_]+)/i.exec(message);
-    if (marker?.[1]) {
-      return marker[1];
-    }
-    const simple = /missing auth(?:entication)?(?: secret| key)?[:\s]+([A-Z0-9_]+)/i.exec(message);
-    if (simple?.[1]) {
-      return simple[1];
-    }
-    return null;
-  }
-
-  private isMissingAuthError(message: string): boolean {
-    const lower = message.toLowerCase();
-    return (
-      lower.includes("auth_missing") ||
-      lower.includes("missing auth") ||
-      lower.includes("missing authentication")
-    );
-  }
-
-  private formatTokens(tokens: number): string {
-    if (tokens < 1000) {
-      return `${tokens} tokens`;
-    }
-    if (tokens < 1_000_000) {
-      return `${(tokens / 1000).toFixed(1)}K tokens`;
-    }
-    return `${(tokens / 1_000_000).toFixed(1)}M tokens`;
   }
 
   private parseCommand(text: string): {
