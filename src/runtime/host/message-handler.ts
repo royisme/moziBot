@@ -26,6 +26,10 @@ import { SubagentRegistry } from "../subagent-registry";
 import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
 import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
 import { handleAuthCommand as handleAuthCommandService } from "./message-handler/services/auth-command";
+import {
+  handleModelsCommand as handleModelsCommandService,
+  handleSwitchCommand as handleSwitchCommandService,
+} from "./message-handler/services/models-command";
 import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -482,27 +486,14 @@ export class MessageHandler {
     channel: ChannelPlugin,
     peerId: string,
   ): Promise<void> {
-    const current = await this.agentManager.getAgent(sessionKey, agentId);
-    const refs = this.modelRegistry
-      .list()
-      .map((spec) => `${spec.provider}/${spec.id}`)
-      .toSorted();
-    if (refs.length === 0) {
-      await channel.send(peerId, {
-        text: "No models available. Please add models.providers to the configuration.",
-      });
-      return;
-    }
-    const lines = ["Available models:"];
-    for (const ref of refs) {
-      if (ref === current.modelRef) {
-        lines.push(`- ${ref} (current)`);
-      } else {
-        lines.push(`- ${ref}`);
-      }
-    }
-    lines.push("Switch model: /switch provider/model");
-    await channel.send(peerId, { text: lines.join("\n") });
+    await handleModelsCommandService({
+      sessionKey,
+      agentId,
+      channel,
+      peerId,
+      agentManager: this.agentManager,
+      modelRegistry: this.modelRegistry,
+    });
   }
 
   private async handleSwitchCommand(
@@ -512,32 +503,15 @@ export class MessageHandler {
     channel: ChannelPlugin,
     peerId: string,
   ): Promise<void> {
-    const modelRef = args.trim();
-    if (!modelRef) {
-      const current = await this.agentManager.getAgent(sessionKey, agentId);
-      await channel.send(peerId, {
-        text: `Current model: ${current.modelRef}\nUsage: /switch provider/model`,
-      });
-      return;
-    }
-    const resolved = this.modelRegistry.resolve(modelRef);
-    if (!resolved) {
-      const suggestions = this.modelRegistry.suggestRefs(modelRef, 5);
-      const suggestText =
-        suggestions.length > 0
-          ? `\nExample available models:\n${suggestions.map((ref) => `- ${ref}`).join("\n")}`
-          : "";
-      await channel.send(peerId, { text: `Model not found: ${modelRef}${suggestText}` });
-      return;
-    }
-    await this.agentManager.setSessionModel(sessionKey, resolved.ref);
-    if (resolved.ref !== modelRef) {
-      await channel.send(peerId, {
-        text: `Switched to model: ${resolved.ref} (auto-corrected from: ${modelRef})`,
-      });
-      return;
-    }
-    await channel.send(peerId, { text: `Switched to model: ${resolved.ref}` });
+    await handleSwitchCommandService({
+      sessionKey,
+      agentId,
+      args,
+      channel,
+      peerId,
+      agentManager: this.agentManager,
+      modelRegistry: this.modelRegistry,
+    });
   }
 
   private async handleStatusCommand(params: {
