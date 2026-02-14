@@ -7,13 +7,11 @@ import type { InboundMessage } from "../adapters/channels/types";
 import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
 import { logger } from "../../logger";
-import { getMemoryLifecycleOrchestrator } from "../../memory";
 import {
-  resolveHomeDir,
   resolveMemoryBackendConfig,
   type ResolvedMemoryPersistenceConfig,
 } from "../../memory/backend-config";
-import { FlushManager, type FlushMetadata } from "../../memory/flush-manager";
+import { type FlushMetadata } from "../../memory/flush-manager";
 import { ingestInboundMessage } from "../../multimodal/ingest";
 import {
   isContextOverflowError,
@@ -50,6 +48,7 @@ import {
   isAgentBusyError as isAgentBusyErrorService,
   toError as toErrorService,
 } from "./message-handler/services/error-utils";
+import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import {
   resolveSessionMessages as resolveSessionMessagesService,
   resolveSessionMetadata as resolveSessionMetadataService,
@@ -692,23 +691,14 @@ export class MessageHandler {
     messages: AgentMessage[],
     config: ResolvedMemoryPersistenceConfig,
   ): Promise<boolean> {
-    const flushManager = new FlushManager(resolveHomeDir(this.config, agentId));
-    try {
-      const timeout = config.timeoutMs || 1500;
-      const result = await Promise.race([
-        flushManager.flush({ messages, config, sessionKey }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Flush timeout")), timeout)),
-      ]);
-      const success = result === true;
-      if (success) {
-        const lifecycle = await getMemoryLifecycleOrchestrator(this.config, agentId);
-        await lifecycle.handle({ type: "flush_completed", sessionKey });
-      }
-      return success;
-    } catch (err) {
-      logger.warn({ err, sessionKey }, "Memory flush failed or timed out");
-      return false;
-    }
+    return await flushMemoryWithLifecycleService({
+      config: this.config,
+      sessionKey,
+      agentId,
+      messages,
+      persistence: config,
+      logger,
+    });
   }
 
   getLastRoute(agentId: string): LastRoute | undefined {
