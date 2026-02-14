@@ -8,17 +8,9 @@ import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
 import { logger } from "../../logger";
 import {
-  resolveMemoryBackendConfig,
   type ResolvedMemoryPersistenceConfig,
 } from "../../memory/backend-config";
-import { type FlushMetadata } from "../../memory/flush-manager";
 import { ingestInboundMessage } from "../../multimodal/ingest";
-import {
-  isContextOverflowError,
-  isCompactionFailureError,
-  estimateMessagesTokens,
-} from "../context-management";
-import { isTransientError } from "../core/error-policy";
 import { SubagentRegistry } from "../subagent-registry";
 import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
 import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
@@ -33,7 +25,6 @@ import {
   handleRestartCommand as handleRestartCommandService,
 } from "./message-handler/services/session-control-command";
 import {
-  runPromptWithFallback as runPromptWithFallbackService,
   waitForAgentIdle,
   type PromptAgent,
 } from "./message-handler/services/prompt-runner";
@@ -45,16 +36,15 @@ import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from ".
 import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
 import {
   isAbortError as isAbortErrorService,
-  isAgentBusyError as isAgentBusyErrorService,
   toError as toErrorService,
 } from "./message-handler/services/error-utils";
 import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
+import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import {
   resolveSessionMessages as resolveSessionMessagesService,
   resolveSessionMetadata as resolveSessionMetadataService,
   resolveSessionTimestamps as resolveSessionTimestampsService,
 } from "./message-handler/services/orchestrator-session";
-import { getAssistantFailureReason } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -488,105 +478,43 @@ export class MessageHandler {
       error: string;
     }) => Promise<void> | void;
   }): Promise<void> {
-    const { sessionKey, agentId, text, onStream, onFallback } = params;
-    await runPromptWithFallbackService({
-      sessionKey,
-      agentId,
-      text,
-      onStream,
-      onFallback,
-      onContextOverflow: async (attempt) => {
-        logger.warn(
-          { sessionKey, agentId, attempt },
-          "Context overflow detected, triggering auto-compaction",
-        );
-
-        const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
-        const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
-        if (memoryConfig.persistence.enabled && memoryConfig.persistence.onOverflowCompaction) {
-          const meta = this.agentManager.getSessionMetadata(sessionKey)?.memoryFlush as
-            | FlushMetadata
-            | undefined;
-          if (!meta || meta.lastAttemptedCycle < attempt) {
-            const success = await this.flushMemory(
-              sessionKey,
-              agentId,
-              agent.messages,
-              memoryConfig.persistence,
-            );
-            this.agentManager.updateSessionMetadata(sessionKey, {
-              memoryFlush: {
-                lastAttemptedCycle: attempt,
-                lastTimestamp: Date.now(),
-                lastStatus: success ? "success" : "failure",
-                trigger: "overflow",
-              },
-            });
-          }
-        }
-
-        const compactResult = await this.agentManager.compactSession(sessionKey, agentId);
-        if (!compactResult.success) {
-          logger.warn({ sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
-          throw new Error("Auto-compaction failed");
-        }
-        logger.info(
-          { sessionKey, tokensReclaimed: compactResult.tokensReclaimed },
-          "Auto-compaction succeeded, retrying prompt",
-        );
-      },
-      deps: {
-        logger,
-        agentManager: {
-          getAgent: async (targetSessionKey, targetAgentId) => {
-            const current = await this.agentManager.getAgent(targetSessionKey, targetAgentId);
-            return { agent: current.agent as PromptAgent, modelRef: current.modelRef };
-          },
-          getAgentFallbacks: (targetAgentId) => this.agentManager.getAgentFallbacks(targetAgentId),
-          setSessionModel: async (targetSessionKey, modelRef, options) => {
-            await this.agentManager.setSessionModel(targetSessionKey, modelRef, options);
-          },
-          clearRuntimeModelOverride: (targetSessionKey) =>
-            this.agentManager.clearRuntimeModelOverride(targetSessionKey),
-          resolvePromptTimeoutMs: (targetAgentId) =>
-            this.agentManager.resolvePromptTimeoutMs(targetAgentId),
-        },
-        errorClassifiers: {
-          isAgentBusyError: (err) => isAgentBusyErrorService(err),
-          isContextOverflowError: (message) =>
-            isContextOverflowError(message) && !isCompactionFailureError(message),
-          isAbortError: (error) => isAbortErrorService(error),
-          isTransientError: (message) => isTransientError(message),
-          toError: (err) => toErrorService(err),
-        },
+    await runPromptWithCoordinatorService({
+      ...params,
+      config: this.config,
+      logger,
+      agentManager: this.agentManager as unknown as {
+        getAgent(sessionKey: string, agentId: string): Promise<{
+          agent: PromptAgent & { messages: AgentMessage[] };
+          modelRef: string;
+        }>;
+        getAgentFallbacks(agentId: string): string[];
+        setSessionModel(
+          sessionKey: string,
+          modelRef: string,
+          options: { persist: boolean },
+        ): Promise<void>;
+        clearRuntimeModelOverride(sessionKey: string): void;
+        resolvePromptTimeoutMs(agentId: string): number;
+        getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined;
+        updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void;
+        compactSession(
+          sessionKey: string,
+          agentId: string,
+        ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
+        updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
+        getContextUsage(sessionKey: string):
+          | {
+              usedTokens: number;
+              totalTokens: number;
+              percentage: number;
+            }
+          | null;
       },
       activeMap: this.activePromptRuns,
       interruptedSet: this.interruptedPromptRuns,
+      flushMemory: async (sessionKey, agentId, messages, config) =>
+        await this.flushMemory(sessionKey, agentId, messages, config),
     });
-
-    const current = await this.agentManager.getAgent(sessionKey, agentId);
-    const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)].toReversed().find(
-      (m) => m && m.role === "assistant",
-    );
-    const failureReason = getAssistantFailureReason(latestAssistant);
-    if (failureReason) {
-      throw new Error(failureReason);
-    }
-    this.agentManager.updateSessionContext(sessionKey, current.agent.messages);
-    const usage = this.agentManager.getContextUsage(sessionKey);
-    if (usage) {
-      logger.debug(
-        {
-          sessionKey,
-          agentId,
-          responseTokens: latestAssistant ? estimateMessagesTokens([latestAssistant as AgentMessage]) : 0,
-          totalContextTokens: usage.usedTokens,
-          contextWindow: usage.totalTokens,
-          fillPercentage: usage.percentage,
-        },
-        "Prompt completed with usage stats",
-      );
-    }
   }
 
   isSessionActive(sessionKey: string): boolean {
