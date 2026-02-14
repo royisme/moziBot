@@ -4,7 +4,6 @@ import type { MoziConfig } from "../../config";
 import type { DeliveryPlan } from "../../multimodal/capabilities";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
-import type { SecretScope } from "../auth/types";
 import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
 import { logger } from "../../logger";
@@ -17,7 +16,6 @@ import {
 import { FlushManager, type FlushMetadata } from "../../memory/flush-manager";
 import { ingestInboundMessage } from "../../multimodal/ingest";
 import { buildProviderInputPayload } from "../../multimodal/provider-payload";
-import { createRuntimeSecretBroker } from "../auth/broker";
 import {
   isContextOverflowError,
   isCompactionFailureError,
@@ -27,6 +25,7 @@ import { isTransientError } from "../core/error-policy";
 import { SubagentRegistry } from "../subagent-registry";
 import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
 import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
+import { handleAuthCommand as handleAuthCommandService } from "./message-handler/services/auth-command";
 import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -167,7 +166,6 @@ export class MessageHandler {
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
   private mediaPreprocessor: InboundMediaPreprocessor;
-  private secretBroker = createRuntimeSecretBroker();
 
   getAgentManager(): AgentManager {
     return this.agentManager;
@@ -736,74 +734,6 @@ export class MessageHandler {
     await channel.send(peerId, { text: lines.join("\n") });
   }
 
-  private isAuthEnabled(): boolean {
-    return this.config.runtime?.auth?.enabled === true;
-  }
-
-  private parseAuthScope(arg: string | undefined, agentId: string): SecretScope {
-    const raw = (arg || "").trim();
-    if (!raw) {
-      const defaultScope = this.config.runtime?.auth?.defaultScope ?? "agent";
-      if (defaultScope === "global") {
-        return { type: "global" };
-      }
-      return { type: "agent", agentId };
-    }
-    if (raw === "global") {
-      return { type: "global" };
-    }
-    if (raw === "agent") {
-      return { type: "agent", agentId };
-    }
-    if (raw.startsWith("agent:")) {
-      const explicitAgent = raw.slice("agent:".length).trim();
-      return { type: "agent", agentId: explicitAgent || agentId };
-    }
-    return { type: "agent", agentId };
-  }
-
-  private formatScope(scope: SecretScope): string {
-    if (scope.type === "global") {
-      return "global";
-    }
-    return `agent:${scope.agentId}`;
-  }
-
-  private parseAuthArgs(args: string): {
-    command: "set" | "unset" | "list" | "check";
-    name?: string;
-    value?: string;
-    scopeArg?: string;
-  } | null {
-    const trimmed = args.trim();
-    if (!trimmed) {
-      return null;
-    }
-    const parts = trimmed.split(/\s+/);
-    const sub = parts[0]?.toLowerCase();
-    const scopeArg = parts.find((p) => p.startsWith("--scope="))?.slice("--scope=".length);
-    if (sub === "set") {
-      const keyValue = parts.find((p, i) => i > 0 && p.includes("="));
-      if (!keyValue) {
-        return { command: "set", scopeArg };
-      }
-      const idx = keyValue.indexOf("=");
-      const name = keyValue.slice(0, idx).trim();
-      const value = keyValue.slice(idx + 1);
-      return { command: "set", name, value, scopeArg };
-    }
-    if (sub === "unset") {
-      return { command: "unset", name: parts[1], scopeArg };
-    }
-    if (sub === "list") {
-      return { command: "list", scopeArg };
-    }
-    if (sub === "check") {
-      return { command: "check", name: parts[1], scopeArg };
-    }
-    return null;
-  }
-
   private async handleAuthCommand(params: {
     args: string;
     agentId: string;
@@ -812,89 +742,15 @@ export class MessageHandler {
     peerId: string;
   }): Promise<void> {
     const { args, agentId, senderId, channel, peerId } = params;
-    if (!this.isAuthEnabled()) {
-      await channel.send(peerId, {
-        text: "Auth broker is disabled. Set runtime.auth.enabled=true in config to use /setAuth commands.",
-      });
-      return;
-    }
-    try {
-      const parsed = this.parseAuthArgs(args);
-      if (!parsed) {
-        await channel.send(peerId, {
-          text: "Usage:\n/setAuth set KEY=VALUE [--scope=agent|global|agent:<id>]\n/unsetAuth KEY [--scope=agent|global|agent:<id>]\n/listAuth [--scope=agent|global|agent:<id>]\n/checkAuth KEY [--scope=agent|global|agent:<id>]",
-        });
-        return;
-      }
-
-      const scope = this.parseAuthScope(parsed.scopeArg, agentId);
-      const masterKeyEnv = this.config.runtime?.auth?.masterKeyEnv ?? "MOZI_MASTER_KEY";
-      this.secretBroker = createRuntimeSecretBroker({ masterKeyEnv });
-
-      if (parsed.command === "set") {
-        if (!parsed.name || !parsed.value) {
-          await channel.send(peerId, { text: "Usage: /setAuth set KEY=VALUE [--scope=...]" });
-          return;
-        }
-        await this.secretBroker.set({
-          name: parsed.name,
-          value: parsed.value,
-          scope,
-          actor: senderId,
-        });
-        await channel.send(peerId, {
-          text: `Auth key '${parsed.name}' stored for scope ${this.formatScope(scope)}.`,
-        });
-        return;
-      }
-
-      if (parsed.command === "unset") {
-        if (!parsed.name) {
-          await channel.send(peerId, { text: "Usage: /unsetAuth KEY [--scope=...]" });
-          return;
-        }
-        const removed = await this.secretBroker.unset({ name: parsed.name, scope });
-        await channel.send(peerId, {
-          text: removed
-            ? `Auth key '${parsed.name}' removed from scope ${this.formatScope(scope)}.`
-            : `Auth key '${parsed.name}' not found in scope ${this.formatScope(scope)}.`,
-        });
-        return;
-      }
-
-      if (parsed.command === "list") {
-        const list = await this.secretBroker.list({ scope });
-        if (list.length === 0) {
-          await channel.send(peerId, {
-            text: `No auth keys stored in scope ${this.formatScope(scope)}.`,
-          });
-          return;
-        }
-        const lines = ["Auth keys:"];
-        for (const item of list) {
-          lines.push(
-            `- ${item.name} (${this.formatScope(item.scope)}) updated=${item.updatedAt}${item.lastUsedAt ? ` lastUsed=${item.lastUsedAt}` : ""}`,
-          );
-        }
-        await channel.send(peerId, { text: lines.join("\n") });
-        return;
-      }
-
-      if (!parsed.name) {
-        await channel.send(peerId, { text: "Usage: /checkAuth KEY [--scope=...]" });
-        return;
-      }
-      const check = await this.secretBroker.check({ name: parsed.name, agentId, scope });
-      await channel.send(peerId, {
-        text: check.exists
-          ? `Auth key '${parsed.name}' exists (${this.formatScope(check.scope || scope)}).`
-          : `Auth key '${parsed.name}' is missing. Set it with /setAuth set ${parsed.name}=<value> [--scope=...]`,
-      });
-    } catch (error) {
-      await channel.send(peerId, {
-        text: `Auth command failed: ${this.toError(error).message}`,
-      });
-    }
+    await handleAuthCommandService({
+      args,
+      agentId,
+      senderId,
+      channel,
+      peerId,
+      config: this.config,
+      toError: (error) => this.toError(error),
+    });
   }
 
   private parseMissingAuthKey(message: string): string | null {
