@@ -67,7 +67,7 @@ import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
 import {
   type CommandHandlerMap,
 } from "./message-handler/services/command-handlers";
-import { buildMessageCommandHandlerMap } from "./message-handler/services/command-registry";
+import { createMessageCommandHandlerMap as createMessageCommandHandlerMapService } from "./message-handler/services/command-map";
 import {
   finalizeStreamingReply,
   buildNegotiatedOutbound,
@@ -814,104 +814,75 @@ export class MessageHandler {
   }
 
   private createCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
-    return buildMessageCommandHandlerMap({
-      channel: {
-        send: async (peerId, payload) => {
-          await channel.send(peerId, payload);
+    return createMessageCommandHandlerMapService({
+      channel,
+      deps: {
+        onWhoami: async ({ message, channel, peerId }) => {
+          await this.handleWhoamiCommand({ message, channel, peerId });
         },
-      },
-      onWhoami: async ({ message, peerId }) => {
-        await this.handleWhoamiCommand({ message, channel, peerId });
-      },
-      onStatus: async ({ sessionKey, agentId, message, peerId }) => {
-        await this.handleStatusCommand({ sessionKey, agentId, message, channel, peerId });
-      },
-      onNew: async ({ sessionKey, agentId, peerId }) => {
-        await this.handleNewSessionCommand(sessionKey, agentId, channel, peerId);
-      },
-      onModels: async ({ sessionKey, agentId, peerId }) => {
-        await this.handleModelsCommand(sessionKey, agentId, channel, peerId);
-      },
-      onSwitch: async ({ sessionKey, agentId, peerId, args }) => {
-        await this.handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
-      },
-      onStop: async ({ sessionKey, peerId }) => {
-        const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
-        await channel.send(peerId, {
-          text: interrupted
-            ? "Stopped active run. You can now /switch and continue."
-            : "No active run to stop.",
-        });
-      },
-      onRestart: async ({ peerId }) => {
-        await this.handleRestartCommand(channel, peerId);
-      },
-      onCompact: async ({ sessionKey, agentId, peerId }) => {
-        await this.handleCompactCommand({ sessionKey, agentId, channel, peerId });
-      },
-      onContext: async ({ sessionKey, agentId, peerId }) => {
-        await this.handleContextCommand({ sessionKey, agentId, channel, peerId });
-      },
-      onThink: async ({ sessionKey, agentId, peerId, args }) => {
-        await handleThinkCommand({
-          agentManager: this.agentManager,
-          sessionKey,
-          agentId,
-          channel,
-          peerId,
-          args,
-        });
-      },
-      onReasoning: async ({ sessionKey, peerId, args }) => {
-        await handleReasoningCommand({
-          agentManager: this.agentManager,
-          sessionKey,
-          channel,
-          peerId,
-          args,
-        });
-      },
-      onSetAuth: async ({ agentId, message, peerId, args }) => {
-        await this.handleAuthCommand({
-          args: `set ${args}`.trim(),
-          agentId,
-          senderId: message.senderId,
-          channel,
-          peerId,
-        });
-      },
-      onUnsetAuth: async ({ agentId, message, peerId, args }) => {
-        await this.handleAuthCommand({
-          args: `unset ${args}`.trim(),
-          agentId,
-          senderId: message.senderId,
-          channel,
-          peerId,
-        });
-      },
-      onListAuth: async ({ agentId, message, peerId, args }) => {
-        await this.handleAuthCommand({
-          args: `list ${args}`.trim(),
-          agentId,
-          senderId: message.senderId,
-          channel,
-          peerId,
-        });
-      },
-      onCheckAuth: async ({ agentId, message, peerId, args }) => {
-        await this.handleAuthCommand({
-          args: `check ${args}`.trim(),
-          agentId,
-          senderId: message.senderId,
-          channel,
-          peerId,
-        });
-      },
-      onReminders: async ({ sessionKey, message, peerId, args }) => {
-        await this.handleRemindersCommand({ sessionKey, message, channel, peerId, args });
-      },
-      onHeartbeat: async ({ agentId, peerId, args }) => {
-        await this.handleHeartbeatCommand({ agentId, channel, peerId, args });
+        onStatus: async ({ sessionKey, agentId, message, channel, peerId }) => {
+          await this.handleStatusCommand({ sessionKey, agentId, message, channel, peerId });
+        },
+        onNew: async ({ sessionKey, agentId, channel, peerId }) => {
+          await this.handleNewSessionCommand(sessionKey, agentId, channel, peerId);
+        },
+        onModels: async ({ sessionKey, agentId, channel, peerId }) => {
+          await this.handleModelsCommand(sessionKey, agentId, channel, peerId);
+        },
+        onSwitch: async ({ sessionKey, agentId, args, channel, peerId }) => {
+          await this.handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
+        },
+        onStop: async ({ sessionKey, channel, peerId }) => {
+          const interrupted = await this.interruptSession(sessionKey, "Stopped by /stop command");
+          await channel.send(peerId, {
+            text: interrupted
+              ? "Stopped active run. You can now /switch and continue."
+              : "No active run to stop.",
+          });
+        },
+        onRestart: async ({ channel, peerId }) => {
+          await this.handleRestartCommand(channel, peerId);
+        },
+        onCompact: async ({ sessionKey, agentId, channel, peerId }) => {
+          await this.handleCompactCommand({ sessionKey, agentId, channel, peerId });
+        },
+        onContext: async ({ sessionKey, agentId, channel, peerId }) => {
+          await this.handleContextCommand({ sessionKey, agentId, channel, peerId });
+        },
+        onThink: async ({ sessionKey, agentId, channel, peerId, args }) => {
+          await handleThinkCommand({
+            agentManager: this.agentManager,
+            sessionKey,
+            agentId,
+            channel,
+            peerId,
+            args,
+          });
+        },
+        onReasoning: async ({ sessionKey, channel, peerId, args }) => {
+          await handleReasoningCommand({
+            agentManager: this.agentManager,
+            sessionKey,
+            channel,
+            peerId,
+            args,
+          });
+        },
+        onAuth: async ({ action, agentId, message, channel, peerId, args }) => {
+          await this.handleAuthCommand({
+            args: `${action} ${args}`.trim(),
+            agentId,
+            senderId: message.senderId,
+            channel,
+            peerId,
+          });
+        },
+        onReminders: async ({ sessionKey, message, channel, peerId, args }) => {
+          await this.handleRemindersCommand({ sessionKey, message, channel, peerId, args });
+        },
+        onHeartbeat: async ({ agentId, channel, peerId, args }) => {
+          await this.handleHeartbeatCommand({ agentId, channel, peerId, args });
+        },
       },
     });
   }
