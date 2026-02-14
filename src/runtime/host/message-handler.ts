@@ -46,6 +46,11 @@ import {
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
 import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
 import {
+  isAbortError as isAbortErrorService,
+  isAgentBusyError as isAgentBusyErrorService,
+  toError as toErrorService,
+} from "./message-handler/services/error-utils";
+import {
   resolveSessionMessages as resolveSessionMessagesService,
   resolveSessionMetadata as resolveSessionMetadataService,
   resolveSessionTimestamps as resolveSessionTimestampsService,
@@ -99,8 +104,6 @@ import {
   type PhasePayload,
 } from "./message-handler/services/interaction-lifecycle";
 import {
-  toError as toErrorService,
-  isAbortError as isAbortErrorService,
   createErrorReplyText as createErrorReplyTextService,
 } from "./message-handler/services/error-reply";
 import { resolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
@@ -414,7 +417,7 @@ export class MessageHandler {
       channel,
       peerId,
       config: this.config,
-      toError: (error) => this.toError(error),
+      toError: (error) => toErrorService(error),
     });
   }
 
@@ -462,7 +465,7 @@ export class MessageHandler {
       args,
       resolveWorkspaceDir: (targetAgentId) => this.agentManager.getWorkspaceDir(targetAgentId) ?? null,
       logger,
-      toError: (error) => this.toError(error),
+      toError: (error) => toErrorService(error),
     });
   }
 
@@ -552,12 +555,12 @@ export class MessageHandler {
             this.agentManager.resolvePromptTimeoutMs(targetAgentId),
         },
         errorClassifiers: {
-          isAgentBusyError: (err) => this.isAgentBusyError(err),
+          isAgentBusyError: (err) => isAgentBusyErrorService(err),
           isContextOverflowError: (message) =>
             isContextOverflowError(message) && !isCompactionFailureError(message),
-          isAbortError: (error) => this.isAbortError(error),
+          isAbortError: (error) => isAbortErrorService(error),
           isTransientError: (message) => isTransientError(message),
-          toError: (err) => this.toError(err),
+          toError: (err) => toErrorService(err),
         },
       },
       activeMap: this.activePromptRuns,
@@ -671,7 +674,7 @@ export class MessageHandler {
         {
           sessionKey,
           agentId: active.agentId,
-          error: this.toError(error).message,
+          error: toErrorService(error).message,
         },
         "Interrupt wait ended with error",
       );
@@ -706,25 +709,6 @@ export class MessageHandler {
       logger.warn({ err, sessionKey }, "Memory flush failed or timed out");
       return false;
     }
-  }
-
-  private toError(error: unknown): Error {
-    if (error instanceof Error) {
-      return error;
-    }
-    return new Error(String(error));
-  }
-
-  private isAgentBusyError(error: unknown): boolean {
-    const normalized = this.toError(error);
-    return normalized.message.toLowerCase().includes("already processing a prompt");
-  }
-
-  private isAbortError(error: Error): boolean {
-    if (error.name === "AbortError") {
-      return true;
-    }
-    return error.message === "This operation was aborted";
   }
 
   getLastRoute(agentId: string): LastRoute | undefined {
