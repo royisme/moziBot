@@ -40,8 +40,8 @@ import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { createSessionTools } from "./tools/sessions";
 import {
-  parseCommand as parseCommandService,
-  normalizeImplicitControlCommand as normalizeImplicitControlCommandService,
+  parseCommand,
+  normalizeImplicitControlCommand,
 } from "./commands/parser";
 import {
   parseInlineOverrides as _unusedParseInlineOverridesService,
@@ -226,133 +226,8 @@ export class MessageHandler {
     logger.info("MessageHandler config reloaded (agents preserved)");
   }
 
-  private async handleModelsCommand(
-    sessionKey: string,
-    agentId: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ): Promise<void> {
-    await handleModelsCommandService({
-      sessionKey,
-      agentId,
-      channel,
-      peerId,
-      agentManager: this.agentManager,
-      modelRegistry: this.modelRegistry,
-    });
-  }
-
-  private async handleSwitchCommand(
-    sessionKey: string,
-    agentId: string,
-    args: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ): Promise<void> {
-    await handleSwitchCommandService({
-      sessionKey,
-      agentId,
-      args,
-      channel,
-      peerId,
-      agentManager: this.agentManager,
-      modelRegistry: this.modelRegistry,
-    });
-  }
-
-  private async handleStatusCommand(params: {
-    sessionKey: string;
-    agentId: string;
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-  }): Promise<void> {
-    const { sessionKey, agentId, message, channel, peerId } = params;
-    await handleStatusCommandService({
-      sessionKey,
-      agentId,
-      message,
-      channel,
-      peerId,
-      agentManager: this.agentManager,
-      runtimeControl: this.runtimeControl,
-      resolveCurrentReasoningLevel: (targetSessionKey, targetAgentId) =>
-        this.resolveCurrentReasoningLevel(targetSessionKey, targetAgentId),
-      version: this.getVersion(),
-    });
-  }
-
   private getVersion(): string {
     return "1.0.2";
-  }
-
-  private async handleNewSessionCommand(
-    sessionKey: string,
-    agentId: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ): Promise<void> {
-    await handleNewSessionCommandService({
-      sessionKey,
-      agentId,
-      channel,
-      peerId,
-      config: this.config,
-      agentManager: this.agentManager,
-      flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
-        await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
-    });
-  }
-
-  private async handleRestartCommand(channel: ChannelPlugin, peerId: string): Promise<void> {
-    await handleRestartCommandService({
-      channel,
-      peerId,
-      runtimeControl: this.runtimeControl,
-    });
-  }
-
-  private async handleCompactCommand(params: {
-    sessionKey: string;
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }): Promise<void> {
-    const { sessionKey, agentId, channel, peerId } = params;
-    await handleCompactCommandService({
-      sessionKey,
-      agentId,
-      channel,
-      peerId,
-      agentManager: this.agentManager,
-    });
-  }
-
-  private async handleContextCommand(params: {
-    sessionKey: string;
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }): Promise<void> {
-    const { sessionKey, agentId, channel, peerId } = params;
-    await handleContextCommandService({
-      sessionKey,
-      agentId,
-      channel,
-      peerId,
-      config: this.config,
-      agentManager: this.agentManager,
-    });
-  }
-
-  private resolveCurrentReasoningLevel(sessionKey: string, agentId: string): ReasoningLevel {
-    return resolveCurrentReasoningLevelService({
-      sessionMetadata: this.agentManager.getSessionMetadata(sessionKey) as
-        | { reasoningLevel?: ReasoningLevel }
-        | undefined,
-      agentsConfig: (this.config.agents || {}) as Record<string, unknown>,
-      agentId,
-    });
   }
 
   private async maybePreFlushBeforePrompt(params: {
@@ -370,90 +245,7 @@ export class MessageHandler {
     });
   }
 
-  private async handleWhoamiCommand(params: {
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-  }): Promise<void> {
-    await handleWhoamiCommandService(params);
-  }
 
-  private async handleAuthCommand(params: {
-    args: string;
-    agentId: string;
-    senderId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }): Promise<void> {
-    const { args, agentId, senderId, channel, peerId } = params;
-    await handleAuthCommandService({
-      args,
-      agentId,
-      senderId,
-      channel,
-      peerId,
-      config: this.config,
-      toError: (error) => toErrorService(error),
-    });
-  }
-
-  private parseCommand(text: string): {
-    name:
-      | "start"
-      | "help"
-      | "status"
-      | "whoami"
-      | "new"
-      | "models"
-      | "switch"
-      | "stop"
-      | "restart"
-      | "compact"
-      | "context"
-      | "setauth"
-      | "unsetauth"
-      | "listauth"
-      | "checkauth"
-      | "reminders"
-      | "heartbeat"
-      | "think"
-      | "reasoning";
-    args: string;
-  } | null {
-    return parseCommandService(text);
-  }
-
-  private normalizeImplicitControlCommand(text: string): string | null {
-    return normalizeImplicitControlCommandService(text);
-  }
-
-  private async handleHeartbeatCommand(params: {
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-    args: string;
-  }): Promise<void> {
-    const { agentId, channel, peerId, args } = params;
-    await handleHeartbeatCommandService({
-      agentId,
-      channel,
-      peerId,
-      args,
-      resolveWorkspaceDir: (targetAgentId) => this.agentManager.getWorkspaceDir(targetAgentId) ?? null,
-      logger,
-      toError: (error) => toErrorService(error),
-    });
-  }
-
-  private async handleRemindersCommand(params: {
-    sessionKey: string;
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-    args: string;
-  }): Promise<void> {
-    await handleRemindersCommandService(params);
-  }
 
   private async runPromptWithFallback(params: {
     sessionKey: string;
@@ -642,21 +434,100 @@ export class MessageHandler {
       channel,
       agentManager: this.agentManager,
       interruptSession: async (sessionKey, reason) => await this.interruptSession(sessionKey, reason),
-      handleWhoamiCommand: async (params) => await this.handleWhoamiCommand(params),
-      handleStatusCommand: async (params) => await this.handleStatusCommand(params),
+      handleWhoamiCommand: async (params) => await handleWhoamiCommandService(params),
+      handleStatusCommand: async ({ sessionKey, agentId, message, channel, peerId }) =>
+        await handleStatusCommandService({
+          sessionKey,
+          agentId,
+          message,
+          channel,
+          peerId,
+          agentManager: this.agentManager,
+          runtimeControl: this.runtimeControl,
+          resolveCurrentReasoningLevel: (targetSessionKey, targetAgentId) =>
+            resolveCurrentReasoningLevelService({
+              sessionMetadata: this.agentManager.getSessionMetadata(targetSessionKey) as
+                | { reasoningLevel?: ReasoningLevel }
+                | undefined,
+              agentsConfig: (this.config.agents || {}) as Record<string, unknown>,
+              agentId: targetAgentId,
+            }),
+          version: this.getVersion(),
+        }),
       handleNewSessionCommand: async (sessionKey, agentId, targetChannel, peerId) =>
-        await this.handleNewSessionCommand(sessionKey, agentId, targetChannel, peerId),
+        await handleNewSessionCommandService({
+          sessionKey,
+          agentId,
+          channel: targetChannel,
+          peerId,
+          config: this.config,
+          agentManager: this.agentManager,
+          flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
+            await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
+        }),
       handleModelsCommand: async (sessionKey, agentId, targetChannel, peerId) =>
-        await this.handleModelsCommand(sessionKey, agentId, targetChannel, peerId),
+        await handleModelsCommandService({
+          sessionKey,
+          agentId,
+          channel: targetChannel,
+          peerId,
+          agentManager: this.agentManager,
+          modelRegistry: this.modelRegistry,
+        }),
       handleSwitchCommand: async (sessionKey, agentId, args, targetChannel, peerId) =>
-        await this.handleSwitchCommand(sessionKey, agentId, args, targetChannel, peerId),
+        await handleSwitchCommandService({
+          sessionKey,
+          agentId,
+          args,
+          channel: targetChannel,
+          peerId,
+          agentManager: this.agentManager,
+          modelRegistry: this.modelRegistry,
+        }),
       handleRestartCommand: async (targetChannel, peerId) =>
-        await this.handleRestartCommand(targetChannel, peerId),
-      handleCompactCommand: async (params) => await this.handleCompactCommand(params),
-      handleContextCommand: async (params) => await this.handleContextCommand(params),
-      handleAuthCommand: async (params) => await this.handleAuthCommand(params),
-      handleRemindersCommand: async (params) => await this.handleRemindersCommand(params),
-      handleHeartbeatCommand: async (params) => await this.handleHeartbeatCommand(params),
+        await handleRestartCommandService({
+          channel: targetChannel,
+          peerId,
+          runtimeControl: this.runtimeControl,
+        }),
+      handleCompactCommand: async ({ sessionKey, agentId, channel, peerId }) =>
+        await handleCompactCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          agentManager: this.agentManager,
+        }),
+      handleContextCommand: async ({ sessionKey, agentId, channel, peerId }) =>
+        await handleContextCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          config: this.config,
+          agentManager: this.agentManager,
+        }),
+      handleAuthCommand: async ({ args, agentId, senderId, channel, peerId }) =>
+        await handleAuthCommandService({
+          args,
+          agentId,
+          senderId,
+          channel,
+          peerId,
+          config: this.config,
+          toError: (error) => toErrorService(error),
+        }),
+      handleRemindersCommand: async (params) => await handleRemindersCommandService(params),
+      handleHeartbeatCommand: async ({ agentId, channel, peerId, args }) =>
+        await handleHeartbeatCommandService({
+          agentId,
+          channel,
+          peerId,
+          args,
+          resolveWorkspaceDir: (targetAgentId) => this.agentManager.getWorkspaceDir(targetAgentId) ?? null,
+          logger,
+          toError: (error) => toErrorService(error),
+        }),
     });
   }
 
@@ -672,8 +543,8 @@ export class MessageHandler {
       lastRoutes: this.lastRoutes,
       latestPromptMessages: this.latestPromptMessages,
       resolveSessionContext: (message) => this.resolveSessionContext(message),
-      parseCommand: (text) => this.parseCommand(text),
-      normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text),
+      parseCommand: (text) => parseCommand(text),
+      normalizeImplicitControlCommand: (text) => normalizeImplicitControlCommand(text),
       createCommandHandlerMap: (targetChannel) => this.createCommandHandlerMap(targetChannel),
       runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
       maybePreFlushBeforePrompt: async (params) => await this.maybePreFlushBeforePrompt(params),
