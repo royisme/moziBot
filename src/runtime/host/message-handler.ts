@@ -1,7 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { MoziConfig } from "../../config";
 import type { DeliveryPlan } from "../../multimodal/capabilities";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
@@ -28,6 +26,7 @@ import {
 import { isTransientError } from "../core/error-policy";
 import { SubagentRegistry } from "../subagent-registry";
 import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
+import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
 import { getAssistantFailureReason, type ReplyRenderOptions } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -966,120 +965,15 @@ export class MessageHandler {
     args: string;
   }): Promise<void> {
     const { agentId, channel, peerId, args } = params;
-    const action = args.trim().toLowerCase() || "status";
-    const enabledDirective = await this.readHeartbeatEnabledDirective(agentId);
-    const effectiveEnabled = enabledDirective ?? true;
-
-    if (action === "status") {
-      await channel.send(peerId, {
-        text: `Heartbeat is currently ${effectiveEnabled ? "enabled" : "disabled"} for agent ${agentId}. (source: HEARTBEAT.md directive)`,
-      });
-      return;
-    }
-
-    if (action === "off" || action === "pause" || action === "stop" || action === "disable") {
-      const ok = await this.writeHeartbeatEnabledDirective(agentId, false);
-      await channel.send(peerId, {
-        text: ok
-          ? `Heartbeat disabled for agent ${agentId} by updating HEARTBEAT.md.`
-          : `Failed to update HEARTBEAT.md for agent ${agentId}.`,
-      });
-      return;
-    }
-
-    if (action === "on" || action === "resume" || action === "start" || action === "enable") {
-      const ok = await this.writeHeartbeatEnabledDirective(agentId, true);
-      await channel.send(peerId, {
-        text: ok
-          ? `Heartbeat enabled for agent ${agentId} by updating HEARTBEAT.md.`
-          : `Failed to update HEARTBEAT.md for agent ${agentId}.`,
-      });
-      return;
-    }
-
-    await channel.send(peerId, {
-      text: "Usage: /heartbeat [status|on|off]",
+    await handleHeartbeatCommandService({
+      agentId,
+      channel,
+      peerId,
+      args,
+      resolveWorkspaceDir: (targetAgentId) => this.agentManager.getWorkspaceDir(targetAgentId) ?? null,
+      logger,
+      toError: (error) => this.toError(error),
     });
-  }
-
-  private getHeartbeatFilePath(agentId: string): string | null {
-    const workspaceDir = this.agentManager.getWorkspaceDir(agentId);
-    if (!workspaceDir) {
-      return null;
-    }
-    return path.join(workspaceDir, "HEARTBEAT.md");
-  }
-
-  private async readHeartbeatEnabledDirective(agentId: string): Promise<boolean | null> {
-    const filePath = this.getHeartbeatFilePath(agentId);
-    if (!filePath) {
-      return null;
-    }
-    let content = "";
-    try {
-      content = await fs.readFile(filePath, "utf-8");
-    } catch {
-      return null;
-    }
-
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      const matched = trimmed.match(/^@heartbeat\s+enabled\s*=\s*(on|off|true|false)$/i);
-      if (!matched) {
-        continue;
-      }
-      const value = matched[1]?.toLowerCase();
-      return value === "on" || value === "true";
-    }
-    return null;
-  }
-
-  private async writeHeartbeatEnabledDirective(
-    agentId: string,
-    enabled: boolean,
-  ): Promise<boolean> {
-    const filePath = this.getHeartbeatFilePath(agentId);
-    if (!filePath) {
-      return false;
-    }
-
-    let content = "";
-    try {
-      content = await fs.readFile(filePath, "utf-8");
-    } catch {
-      content = "# HEARTBEAT.md\n\n";
-    }
-
-    const directiveLine = `@heartbeat enabled=${enabled ? "on" : "off"}`;
-    const lines = content.split("\n");
-    let replaced = false;
-    const nextLines = lines.map((line) => {
-      if (/^\s*@heartbeat\s+enabled\s*=\s*(on|off|true|false)\s*$/i.test(line)) {
-        replaced = true;
-        return directiveLine;
-      }
-      return line;
-    });
-
-    let nextContent = nextLines.join("\n");
-    if (!replaced) {
-      nextContent = `${directiveLine}\n${nextContent}`;
-    }
-
-    try {
-      await fs.writeFile(filePath, nextContent, "utf-8");
-      return true;
-    } catch (error) {
-      logger.warn(
-        {
-          agentId,
-          filePath,
-          error: this.toError(error).message,
-        },
-        "Failed to update HEARTBEAT.md directive",
-      );
-      return false;
-    }
   }
 
   private async handleRemindersCommand(params: {
