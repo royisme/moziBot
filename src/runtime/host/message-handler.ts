@@ -43,6 +43,7 @@ import {
   buildPromptText as buildPromptTextService,
   buildRawTextWithTranscription as buildRawTextWithTranscriptionService,
 } from "./message-handler/services/prompt-text";
+import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
 import { getAssistantFailureReason } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import { buildSessionKey } from "./session-key";
@@ -382,31 +383,13 @@ export class MessageHandler {
     agentId: string;
   }): Promise<void> {
     const { sessionKey, agentId } = params;
-    const memoryConfig = resolveMemoryBackendConfig({ cfg: this.config, agentId });
-    if (!memoryConfig.persistence.enabled || !memoryConfig.persistence.onOverflowCompaction) {
-      return;
-    }
-
-    const usage = this.agentManager.getContextUsage(sessionKey);
-    if (!usage || usage.percentage < 80) {
-      return;
-    }
-
-    const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
-    const success = await this.flushMemory(
+    await maybePreFlushBeforePromptService({
       sessionKey,
       agentId,
-      agent.messages,
-      memoryConfig.persistence,
-    );
-
-    this.agentManager.updateSessionMetadata(sessionKey, {
-      memoryFlush: {
-        lastAttemptedCycle: 0,
-        lastTimestamp: Date.now(),
-        lastStatus: success ? "success" : "failure",
-        trigger: "pre_overflow",
-      },
+      config: this.config,
+      agentManager: this.agentManager,
+      flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
+        await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
     });
   }
 
