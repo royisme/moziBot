@@ -237,10 +237,6 @@ export class MessageHandler {
     logger.info("MessageHandler config reloaded (agents preserved)");
   }
 
-  private getText(message: InboundMessage): string {
-    return (message.text || "").toString();
-  }
-
   private async handleModelsCommand(
     sessionKey: string,
     agentId: string,
@@ -949,7 +945,7 @@ export class MessageHandler {
     return {
       config: this.config,
       logger,
-      getText: (payload) => this.getText(payload as InboundMessage),
+      getText: (payload) => ((payload as InboundMessage).text || "").toString(),
       getMedia: (payload) => (payload as InboundMessage).media || [],
       normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text) ?? text,
       parseCommand: (text) => this.parseCommand(text),
