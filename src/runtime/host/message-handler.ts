@@ -36,7 +36,6 @@ import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./m
 import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { RuntimeRouter } from "./router";
-import { buildSessionKey } from "./session-key";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { createSessionTools } from "./tools/sessions";
@@ -60,6 +59,10 @@ import {
   type CommandHandlerMap,
 } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
+import {
+  resolveSessionContext as resolveSessionContextService,
+  type LastRoute,
+} from "./message-handler/services/message-router";
 import {
   finalizeStreamingReply as _unusedFinalizeStreamingReply,
   buildNegotiatedOutbound as _unusedBuildNegotiatedOutbound,
@@ -98,21 +101,6 @@ export type StreamingCallback = (event: {
   isError?: boolean;
   fullText?: string;
 }) => void | Promise<void>;
-
-type LastRoute = {
-  channelId: string;
-  peerId: string;
-  peerType: "dm" | "group" | "channel";
-  accountId?: string;
-  threadId?: string | number;
-};
-
-type ResolvedSessionContext = {
-  agentId: string;
-  sessionKey: string;
-  dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
-  peerId: string;
-};
 
 type RuntimeControl = {
   getStatus?: () => { running: boolean; pid: number | null; uptime: number };
@@ -361,27 +349,6 @@ export class MessageHandler {
     });
   }
 
-  getLastRoute(agentId: string): LastRoute | undefined {
-    return this.lastRoutes.get(agentId);
-  }
-
-  resolveSessionContext(message: InboundMessage): ResolvedSessionContext {
-    const defaultAgentId = this.agentManager.resolveDefaultAgentId();
-    const route = this.router.resolve(message, defaultAgentId);
-    const agentId = route.agentId;
-    const sessionKey = buildSessionKey({
-      agentId,
-      message,
-      dmScope: route.dmScope,
-    });
-    return {
-      agentId,
-      sessionKey,
-      dmScope: route.dmScope,
-      peerId: message.peerId,
-    };
-  }
-
   private createCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
     return buildCommandHandlerMapService({
       channel,
@@ -495,7 +462,12 @@ export class MessageHandler {
       mediaPreprocessor: this.mediaPreprocessor,
       lastRoutes: this.lastRoutes,
       latestPromptMessages: this.latestPromptMessages,
-      resolveSessionContext: (message) => this.resolveSessionContext(message),
+      resolveSessionContext: (message) =>
+        resolveSessionContextService({
+          message,
+          router: this.router,
+          defaultAgentId: this.agentManager.resolveDefaultAgentId(),
+        }),
       parseCommand: (text) => parseCommand(text),
       normalizeImplicitControlCommand: (text) => normalizeImplicitControlCommand(text),
       createCommandHandlerMap: (targetChannel) => this.createCommandHandlerMap(targetChannel),
