@@ -3,6 +3,7 @@ import type { SessionManager } from "../../host/sessions/manager";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
 import { continuationRegistry } from "../continuation";
+import { QueueMode, PeerType, SessionStatus } from "../constants";
 
 export function hasActiveSession(params: {
   messageHandler: unknown;
@@ -69,7 +70,7 @@ export async function tryInjectIntoActiveSession(params: {
   queueItemId: string;
   sessionKey: string;
   inbound: InboundMessage;
-  mode: "steer" | "steer-backlog";
+  mode: typeof QueueMode.STEER | typeof QueueMode.STEER_BACKLOG;
 }): Promise<boolean> {
   const text = params.inbound.text?.trim() ?? "";
   if (!text) {
@@ -113,7 +114,7 @@ export async function tryInjectIntoActiveSession(params: {
   }
 
   if (
-    params.mode === "steer-backlog" &&
+    params.mode === QueueMode.STEER_BACKLOG &&
     hasActiveSession({ messageHandler: params.messageHandler, sessionKey: params.sessionKey })
   ) {
     await preemptActiveSessionForLatestInput({
@@ -129,7 +130,7 @@ export async function tryInjectIntoActiveSession(params: {
       steerSession?: (
         sessionKey: string,
         text: string,
-        mode: "steer" | "followup",
+        mode: typeof QueueMode.STEER | typeof QueueMode.FOLLOWUP,
       ) => Promise<boolean> | boolean;
     }
   ).steerSession;
@@ -142,7 +143,7 @@ export async function tryInjectIntoActiveSession(params: {
       params.messageHandler,
       params.sessionKey,
       text,
-      params.mode === "steer-backlog" ? "followup" : "steer",
+      params.mode === QueueMode.STEER_BACKLOG ? QueueMode.FOLLOWUP : QueueMode.STEER,
     ),
   );
   if (!injected) {
@@ -153,10 +154,10 @@ export async function tryInjectIntoActiveSession(params: {
     agentId: params.resolveSessionContext(params.inbound).agentId,
     channel: params.inbound.channel,
     peerId: params.inbound.peerId,
-    peerType: params.inbound.peerType === "group" ? "group" : "dm",
-    status: "running",
+    peerType: params.inbound.peerType === PeerType.GROUP ? PeerType.GROUP : PeerType.DM,
+    status: SessionStatus.RUNNING,
   });
-  await params.sessionManager.setStatus(params.sessionKey, "running");
+  await params.sessionManager.setStatus(params.sessionKey, SessionStatus.RUNNING);
   logger.info(
     {
       queueItemId: params.queueItemId,

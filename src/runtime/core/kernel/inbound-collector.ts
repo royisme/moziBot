@@ -3,6 +3,7 @@ import type { SessionManager } from "../../host/sessions/manager";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
 import type { RuntimeEnqueueResult, RuntimeInboundEnvelope, RuntimeQueueMode } from "../contracts";
+import { CommandToken, PeerType, SessionStatus } from "../constants";
 
 export function extractCommandToken(text: string): string {
   if (!text.startsWith("/")) {
@@ -12,7 +13,7 @@ export function extractCommandToken(text: string): string {
 }
 
 export function isStopCommand(commandToken: string): boolean {
-  return commandToken === "/stop";
+  return commandToken === CommandToken.STOP;
 }
 
 export function parseInbound(json: string): InboundMessage {
@@ -22,7 +23,7 @@ export function parseInbound(json: string): InboundMessage {
   return {
     ...parsed,
     timestamp,
-    peerType: parsed.peerType || "dm",
+    peerType: parsed.peerType || PeerType.DM,
   };
 }
 
@@ -69,7 +70,7 @@ export async function tryCollectIntoQueued(params: {
     return null;
   }
 
-  await sessionManager.setStatus(sessionKey, "queued");
+  await sessionManager.setStatus(sessionKey, SessionStatus.QUEUED);
   trimSessionBacklog(sessionKey);
   logger.info(
     {

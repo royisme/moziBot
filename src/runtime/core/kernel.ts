@@ -13,6 +13,7 @@ import type {
   RuntimeQueueConfig,
   RuntimeQueueMode,
 } from "./contracts";
+import { QueueMode, PeerType, SessionStatus } from "./constants";
 import { logger } from "../../logger";
 import { runtimeQueue, type RuntimeQueueItem } from "../../storage/db";
 import { ChannelRuntimeEgress } from "./egress";
@@ -45,7 +46,7 @@ type RuntimeKernelOptions = {
   queueConfig?: RuntimeQueueConfig;
 };
 
-const DEFAULT_QUEUE_MODE: RuntimeQueueMode = "steer-backlog";
+const DEFAULT_QUEUE_MODE: RuntimeQueueMode = QueueMode.STEER_BACKLOG;
 const DEFAULT_COLLECT_WINDOW_MS = 400;
 
 export class RuntimeKernel implements RuntimeIngress {
@@ -126,7 +127,7 @@ export class RuntimeKernel implements RuntimeIngress {
     }
     const queueItemId = envelope.id || randomUUID();
 
-    if (this.queueConfig.mode === "steer" || this.queueConfig.mode === "steer-backlog") {
+    if (this.queueConfig.mode === QueueMode.STEER || this.queueConfig.mode === QueueMode.STEER_BACKLOG) {
       const injected = await this.tryInjectIntoActiveSession({
         queueItemId,
         sessionKey: context.sessionKey,
@@ -143,14 +144,14 @@ export class RuntimeKernel implements RuntimeIngress {
       }
     }
 
-    if (this.queueConfig.mode === "interrupt") {
+    if (this.queueConfig.mode === QueueMode.INTERRUPT) {
       await handleInterruptMode({
         messageHandler: this.messageHandler,
         sessionKey: context.sessionKey,
         inbound: envelope.inbound,
       });
     }
-    if (this.queueConfig.mode === "collect") {
+    if (this.queueConfig.mode === QueueMode.COLLECT) {
       const collected = await this.tryCollectIntoQueued(envelope, context.sessionKey);
       if (collected) {
         return collected;
@@ -169,7 +170,7 @@ export class RuntimeKernel implements RuntimeIngress {
       sessionKey: context.sessionKey,
       channelId: envelope.inbound.channel,
       peerId: envelope.inbound.peerId,
-      peerType: envelope.inbound.peerType || "dm",
+      peerType: envelope.inbound.peerType || PeerType.DM,
       inboundJson: JSON.stringify(envelope.inbound),
       enqueuedAt: now,
       availableAt,
@@ -180,10 +181,10 @@ export class RuntimeKernel implements RuntimeIngress {
         agentId: context.agentId,
         channel: envelope.inbound.channel,
         peerId: envelope.inbound.peerId,
-        peerType: envelope.inbound.peerType === "group" ? "group" : "dm",
-        status: "queued",
+        peerType: envelope.inbound.peerType === PeerType.GROUP ? PeerType.GROUP : PeerType.DM,
+        status: SessionStatus.QUEUED,
       });
-      await this.sessionManager.setStatus(context.sessionKey, "queued");
+      await this.sessionManager.setStatus(context.sessionKey, SessionStatus.QUEUED);
       this.trimSessionBacklog(context.sessionKey);
       this.schedulePump();
       logger.info(
@@ -238,7 +239,7 @@ export class RuntimeKernel implements RuntimeIngress {
       return resolver.call(this.messageHandler, inbound);
     }
     return {
-      sessionKey: `${inbound.channel}:${inbound.peerType || "dm"}:${inbound.peerId}`,
+      sessionKey: `${inbound.channel}:${inbound.peerType || PeerType.DM}:${inbound.peerId}`,
       agentId: "mozi",
     };
   }

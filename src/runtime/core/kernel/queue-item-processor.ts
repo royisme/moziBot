@@ -7,6 +7,7 @@ import { logger } from "../../../logger";
 import { runtimeQueue, type RuntimeQueueItem } from "../../../storage/db";
 import { continuationRegistry } from "../continuation";
 import type { RuntimeErrorPolicy } from "../contracts";
+import { SessionStatus } from "../constants";
 
 export async function processQueueItem(params: {
   queueItem: RuntimeQueueItem;
@@ -25,7 +26,7 @@ export async function processQueueItem(params: {
   });
   const startedAt = Date.now();
 
-  await params.sessionManager.setStatus(params.queueItem.session_key, "running");
+  await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RUNNING);
   logger.info(
     {
       queueItemId: params.queueItem.id,
@@ -42,8 +43,8 @@ export async function processQueueItem(params: {
     const completed = runtimeQueue.markCompletedIfRunning(params.queueItem.id);
     if (!completed) {
       const current = runtimeQueue.getById(params.queueItem.id);
-      if (current?.status === "interrupted") {
-        await params.sessionManager.setStatus(params.queueItem.session_key, "interrupted");
+      if (current?.status === SessionStatus.INTERRUPTED) {
+        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
         logger.warn(
           {
             queueItemId: params.queueItem.id,
@@ -65,7 +66,7 @@ export async function processQueueItem(params: {
       );
       return;
     }
-    await params.sessionManager.setStatus(params.queueItem.session_key, "completed");
+    await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.COMPLETED);
     logger.info(
       {
         queueItemId: params.queueItem.id,
@@ -88,8 +89,8 @@ export async function processQueueItem(params: {
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     const current = runtimeQueue.getById(params.queueItem.id);
-    if (current?.status === "interrupted") {
-      await params.sessionManager.setStatus(params.queueItem.session_key, "interrupted");
+    if (current?.status === SessionStatus.INTERRUPTED) {
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
       logger.warn(
         {
           queueItemId: params.queueItem.id,
@@ -113,8 +114,8 @@ export async function processQueueItem(params: {
       );
       if (!retried) {
         const latest = runtimeQueue.getById(params.queueItem.id);
-        if (latest?.status === "interrupted") {
-          await params.sessionManager.setStatus(params.queueItem.session_key, "interrupted");
+        if (latest?.status === SessionStatus.INTERRUPTED) {
+          await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
           return;
         }
         logger.warn(
@@ -127,7 +128,7 @@ export async function processQueueItem(params: {
         );
         return;
       }
-      await params.sessionManager.setStatus(params.queueItem.session_key, "retrying");
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RETRYING);
       logger.warn(
         {
           queueItemId: params.queueItem.id,
@@ -150,8 +151,8 @@ export async function processQueueItem(params: {
     );
     if (!failed) {
       const latest = runtimeQueue.getById(params.queueItem.id);
-      if (latest?.status === "interrupted") {
-        await params.sessionManager.setStatus(params.queueItem.session_key, "interrupted");
+      if (latest?.status === SessionStatus.INTERRUPTED) {
+        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
         return;
       }
       logger.warn(
@@ -164,7 +165,7 @@ export async function processQueueItem(params: {
       );
       return;
     }
-    await params.sessionManager.setStatus(params.queueItem.session_key, "failed");
+    await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.FAILED);
     logger.error(
       {
         queueItemId: params.queueItem.id,
@@ -252,7 +253,7 @@ async function enqueueContinuation(params: {
   });
 
   if (inserted.inserted) {
-    await params.sessionManager.setStatus(params.sessionKey, "queued");
+    await params.sessionManager.setStatus(params.sessionKey, SessionStatus.QUEUED);
     params.schedulePump();
     logger.info(
       {
