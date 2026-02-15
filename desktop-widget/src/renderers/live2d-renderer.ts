@@ -1,5 +1,5 @@
 import * as PIXI from "pixi.js";
-import { Live2DModel } from "pixi-live2d-display-lipsyncpatch";
+import { Live2DModel } from "pixi-live2d-display-lipsyncpatch/cubism4";
 import type { AvatarRenderer, Phase } from "./types";
 
 Live2DModel.registerTicker(PIXI.Ticker);

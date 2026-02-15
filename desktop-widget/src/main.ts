@@ -61,14 +61,24 @@ async function bootstrap(): Promise<void> {
   let live2d: Live2DRenderer | null = null;
 
   if (config.avatar.mode === "live2d" && config.avatar.modelPath) {
-    const l2d = new Live2DRenderer(config.avatar.modelPath, config.avatar.scale);
-    renderer = l2d;
-    live2d = l2d;
+    try {
+      const l2d = new Live2DRenderer(config.avatar.modelPath, config.avatar.scale);
+      await l2d.init(avatarContainer);
+      renderer = l2d;
+      live2d = l2d;
+    } catch (err) {
+      console.warn("Live2D failed to load, falling back to orb:", err);
+      while (avatarContainer.firstChild) {
+        avatarContainer.removeChild(avatarContainer.firstChild);
+      }
+      renderer = new OrbRenderer();
+      await renderer.init(avatarContainer);
+    }
   } else {
     renderer = new OrbRenderer();
+    await renderer.init(avatarContainer);
   }
 
-  await renderer.init(avatarContainer);
   window.addEventListener("resize", () => renderer.resize());
 
   // ── Services ──

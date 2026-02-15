@@ -1,0 +1,7 @@
+node_modules/
+dist/
+
+# Live2D model assets and runtime (downloaded via `pnpm run setup:models`)
+# Not checked in due to Live2D licensing restrictions.
+public/models/
+public/lib/

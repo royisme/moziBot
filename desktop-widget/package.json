@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup:models": "bash scripts/download-models.sh",
     "build": "pnpm run build:web",
     "build:native": "pnpm run build:web && pnpm tauri:build",
     "build:web": "tsc --noEmit && vite build",

@@ -15,12 +15,14 @@ export type WidgetRuntimeConfig = {
   avatar: AvatarConfig;
 };
 
+const DEFAULT_MODEL_PATH = "/models/Hiyori/Hiyori.model3.json";
+
 const DEFAULTS: WidgetRuntimeConfig = {
   enabled: true,
   host: "127.0.0.1",
   port: 3987,
   peerId: "desktop-default",
-  avatar: { mode: "orb" },
+  avatar: { mode: "live2d", modelPath: DEFAULT_MODEL_PATH },
 };
 
 export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
@@ -141,7 +143,8 @@ function resolveAvatarConfig(
     DEFAULTS.avatar.mode;
   const modelPath =
     normalizeToken(envModelPath) ??
-    (runtimeAvatar ? normalizeToken(runtimeAvatar.modelPath) : undefined);
+    (runtimeAvatar ? normalizeToken(runtimeAvatar.modelPath) : undefined) ??
+    (mode === "live2d" ? DEFAULT_MODEL_PATH : undefined);
   const scaleRaw =
     normalizePort(envScale) ??
     (runtimeAvatar && typeof runtimeAvatar.scale === "number"
