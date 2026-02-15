@@ -204,6 +204,7 @@ export class MessageHandler {
     sessionKey: string;
     agentId: string;
     text: string;
+    traceId?: string;
     onStream?: StreamingCallback;
     onFallback?: (info: {
       fromModel: string;
@@ -416,6 +417,7 @@ export class MessageHandler {
         sessionKey,
         agentId,
         text: content,
+        traceId: `internal:${source}:${Date.now()}`,
       });
 
       logger.info({ sessionKey, agentId, source }, "Internal message processed");

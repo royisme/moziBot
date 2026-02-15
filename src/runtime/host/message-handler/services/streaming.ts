@@ -37,7 +37,7 @@ export type AgentSessionEvent =
     };
 
 export interface StreamingBufferChannel {
-  send(peerId: string, payload: { text: string }): Promise<string>;
+  send(peerId: string, payload: { text: string; traceId?: string }): Promise<string>;
   editMessage(messageId: string, peerId: string, text: string): Promise<void>;
 }
 
@@ -88,7 +88,8 @@ export class StreamingBuffer {
   constructor(
     private readonly channel: StreamingBufferChannel,
     private readonly peerId: string,
-    private readonly onError?: (err: Error) => void
+    private readonly onError?: (err: Error) => void,
+    private readonly traceId?: string,
   ) {}
 
   /**
@@ -96,7 +97,7 @@ export class StreamingBuffer {
    */
   async initialize(): Promise<void> {
     try {
-      this.messageId = await this.channel.send(this.peerId, { text: '⏳' });
+      this.messageId = await this.channel.send(this.peerId, { text: '⏳', traceId: this.traceId });
     } catch (error) {
       this.handleError(error);
     }

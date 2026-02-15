@@ -126,6 +126,7 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
 
     // 6. Logging
     logger.info({
+      traceId: ctx.traceId,
       messageId: ctx.messageId,
       agentId: context.agentId,
       sessionKey: context.sessionKey,

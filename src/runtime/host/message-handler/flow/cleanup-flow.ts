@@ -54,7 +54,7 @@ export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
     try {
       await setSessionModel(sessionKey, restoreModelRef);
     } catch (error) {
-      logger.warn({ sessionKey, agentId, restoreModelRef, error: String(error) }, 'Failed to restore pre-routing session model');
+      logger.warn({ traceId: ctx.traceId, sessionKey, agentId, restoreModelRef, error: String(error) }, 'Failed to restore pre-routing session model');
     }
   }
 

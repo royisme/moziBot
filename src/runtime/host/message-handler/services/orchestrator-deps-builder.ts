@@ -68,6 +68,7 @@ export function buildOrchestratorDeps(params: {
     sessionKey: string;
     agentId: string;
     text: string;
+    traceId?: string;
     onStream?: (event: {
       type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
       delta?: string;
@@ -283,9 +284,10 @@ export function buildOrchestratorDeps(params: {
         deps: { logger, toError: toErrorService },
       });
     },
-    createStreamingBuffer: ({ peerId, onError }) => new StreamingBuffer(streamingChannel, peerId, onError),
-    runPromptWithFallback: async ({ sessionKey, agentId, text, onStream, onFallback }) => {
-      await runPromptWithFallback({ sessionKey, agentId, text, onStream, onFallback });
+    createStreamingBuffer: ({ peerId, onError, traceId }) =>
+      new StreamingBuffer(streamingChannel, peerId, onError, traceId),
+    runPromptWithFallback: async ({ sessionKey, agentId, text, traceId, onStream, onFallback }) => {
+      await runPromptWithFallback({ sessionKey, agentId, text, traceId, onStream, onFallback });
       const current = await agentManager.getAgent(sessionKey, agentId);
       latestPromptMessages.set(sessionKey, current.agent.messages as AssistantMessageShape[]);
     },

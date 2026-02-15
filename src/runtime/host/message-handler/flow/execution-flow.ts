@@ -57,11 +57,12 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const startTyping = requireFn<(p: { sessionKey: string; agentId: string; peerId: string }) => Promise<(() => Promise<void> | void) | undefined>>(deps, 'startTypingIndicator');
   const emitPhase = requireFn<(p: { phase: InteractionPhase; payload: PhasePayload }) => Promise<void>>(deps, 'emitPhaseSafely');
   const getChannel = requireFn<(p: unknown) => { editMessage?: unknown; id: string }>(deps, 'getChannel');
-  const createStreamingBuffer = requireFn<(p: { peerId: string; onError: (err: Error) => void }) => StreamingBuffer>(deps, 'createStreamingBuffer');
+  const createStreamingBuffer = requireFn<(p: { peerId: string; onError: (err: Error) => void; traceId?: string }) => StreamingBuffer>(deps, 'createStreamingBuffer');
   const runPrompt = requireFn<(p: { 
     sessionKey: string; 
     agentId: string; 
     text: string; 
+    traceId?: string;
     onStream?: StreamingCallback;
     onFallback?: (info: FallbackInfo) => Promise<void>;
   }) => Promise<void>>(deps, 'runPromptWithFallback');
@@ -84,25 +85,32 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const channel = getChannel(payload);
   const supportsStreaming = typeof channel.editMessage === 'function';
   let streamingBuffer: StreamingBuffer | undefined;
+  let streamStarted = false;
 
   // 3. Prompt Execution
   if (supportsStreaming) {
       streamingBuffer = createStreamingBuffer({ 
         peerId, 
-        onError: (err: Error) => logger.warn({ err, sessionKey, agentId }, 'Streaming buffer error') 
+        onError: (err: Error) => logger.warn({ traceId: ctx.traceId, err, sessionKey, agentId }, 'Streaming buffer error'),
+        traceId: ctx.traceId,
       });
-      await streamingBuffer.initialize();
 
       await runPrompt({
         sessionKey,
         agentId,
         text: promptText,
+        traceId: ctx.traceId,
         onFallback: async (info: FallbackInfo) => {
           const outbound = buildOutbound({ channelId: channel.id, replyText: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`, inboundPlan: null });
+          outbound.traceId = ctx.traceId;
           await sendReply({ peerId, outbound });
         },
-        onStream: (event) => {
+        onStream: async (event) => {
           if (event.type === 'text_delta' && event.delta) {
+            if (!streamStarted) {
+              await streamingBuffer?.initialize();
+              streamStarted = true;
+            }
             streamingBuffer?.append(event.delta);
           } else if (event.type === 'tool_start') {
             void emitPhase({ phase: 'executing', payload: { sessionKey, agentId, toolName: event.toolName, toolCallId: event.toolCallId, messageId: ctx.messageId } });
@@ -116,8 +124,10 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
         sessionKey,
         agentId,
         text: promptText,
+        traceId: ctx.traceId,
         onFallback: async (info: FallbackInfo) => {
           const outbound = buildOutbound({ channelId: channel.id, replyText: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`, inboundPlan: null });
+          outbound.traceId = ctx.traceId;
           await sendReply({ peerId, outbound });
         }
       });
@@ -129,12 +139,18 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const replyText = resolveReplyText({ messages, renderOptions });
     
   if (isSilent(replyText)) {
-    logger.info({ sessionKey, agentId }, 'Assistant replied with silent token. Suppression active.');
+    logger.info({ traceId: ctx.traceId, sessionKey, agentId }, 'Assistant replied with silent token. Suppression active.');
+    if (streamingBuffer && streamStarted) {
+      state.outboundId = await finalizeStreaming({ buffer: streamingBuffer });
+    }
     return 'handled';
   }
 
   if (replyText !== undefined && isHeartbeatOk(payload, replyText)) {
-    logger.info({ sessionKey, agentId }, 'Heartbeat acknowledged. Suppressing redundant OK reply.');
+    logger.info({ traceId: ctx.traceId, sessionKey, agentId }, 'Heartbeat acknowledged. Suppressing redundant OK reply.');
+    if (streamingBuffer && streamStarted) {
+      state.outboundId = await finalizeStreaming({ buffer: streamingBuffer });
+    }
     return 'handled';
   }
 
@@ -144,10 +160,11 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   await emitPhase({ phase: 'speaking', payload: { sessionKey, agentId, messageId: ctx.messageId } });
 
   let outboundId: string | null = null;
-  if (streamingBuffer) {
+  if (streamingBuffer && streamStarted) {
     outboundId = await finalizeStreaming({ buffer: streamingBuffer, replyText });
   } else {
     const outbound = buildOutbound({ channelId: channel.id, replyText, inboundPlan: ingestPlanArtifact });
+    outbound.traceId = ctx.traceId;
     outboundId = await sendReply({ peerId, outbound });
   }
 

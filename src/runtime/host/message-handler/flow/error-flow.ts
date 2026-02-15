@@ -59,7 +59,7 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
 
     // 3. Abort Short-Circuit
     if (isAbortError(err)) {
-      logger.warn({ sessionKey, agentId, error: err.message }, 'Message handling aborted');
+      logger.warn({ traceId: ctx.traceId, sessionKey, agentId, error: err.message }, 'Message handling aborted');
       return 'handled';
     }
 
@@ -68,13 +68,15 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
       const errorText = createErrorReplyText(err);
       
       try {
+        const outbound = { text: errorText, traceId: ctx.traceId };
         await sendReply({
           peerId,
-          outbound: { text: errorText },
+          outbound,
         });
       } catch (deliveryError) {
         // Double-fault protection: log failure if error reply cannot be delivered
         logger.warn({ 
+          traceId: ctx.traceId,
           sessionKey, 
           agentId, 
           peerId, 

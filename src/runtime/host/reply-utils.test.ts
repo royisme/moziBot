@@ -77,6 +77,19 @@ describe("reply-utils", () => {
       ];
       expect(renderAssistantReply(content, { showToolCalls: "summary" })).toContain("Tool calls:");
     });
+
+    it("strips leaked reasoning preamble by default", () => {
+      const content =
+        "Reasoning:\n用户问现在几点了。\n\n现在是 2026年2月15日 星期日 凌晨12:14:52（美国东部标准时间 EST）。";
+      expect(renderAssistantReply(content)).toBe(
+        "现在是 2026年2月15日 星期日 凌晨12:14:52（美国东部标准时间 EST）。",
+      );
+    });
+
+    it("keeps reasoning preamble when showThinking is enabled", () => {
+      const content = "Reasoning:\nstep\n\nanswer";
+      expect(renderAssistantReply(content, { showThinking: true })).toBe("Reasoning:\nstep\n\nanswer");
+    });
   });
 
   describe("getAssistantFailureReason", () => {

@@ -322,6 +322,16 @@ export class TelegramPlugin extends BaseChannelPlugin {
   }
 
   async send(peerId: string, message: OutboundMessage): Promise<string> {
+    logger.info(
+      {
+        traceId: message.traceId,
+        peerId,
+        textChars: message.text?.length ?? 0,
+        hasMedia: Boolean(message.media?.length),
+        hasButtons: Boolean(message.buttons?.length),
+      },
+      "Telegram outbound send requested",
+    );
     return sendMessage(this.bot, peerId, message, this.config.botToken);
   }
 
@@ -338,6 +348,14 @@ export class TelegramPlugin extends BaseChannelPlugin {
   }
 
   async editMessage(messageId: string, peerId: string, newText: string): Promise<void> {
+    logger.info(
+      {
+        peerId,
+        messageId,
+        textChars: newText.length,
+      },
+      "Telegram outbound edit requested",
+    );
     return editMsg(this.bot, messageId, peerId, newText);
   }
 

@@ -1,5 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { getAssistantFailureReason } from "../../reply-utils";
+import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
 import { estimateMessagesTokens } from "../../../context-management";
 import { isCompactionFailureError, isContextOverflowError } from "../../../context-management";
 import { isTransientError } from "../../../core/error-policy";
@@ -48,10 +48,32 @@ interface PromptCoordinatorLogger {
   debug(obj: Record<string, unknown>, msg: string): void;
 }
 
+const LOG_PREVIEW_MAX_CHARS = 400;
+
+function redactLogPreview(text: string): string {
+  return text
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
+    .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-<redacted>")
+    .replace(/(Bearer\s+)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
+    .replace(/("(?:apiKey|token|authToken|botToken)"\s*:\s*")[^"]+(")/gi, "$1<redacted>$2");
+}
+
+function buildLogPreview(text: string, maxChars = LOG_PREVIEW_MAX_CHARS): string {
+  if (!text) {
+    return "";
+  }
+  const redacted = redactLogPreview(text);
+  if (redacted.length <= maxChars) {
+    return redacted;
+  }
+  return `${redacted.slice(0, maxChars)}... [truncated ${redacted.length - maxChars} chars]`;
+}
+
 export async function runPromptWithCoordinator(params: {
   sessionKey: string;
   agentId: string;
   text: string;
+  traceId?: string;
   onStream?: StreamingCallback;
   onFallback?: (info: {
     fromModel: string;
@@ -75,6 +97,7 @@ export async function runPromptWithCoordinator(params: {
     sessionKey,
     agentId,
     text,
+    traceId,
     onStream,
     onFallback,
     config,
@@ -85,15 +108,27 @@ export async function runPromptWithCoordinator(params: {
     flushMemory,
   } = params;
 
+  logger.debug(
+    {
+      sessionKey,
+      agentId,
+      traceId,
+      promptChars: text.length,
+      promptPreview: buildLogPreview(text),
+    },
+    "Prompt dispatch summary",
+  );
+
   await runPromptWithFallbackService({
     sessionKey,
     agentId,
     text,
+    traceId,
     onStream,
     onFallback,
     onContextOverflow: async (attempt) => {
       logger.warn(
-        { sessionKey, agentId, attempt },
+        { traceId, sessionKey, agentId, attempt },
         "Context overflow detected, triggering auto-compaction",
       );
 
@@ -116,11 +151,11 @@ export async function runPromptWithCoordinator(params: {
 
       const compactResult = await agentManager.compactSession(sessionKey, agentId);
       if (!compactResult.success) {
-        logger.warn({ sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
+        logger.warn({ traceId, sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
         throw new Error("Auto-compaction failed");
       }
       logger.info(
-        { sessionKey, tokensReclaimed: compactResult.tokensReclaimed },
+        { traceId, sessionKey, tokensReclaimed: compactResult.tokensReclaimed },
         "Auto-compaction succeeded, retrying prompt",
       );
     },
@@ -156,15 +191,61 @@ export async function runPromptWithCoordinator(params: {
   const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)].toReversed().find(
     (m) => m && m.role === "assistant",
   );
+  const assistantRenderedText = latestAssistant ? extractAssistantText(latestAssistant) : "";
+  const assistantStopReason =
+    latestAssistant && typeof (latestAssistant as Record<string, unknown>).stopReason === "string"
+      ? ((latestAssistant as Record<string, unknown>).stopReason as string)
+      : undefined;
+
+  logger.debug(
+    {
+      sessionKey,
+      agentId,
+      traceId,
+      modelRef: current.modelRef,
+      assistantMessageFound: Boolean(latestAssistant),
+      assistantRenderedChars: assistantRenderedText.length,
+      assistantRenderedPreview: buildLogPreview(assistantRenderedText),
+      stopReason: assistantStopReason,
+    },
+    "Prompt result summary",
+  );
+
   const failureReason = getAssistantFailureReason(latestAssistant);
   if (failureReason) {
+    logger.warn(
+      {
+        traceId,
+        sessionKey,
+        agentId,
+        modelRef: current.modelRef,
+        failureReason,
+        assistantMessageFound: Boolean(latestAssistant),
+      },
+      "Assistant message flagged as failed",
+    );
     throw new Error(failureReason);
   }
+
+  if (latestAssistant && assistantRenderedText.length === 0) {
+    logger.warn(
+      {
+        traceId,
+        sessionKey,
+        agentId,
+        modelRef: current.modelRef,
+        stopReason: assistantStopReason,
+      },
+      "Assistant produced empty rendered output",
+    );
+  }
+
   agentManager.updateSessionContext(sessionKey, current.agent.messages);
   const usage = agentManager.getContextUsage(sessionKey);
   if (usage) {
     logger.debug(
       {
+        traceId,
         sessionKey,
         agentId,
         responseTokens: latestAssistant ? estimateMessagesTokens([latestAssistant as AgentMessage]) : 0,

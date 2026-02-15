@@ -134,6 +134,7 @@ export async function runPromptWithFallback(params: {
   sessionKey: string;
   agentId: string;
   text: string;
+  traceId?: string;
   onStream?: StreamingCallback;
   onFallback?: (info: FallbackInfo) => Promise<void> | void;
   onContextOverflow?: (attempt: number) => Promise<void>;
@@ -141,7 +142,7 @@ export async function runPromptWithFallback(params: {
   activeMap: Map<string, ActivePromptRun>;
   interruptedSet: Set<string>;
 }): Promise<void> {
-  const { sessionKey, agentId, text, onStream, onFallback, onContextOverflow, deps, activeMap, interruptedSet } = params;
+  const { sessionKey, agentId, text, traceId, onStream, onFallback, onContextOverflow, deps, activeMap, interruptedSet } = params;
 
   const fallbacks = deps.agentManager.getAgentFallbacks(agentId);
   const tried = new Set<string>();
@@ -159,7 +160,7 @@ export async function runPromptWithFallback(params: {
       
       const progressTimer = setInterval(() => {
         deps.logger.warn(
-          { sessionKey, agentId, modelRef, attempt, elapsedMs: Date.now() - startedAt, textChars: text.length },
+          { traceId, sessionKey, agentId, modelRef, attempt, elapsedMs: Date.now() - startedAt, textChars: text.length },
           "Agent prompt still running"
         );
       }, promptProgressLogIntervalMs);
@@ -272,7 +273,7 @@ export async function runPromptWithFallback(params: {
             transientRetryCounts.set(modelRef, transientAttempts + 1);
             const delayMs = 1000 * 2 ** transientAttempts;
             deps.logger.warn(
-              { sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
+              { traceId, sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
               "Transient error, retrying current model after backoff",
             );
             await new Promise((r) => setTimeout(r, delayMs));

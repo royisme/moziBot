@@ -240,6 +240,25 @@ function normalizeThinkingParts(parts: string[]): string {
   return `Reasoning:\n${joined}`;
 }
 
+function stripLeakedReasoningPreamble(text: string): string {
+  if (!text) {
+    return text;
+  }
+
+  const normalized = text.trimStart();
+  const headingMatch = /^(Reasoning|推理|思考)\s*:\s*\n/i.exec(normalized);
+  if (!headingMatch) {
+    return text;
+  }
+
+  const splitIndex = normalized.indexOf("\n\n");
+  if (splitIndex < 0) {
+    return text;
+  }
+
+  return normalized.slice(splitIndex + 2).trim();
+}
+
 export function isSilentReplyText(
   text: string | undefined,
   token: string = SILENT_REPLY_TOKEN,
@@ -292,7 +311,7 @@ export function renderAssistantReply(content: unknown, options: ReplyRenderOptio
   }
 
   if (text) {
-    sections.push(text);
+    sections.push(showThinking ? text : stripLeakedReasoningPreamble(text));
   }
 
   if (toolMode === "summary") {

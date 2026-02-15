@@ -18,6 +18,7 @@ export type FlowResult = 'continue' | 'handled' | 'abort';
 
 export interface MessageTurnContext {
   readonly messageId: string;
+  readonly traceId: string;
   readonly type: string;
   readonly payload: unknown;
   readonly startTime: number;
@@ -114,11 +115,13 @@ export interface OrchestratorDeps {
   createStreamingBuffer(params: {
     peerId: string;
     onError: (err: Error) => void;
+    traceId?: string;
   }): StreamingBuffer;
   runPromptWithFallback(params: {
     sessionKey: string;
     agentId: string;
     text: string;
+    traceId?: string;
     onStream?: StreamingCallback;
     onFallback?: (info: FallbackInfo) => Promise<void>;
   }): Promise<void>;

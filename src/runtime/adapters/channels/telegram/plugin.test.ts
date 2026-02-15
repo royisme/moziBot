@@ -118,7 +118,7 @@ describe("TelegramPlugin", () => {
   });
 
   it("should send text message", async () => {
-    const messageId = await plugin.send("12345", { text: "hello" });
+    const messageId = await plugin.send("12345", { text: "hello", traceId: "turn:abc" });
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("123");
     expect(botInstance.api.sendMessage).toHaveBeenCalledWith("12345", "hello", expect.any(Object));

@@ -73,7 +73,7 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
     if (shouldRotateSessionForTemporalPolicy(temporalPolicy, timestamps)) {
       resetSession(sessionKey, agentId);
       logger.info(
-        { sessionKey, agentId, trigger: "temporal_freshness" },
+        { traceId: ctx.traceId, sessionKey, agentId, trigger: "temporal_freshness" },
         "Session auto-rotated by temporal policy",
       );
     }
