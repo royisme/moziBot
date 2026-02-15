@@ -10,7 +10,7 @@ export function createExtensionRegistry(config: MoziConfig): ExtensionRegistry {
 
 export function createSkillLoader(config: MoziConfig, extensionRegistry: ExtensionRegistry): SkillLoader {
   const dirs: string[] = [];
-  const bundledDir = path.join(process.env.PI_PACKAGE_DIR || process.cwd(), "skills", "bundled");
+  const bundledDir = path.join(import.meta.dirname, "..", "..", "agents", "skills", "bundled");
   dirs.push(bundledDir);
   const baseDir = config.paths?.baseDir || path.join(os.homedir(), ".mozi");
   dirs.push(path.join(baseDir, "skills"));

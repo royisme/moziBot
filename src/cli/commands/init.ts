@@ -302,13 +302,13 @@ function buildConfig(config: InitConfig): object {
         main: true,
         home: config.home,
         workspace: config.workspace,
-        skills: ["web-search", "summarize", "freshness-check", "create-skills", "auth-config"],
+        skills: ["web-search", "create-skills"],
       },
     },
     skills: {
       dirs: ["~/.mozi/skills"],
       installDir: "~/.mozi/skills",
-      allowBundled: ["web-search", "summarize", "freshness-check", "create-skills", "auth-config"],
+      allowBundled: ["web-search", "create-skills"],
       install: {
         nodeManager: "pnpm",
       },
