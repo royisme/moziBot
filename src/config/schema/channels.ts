@@ -73,6 +73,12 @@ export const LocalDesktopConfigSchema = z
     port: z.number().int().positive().max(65535).optional(),
     authToken: z.string().min(1).optional(),
     allowOrigins: z.array(z.string().min(1)).optional(),
+    widget: z
+      .object({
+        mode: z.enum(["auto", "on", "off"]).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
