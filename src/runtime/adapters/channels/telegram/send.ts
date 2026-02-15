@@ -154,11 +154,21 @@ export async function editMsg(
   peerId: string,
   newText: string,
 ): Promise<void> {
+  const htmlText = markdownToTelegramHtml(newText);
   try {
-    await bot.api.editMessageText(peerId, parseInt(messageId), newText, {
-      parse_mode: "Markdown",
+    await bot.api.editMessageText(peerId, parseInt(messageId), htmlText, {
+      parse_mode: "HTML",
     });
   } catch (error) {
-    logger.warn({ error, messageId }, "Failed to edit message");
+    if (isTelegramParseError(error)) {
+      logger.warn({ error, messageId }, "Telegram HTML parse failed on edit, retrying with plain text");
+      try {
+        await bot.api.editMessageText(peerId, parseInt(messageId), newText);
+      } catch (fallbackError) {
+        logger.warn({ error: fallbackError, messageId }, "Failed to edit message (plain text fallback)");
+      }
+    } else {
+      logger.warn({ error, messageId }, "Failed to edit message");
+    }
   }
 }
