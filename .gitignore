@@ -51,6 +51,7 @@ dev-docs/
 # Session data (keep structure, ignore content)
 groups/*/logs/*
 !groups/*/logs/.gitkeep
+sessions/
 
 # Temporary files
 tmp/
@@ -64,3 +65,4 @@ tmp/
 data
 *.log
 .pnpm-store
+.claude

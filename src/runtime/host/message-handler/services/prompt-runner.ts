@@ -37,11 +37,13 @@ export interface PromptRunnerDeps {
     getAgentFallbacks(agentId: string): string[];
     setSessionModel(sessionKey: string, modelRef: string, options: { persist: boolean }): Promise<void>;
     clearRuntimeModelOverride(sessionKey: string): void;
+    resolvePromptTimeoutMs(agentId: string): number;
   };
   readonly errorClassifiers: {
     isAgentBusyError(err: unknown): boolean;
     isContextOverflowError(message: string): boolean;
     isAbortError(error: Error): boolean;
+    isTransientError(message: string): boolean;
     toError(err: unknown): Error;
   };
 }
@@ -143,9 +145,10 @@ export async function runPromptWithFallback(params: {
 
   const fallbacks = deps.agentManager.getAgentFallbacks(agentId);
   const tried = new Set<string>();
+  const transientRetryCounts = new Map<string, number>();
   let attempt = 0;
   let overflowCompactionAttempts = 0;
-  const promptExecutionTimeoutMs = 60_000;
+  const promptExecutionTimeoutMs = deps.agentManager.resolvePromptTimeoutMs(agentId);
   const promptProgressLogIntervalMs = 30_000;
 
   try {
@@ -259,6 +262,22 @@ export async function runPromptWithFallback(params: {
           overflowCompactionAttempts++;
           await onContextOverflow(overflowCompactionAttempts);
           continue; // Retry overflow
+        }
+
+        // Transient error retry before fallback (exclude our own prompt timeout)
+        const isSelfTimeout = error.message === "Agent prompt timeout";
+        if (deps.errorClassifiers.isTransientError(error.message) && !isSelfTimeout) {
+          const transientAttempts = transientRetryCounts.get(modelRef) ?? 0;
+          if (transientAttempts < 2) {
+            transientRetryCounts.set(modelRef, transientAttempts + 1);
+            const delayMs = 1000 * 2 ** transientAttempts;
+            deps.logger.warn(
+              { sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
+              "Transient error, retrying current model after backoff",
+            );
+            await new Promise((r) => setTimeout(r, delayMs));
+            continue;
+          }
         }
 
         // Handle Fallback

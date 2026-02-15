@@ -70,6 +70,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -83,6 +84,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel,
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     await h.runPromptWithFallback({
@@ -137,6 +139,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -152,6 +155,7 @@ describe("MessageHandler fallback behavior", () => {
       },
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     await h.runPromptWithFallback({
@@ -207,6 +211,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -222,6 +227,7 @@ describe("MessageHandler fallback behavior", () => {
       },
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     await h.runPromptWithFallback({
@@ -277,6 +283,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -292,6 +299,7 @@ describe("MessageHandler fallback behavior", () => {
       },
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 100,
     };
 
     vi.useFakeTimers();
@@ -301,7 +309,7 @@ describe("MessageHandler fallback behavior", () => {
       text: "hello",
     });
 
-    await vi.advanceTimersByTimeAsync(60_100);
+    await vi.advanceTimersByTimeAsync(150);
     await run;
     vi.useRealTimers();
 
@@ -352,6 +360,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -365,6 +374,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     const running = h
@@ -432,6 +442,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -445,6 +456,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     const running = h
@@ -513,6 +525,7 @@ describe("MessageHandler fallback behavior", () => {
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
+        resolvePromptTimeoutMs: (agentId: string) => number;
       };
     };
 
@@ -526,6 +539,7 @@ describe("MessageHandler fallback behavior", () => {
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
+      resolvePromptTimeoutMs: () => 300_000,
     };
 
     const running = h

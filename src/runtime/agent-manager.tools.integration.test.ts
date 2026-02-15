@@ -135,10 +135,11 @@ describe("AgentManager tools", () => {
     }
 
     const searchResult = await memorySearchTool.execute("tool-1", { query: "Alpha" });
-    const searchText = searchResult.content[0]?.text || "[]";
-    const searchPayload = JSON.parse(searchText) as Array<{ path: string }>;
-    expect(searchPayload.length).toBeGreaterThan(0);
-    expect(searchPayload[0].path).toBe("MEMORY.md");
+    const searchText = searchResult.content[0]?.text || "{}";
+    const searchPayload = JSON.parse(searchText) as { results?: Array<{ path: string }> };
+    const searchItems = Array.isArray(searchPayload.results) ? searchPayload.results : [];
+    expect(searchItems.length).toBeGreaterThan(0);
+    expect(searchItems[0]?.path).toBe("MEMORY.md");
 
     const getResult = await memoryGetTool.execute("tool-2", {
       path: "MEMORY.md",

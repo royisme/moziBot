@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";
@@ -87,9 +88,16 @@ function renderSessionMarkdown(entry: SessionFileEntry): string {
 }
 
 async function listSessionFilesForAgent(config: MoziConfig, agentId: string): Promise<string[]> {
-  let baseDir = config.paths?.sessions || "./sessions";
-  if (!path.isAbsolute(baseDir) && config.paths?.baseDir) {
-    baseDir = path.resolve(config.paths.baseDir, baseDir);
+  let baseDir = config.paths?.sessions;
+  if (!baseDir) {
+    baseDir = path.join(os.tmpdir(), "mozi", "sessions");
+  }
+  if (!path.isAbsolute(baseDir)) {
+    if (config.paths?.baseDir) {
+      baseDir = path.resolve(config.paths.baseDir, baseDir);
+    } else {
+      baseDir = path.resolve(baseDir);
+    }
   }
   const dir = path.join(baseDir, agentId);
   try {

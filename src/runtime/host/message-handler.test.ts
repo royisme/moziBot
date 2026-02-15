@@ -1022,7 +1022,7 @@ describe("MessageHandler commands", () => {
     expect(rotateSpy).toHaveBeenCalledTimes(0);
   });
 
-  it("session_rollover_semantic_high_confidence", async () => {
+  it("session_rollover_semantic_high_confidence_disabled", async () => {
     const realHandler = new MessageHandler(
       createConfigWithSemanticLifecycle({ threshold: 0.6, debounceSeconds: 0 }),
       {
@@ -1110,7 +1110,7 @@ describe("MessageHandler commands", () => {
     h.runPromptWithFallback = (async () => {}) as unknown as (params: unknown) => Promise<void>;
 
     await realHandler.handle(createMessage("design a marketing slogan for my app"), channel);
-    expect(rotateSpy).toHaveBeenCalledTimes(1);
+    expect(rotateSpy).toHaveBeenCalledTimes(0);
   });
 
   it("semantic_rollover_debounce", async () => {

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../config";
 import type { SessionState } from "./types";
@@ -57,9 +58,17 @@ export class SessionStore {
   private cache = new Map<string, SessionState>();
 
   constructor(config: MoziConfig) {
-    let base = config.paths?.sessions || "./sessions";
-    if (!path.isAbsolute(base) && config.paths?.baseDir) {
-      base = path.resolve(config.paths.baseDir, base);
+    let base = config.paths?.sessions;
+    if (!base) {
+      const tempBase = path.join(os.tmpdir(), "mozi");
+      base = path.join(tempBase, "sessions");
+    }
+    if (!path.isAbsolute(base)) {
+      if (config.paths?.baseDir) {
+        base = path.resolve(config.paths.baseDir, base);
+      } else {
+        base = path.resolve(base);
+      }
     }
     this.sessionsDir = base;
     this.storePath = path.join(this.sessionsDir, SESSION_STORE_FILE);

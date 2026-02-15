@@ -3,7 +3,7 @@ import type { RuntimeErrorDecision, RuntimeErrorPolicy } from "./contracts";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_DELAY_MS = 1000;
 
-function isTransientError(message: string): boolean {
+export function isTransientError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
     lower.includes("already processing a prompt") ||

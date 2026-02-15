@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SandboxSchema } from "./sandbox";
 
 const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const ReasoningLevelSchema = z.enum(["off", "on", "stream"]);
 
 const ContextPruningSchema = z
   .object({
@@ -26,6 +27,7 @@ const ContextPruningSchema = z
 const OutputRenderSchema = z
   .object({
     showThinking: z.boolean().optional(),
+    reasoningLevel: ReasoningLevelSchema.optional(),
     showToolCalls: z.enum(["off", "summary"]).optional(),
   })
   .strict();
@@ -111,6 +113,7 @@ export const AgentEntrySchema = z
     thinking: ThinkingLevelSchema.optional(),
     output: OutputRenderSchema.optional(),
     contextPruning: ContextPruningSchema.optional(),
+    timeoutSeconds: z.number().positive().optional(),
   })
   .strict();
 
@@ -129,6 +132,7 @@ export const AgentsSchema = z
         output: OutputRenderSchema.optional(),
         contextPruning: ContextPruningSchema.optional(),
         contextTokens: z.number().optional(),
+        timeoutSeconds: z.number().positive().optional(),
       })
       .strict()
       .optional(),

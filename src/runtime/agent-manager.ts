@@ -19,35 +19,27 @@ import {
   ensureHome,
   loadHomeFiles,
   buildContextFromFiles,
-  checkBootstrapState,
-  buildContextWithBootstrap,
   type BootstrapState,
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
-import { loadWorkspaceFiles, buildWorkspaceContext } from "../agents/workspace";
 import { resolveAgentModelRouting } from "../config/model-routing";
 import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../extensions";
 import { logger } from "../logger";
 import {
   clearMemoryManagerCache,
-  getMemoryLifecycleOrchestrator,
-  getMemoryManager,
 } from "../memory";
-import { createRuntimeSecretBroker } from "./auth/broker";
 import {
   resolveContextWindowInfo,
   evaluateContextWindowGuard,
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
   CONTEXT_WINDOW_WARN_BELOW_TOKENS,
   limitHistoryTurns,
-  resolveHistoryLimitFromSessionKey,
   estimateTokens,
   estimateMessagesTokens,
 } from "./context-management";
 import {
   pruneContextMessages,
   computeEffectiveSettings,
-  type ContextPruningConfig,
 } from "./context-pruning";
 import { ModelRegistry } from "./model-registry";
 import { sanitizePromptInputForModel } from "./payload-sanitizer";
@@ -58,12 +50,40 @@ import {
   type SandboxProbeResult,
   type SandboxExecutor,
 } from "./sandbox/executor";
-import { createExecTool } from "./sandbox/tool";
-import { sanitizeTools } from "./schema-sanitizer";
 import { SessionStore } from "./session-store";
-import { createSkillsNoteTool } from "./skills-note";
-import { filterTools, resolveToolAllowList } from "./tool-selection";
-import { createMemoryTools, createPiCodingTools, createSubagentTool } from "./tools";
+import { filterTools } from "./tool-selection";
+
+// Extracted modules
+import {
+  type AgentEntry,
+  resolveWorkspaceDir,
+  resolveHomeDir,
+  resolveSandboxConfig,
+  resolveExecAllowlist,
+  resolveExecAllowedSecrets,
+  resolveToolAllowList,
+  resolveContextPruningConfig,
+  resolveHistoryLimit,
+  resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
+} from "./agent-manager/config-resolver";
+import {
+  isThinkingLevel,
+  resolveThinkingLevel,
+} from "./agent-manager/thinking-resolver";
+import {
+  buildChannelContext,
+  buildSandboxPrompt,
+  buildToolsSection,
+  buildSkillsSection,
+  buildSystemPrompt,
+  checkBootstrap,
+} from "./agent-manager/prompt-builder";
+import {
+  buildTools,
+  shouldSanitizeTools,
+} from "./agent-manager/tool-builder";
+
+export type { AgentEntry };
 
 export type ResolvedAgent = {
   agent: AgentSession;
@@ -76,57 +96,6 @@ export type AgentSandboxProbeReport = {
   agentId: string;
   result: SandboxProbeResult;
 };
-
-type AgentEntry = {
-  name?: string;
-  main?: boolean;
-  home?: string;
-  workspace?: string;
-  systemPrompt?: string;
-  model?: unknown;
-  imageModel?: unknown;
-  skills?: string[];
-  tools?: string[];
-  subagents?: { allow?: string[] };
-  sandbox?: unknown;
-  exec?: { allowlist?: string[]; allowedSecrets?: string[] };
-  heartbeat?: { enabled?: boolean; every?: string; prompt?: string };
-  thinking?: ThinkingLevel;
-  output?: {
-    showThinking?: boolean;
-    showToolCalls?: "off" | "summary";
-  };
-  lifecycle?: {
-    control?: {
-      model?: string;
-      fallback?: string[];
-    };
-  };
-};
-
-const DEFAULT_TOOL_NAMES = [
-  "read",
-  "edit",
-  "write",
-  "grep",
-  "find",
-  "ls",
-  "memory_search",
-  "memory_get",
-  "sessions_list",
-  "sessions_history",
-  "sessions_send",
-  "sessions_spawn",
-  "schedule_continuation",
-  "reminder_create",
-  "reminder_list",
-  "reminder_cancel",
-  "reminder_update",
-  "reminder_snooze",
-  "subagent_run",
-  "skills_note",
-  "exec",
-];
 
 function normalizePiInputCapabilities(
   input: Array<"text" | "image" | "audio" | "video" | "file"> | undefined,
@@ -228,7 +197,6 @@ export class AgentManager {
       }
       const baseUrl = providerConfig.baseUrl || this.resolveDefaultBaseUrl(providerConfig.api);
       if (!baseUrl) {
-        // Skip providers without baseUrl and no known default
         continue;
       }
       registry.registerProvider(providerName, {
@@ -257,7 +225,6 @@ export class AgentManager {
     modelRegistry: ModelRegistry;
     providerRegistry: ProviderRegistry;
   }) {
-    // Shut down existing extension resources before rebuilding
     await this.extensionRegistry.shutdown();
     this.config = params.config;
     this.modelRegistry = params.modelRegistry;
@@ -284,18 +251,10 @@ export class AgentManager {
     return this.extensionRegistry;
   }
 
-  /**
-   * Initialize async extension sources and register their tools.
-   * Call this once during startup, after construction.
-   */
   async initExtensionsAsync(): Promise<void> {
     await initExtensionsAsync(this.config.extensions, this.extensionRegistry);
   }
 
-  /**
-   * Shut down all extension resources.
-   * Call this during graceful shutdown.
-   */
   async shutdownExtensions(): Promise<void> {
     await this.extensionRegistry.shutdown();
   }
@@ -338,7 +297,7 @@ export class AgentManager {
     const reports: AgentSandboxProbeReport[] = [];
     const entries = this.listAgentEntries();
     for (const { id, entry } of entries) {
-      const sandboxConfig = this.resolveSandboxConfig(id, entry);
+      const sandboxConfig = resolveSandboxConfig(this.config, entry);
       const mode = sandboxConfig?.mode ?? "off";
       const vibeboxEnabled =
         sandboxConfig?.apple?.backend === "vibebox" ||
@@ -348,7 +307,7 @@ export class AgentManager {
       }
       const executor = this.getSandboxExecutor({
         sandboxConfig,
-        allowlist: this.resolveExecAllowlist(entry),
+        allowlist: resolveExecAllowlist(this.config, entry),
       });
       const result = await executor.probe();
       reports.push({ agentId: id, result });
@@ -356,34 +315,12 @@ export class AgentManager {
     return reports;
   }
 
-  private resolveWorkspaceDir(agentId: string, entry?: AgentEntry): string {
-    if (entry?.workspace) {
-      return entry.workspace;
-    }
-    const baseDir = this.config.paths?.baseDir;
-    if (baseDir) {
-      return path.join(baseDir, "agents", agentId, "workspace");
-    }
-    return path.join("./workspace", agentId);
-  }
-
   getWorkspaceDir(agentId: string): string | undefined {
     const entry = this.getAgentEntry(agentId);
     if (!entry) {
       return undefined;
     }
-    return this.resolveWorkspaceDir(agentId, entry);
-  }
-
-  private resolveHomeDir(agentId: string, entry?: AgentEntry): string {
-    if (entry?.home) {
-      return entry.home;
-    }
-    const baseDir = this.config.paths?.baseDir;
-    if (baseDir) {
-      return path.join(baseDir, "agents", agentId, "home");
-    }
-    return path.join(".", "agents", agentId, "home");
+    return resolveWorkspaceDir(this.config, agentId, entry);
   }
 
   private async getHomeContext(homeDir: string): Promise<string> {
@@ -398,35 +335,6 @@ export class AgentManager {
     return context;
   }
 
-  private buildChannelContext(message: InboundMessage): string {
-    const lines: string[] = ["# Channel Context"];
-    lines.push(`channel: ${message.channel}`);
-    if (message.peerType) {
-      lines.push(`peerType: ${message.peerType}`);
-    } else {
-      lines.push("peerType: dm");
-    }
-    if (message.peerId) {
-      lines.push(`peerId: ${message.peerId}`);
-    }
-    if (message.accountId) {
-      lines.push(`accountId: ${message.accountId}`);
-    }
-    if (message.threadId) {
-      lines.push(`threadId: ${message.threadId}`);
-    }
-    if (message.senderId) {
-      lines.push(`senderId: ${message.senderId}`);
-    }
-    if (message.senderName) {
-      lines.push(`senderName: ${message.senderName}`);
-    }
-    if (message.timestamp instanceof Date) {
-      lines.push(`timestamp: ${message.timestamp.toISOString()}`);
-    }
-    return lines.join("\n");
-  }
-
   async ensureChannelContext(params: {
     sessionKey: string;
     agentId: string;
@@ -436,27 +344,12 @@ export class AgentManager {
       return;
     }
     const { agent } = await this.getAgent(params.sessionKey, params.agentId);
-    const context = this.buildChannelContext(params.message);
+    const context = buildChannelContext(params.message);
     if (!context) {
       return;
     }
     agent.agent.setSystemPrompt(`${agent.systemPrompt}\n\n${context}`);
     this.channelContextSessions.add(params.sessionKey);
-  }
-
-  private resolveSandboxConfig(agentId: string, entry?: AgentEntry): SandboxConfig | undefined {
-    const defaults = (this.config.agents?.defaults as { sandbox?: SandboxConfig } | undefined)
-      ?.sandbox;
-    const override = entry?.sandbox as SandboxConfig | undefined;
-    if (!defaults && !override) {
-      return undefined;
-    }
-    return {
-      ...defaults,
-      ...override,
-      docker: { ...defaults?.docker, ...override?.docker },
-      apple: { ...defaults?.apple, ...override?.apple },
-    };
   }
 
   private getSandboxExecutor(params: {
@@ -479,47 +372,6 @@ export class AgentManager {
     return executor;
   }
 
-  private buildSandboxPrompt(params: {
-    workspaceDir: string;
-    sandboxConfig?: SandboxConfig;
-  }): string | null {
-    const cfg = params.sandboxConfig;
-    if (!cfg || cfg.mode === "off") {
-      return null;
-    }
-    const modeLabel = cfg.mode === "apple-vm" ? "Apple VM" : "Docker";
-    const lines = [
-      "# Sandbox",
-      `You are running in a sandboxed runtime (${modeLabel}).`,
-      `Sandbox workspace: ${params.workspaceDir}`,
-      cfg.workspaceAccess ? `Workspace access: ${cfg.workspaceAccess}` : "",
-      "Home is the agent's identity store and may be updated outside the sandbox.",
-      "All task output must be written to the workspace. Do not write task files into home.",
-      "If you need host filesystem access outside workspace, ask the user first.",
-    ].filter((line) => line && line.trim().length > 0);
-    return lines.join("\n");
-  }
-
-  private buildToolsSection(tools?: string[]): string | null {
-    if (!tools || tools.length === 0) {
-      return null;
-    }
-    const lines = ["# Tools", `Enabled tools: ${tools.join(", ")}`];
-    return lines.join("\n");
-  }
-
-  private buildSkillsSection(skillsPrompt: string, tools?: string[]): string {
-    const canRecordNotes = tools?.includes("skills_note");
-    const lines = [
-      "# Skills",
-      "Scan the available skills below and use the most relevant one.",
-      "Before using a skill, check for local experience notes in home/skills/<skill>.md if present.",
-      canRecordNotes ? "After using a skill, record key learnings with the skills_note tool." : "",
-      skillsPrompt,
-    ].filter((line) => line && line.trim().length > 0);
-    return lines.join("\n");
-  }
-
   private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
     const routing = resolveAgentModelRouting(this.config, agentId);
     if (routing.defaultModel.primary) {
@@ -531,178 +383,14 @@ export class AgentManager {
     return undefined;
   }
 
-  private resolveThinkingLevel(entry?: AgentEntry): ThinkingLevel | undefined {
-    const defaults =
-      (this.config.agents?.defaults as { thinking?: ThinkingLevel } | undefined)?.thinking ||
-      undefined;
-    return entry?.thinking ?? defaults;
+  resolveConfiguredThinkingLevel(agentId: string): ThinkingLevel | undefined {
+    const entry = this.getAgentEntry(agentId);
+    return resolveThinkingLevel({ config: this.config, sessions: this.sessions, entry });
   }
 
-  private resolveContextPruningConfig(entry?: AgentEntry): ContextPruningConfig | undefined {
-    const defaults = (
-      this.config.agents?.defaults as { contextPruning?: ContextPruningConfig } | undefined
-    )?.contextPruning;
-    const agentConfig = (entry as { contextPruning?: ContextPruningConfig } | undefined)
-      ?.contextPruning;
-    if (!defaults && !agentConfig) {
-      return undefined;
-    }
-    return { ...defaults, ...agentConfig };
-  }
-
-  private resolveHistoryLimit(sessionKey: string): number | undefined {
-    const channelMatch = sessionKey.match(/^agent:[^:]+:([^:]+):/);
-    const channelId = channelMatch?.[1];
-    if (!channelId) {
-      return undefined;
-    }
-    const channelConfig = (
-      this.config.channels as
-        | Record<
-            string,
-            {
-              dmHistoryLimit?: number;
-              dms?: Record<string, { historyLimit?: number }>;
-            }
-          >
-        | undefined
-    )?.[channelId];
-    return resolveHistoryLimitFromSessionKey(sessionKey, channelConfig);
-  }
-
-  private resolveToolAllowList(entry?: AgentEntry): string[] {
-    const defaults = (this.config.agents?.defaults as { tools?: string[] } | undefined)?.tools;
-    return resolveToolAllowList({
-      agentTools: entry?.tools,
-      defaultTools: defaults,
-      fallbackTools: DEFAULT_TOOL_NAMES,
-      requiredTools: ["exec"],
-    });
-  }
-
-  private resolveExecAllowlist(entry?: AgentEntry): string[] | undefined {
-    const defaults = (
-      this.config.agents?.defaults as { exec?: { allowlist?: string[] } } | undefined
-    )?.exec;
-    return entry?.exec?.allowlist ?? defaults?.allowlist;
-  }
-
-  private resolveExecAllowedSecrets(entry?: AgentEntry): string[] {
-    const defaults = (
-      this.config.agents?.defaults as { exec?: { allowedSecrets?: string[] } } | undefined
-    )?.exec;
-    return entry?.exec?.allowedSecrets ?? defaults?.allowedSecrets ?? [];
-  }
-
-  private async buildTools(params: {
-    sessionKey: string;
-    agentId: string;
-    entry?: AgentEntry;
-    workspaceDir: string;
-    homeDir: string;
-    sandboxConfig?: SandboxConfig;
-    modelSpec: ModelSpec;
-  }): Promise<AgentTool[]> {
-    const allowList = this.resolveToolAllowList(params.entry);
-    const allowSet = new Set(allowList);
-    const tools: AgentTool[] = [];
-
-    if (this.subagents && allowSet.has("subagent_run")) {
-      tools.push(
-        createSubagentTool({
-          subagents: this.subagents,
-          parentSessionKey: params.sessionKey,
-          parentAgentId: params.agentId,
-        }),
-      );
-    }
-
-    if (this.skillLoader && allowSet.has("skills_note")) {
-      tools.push(
-        createSkillsNoteTool({
-          homeDir: params.homeDir,
-          skillLoader: this.skillLoader,
-        }),
-      );
-    }
-
-    if (allowSet.has("exec")) {
-      const allowlist = this.resolveExecAllowlist(params.entry);
-      const allowedSecrets = this.resolveExecAllowedSecrets(params.entry);
-      const executor = this.getSandboxExecutor({
-        sandboxConfig: params.sandboxConfig,
-        allowlist,
-      });
-      tools.push(
-        createExecTool({
-          executor,
-          sessionKey: params.sessionKey,
-          agentId: params.agentId,
-          workspaceDir: params.workspaceDir,
-          allowedSecrets,
-          authResolver: this.config.runtime?.auth?.enabled
-            ? createRuntimeSecretBroker({
-                masterKeyEnv: this.config.runtime?.auth?.masterKeyEnv ?? "MOZI_MASTER_KEY",
-              })
-            : undefined,
-        }),
-      );
-    }
-
-    const codingTools = filterTools(createPiCodingTools(params.workspaceDir), allowList).tools;
-    tools.push(...codingTools);
-
-    if (allowSet.has("memory_search") || allowSet.has("memory_get")) {
-      const manager = await getMemoryManager(this.config, params.agentId);
-      const lifecycle = await getMemoryLifecycleOrchestrator(this.config, params.agentId);
-      await lifecycle.handle({ type: "session_start", sessionKey: params.sessionKey });
-
-      const lifecycleAwareManager = {
-        ...manager,
-        search: async (query: string, opts?: { maxResults?: number; minScore?: number }) => {
-          await lifecycle.handle({ type: "search_requested", sessionKey: params.sessionKey });
-          return manager.search(query, opts);
-        },
-      };
-
-      const memoryTools = createMemoryTools({
-        manager: lifecycleAwareManager,
-        sessionKey: params.sessionKey,
-      });
-      const filtered = filterTools(memoryTools, allowList).tools;
-      tools.push(...filtered);
-    }
-
-    if (this.toolProvider) {
-      const provided = await this.toolProvider({
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-        workspaceDir: params.workspaceDir,
-        homeDir: params.homeDir,
-        sandboxConfig: params.sandboxConfig,
-      });
-      const filtered = filterTools(provided, allowList).tools;
-      tools.push(...filtered);
-    }
-
-    // Inject tools from enabled extensions
-    const extensionTools = this.extensionRegistry.collectTools();
-    if (extensionTools.length > 0) {
-      const filtered = filterTools(extensionTools, allowList).tools;
-      tools.push(...filtered);
-    }
-
-    if (this.shouldSanitizeTools(params.modelSpec)) {
-      return sanitizeTools(tools);
-    }
-    return tools;
-  }
-
-  private shouldSanitizeTools(modelSpec: ModelSpec): boolean {
-    if (this.config.runtime?.sanitizeToolSchema === false) {
-      return false;
-    }
-    return modelSpec.id.toLowerCase().includes("gemini");
+  resolvePromptTimeoutMs(agentId: string): number {
+    const entry = this.getAgentEntry(agentId);
+    return resolvePromptTimeoutMsFromConfig(this.config, entry);
   }
 
   getAgentFallbacks(agentId: string): string[] {
@@ -869,8 +557,8 @@ export class AgentManager {
   async getAgent(sessionKey: string, agentId?: string): Promise<ResolvedAgent> {
     const resolvedId = agentId || this.resolveDefaultAgentId();
     const entry = this.getAgentEntry(resolvedId);
-    const workspaceDir = this.resolveWorkspaceDir(resolvedId, entry);
-    const homeDir = this.resolveHomeDir(resolvedId, entry);
+    const workspaceDir = resolveWorkspaceDir(this.config, resolvedId, entry);
+    const homeDir = resolveHomeDir(this.config, resolvedId, entry);
     const session = this.sessions.getOrCreate(sessionKey, resolvedId);
 
     const runtimeOverride = this.runtimeModelOverrides.get(sessionKey);
@@ -913,25 +601,37 @@ export class AgentManager {
         );
       }
 
-      const sandboxConfig = this.resolveSandboxConfig(resolvedId, entry);
+      const sandboxConfig = resolveSandboxConfig(this.config, entry);
       const model = this.buildPiModel(modelSpec);
-      const tools = await this.buildTools({
-        sessionKey,
-        agentId: resolvedId,
-        entry,
-        workspaceDir,
-        homeDir,
-        sandboxConfig,
-        modelSpec,
-      });
+      const tools = await buildTools(
+        {
+          sessionKey,
+          agentId: resolvedId,
+          entry,
+          workspaceDir,
+          homeDir,
+          sandboxConfig,
+          modelSpec,
+        },
+        {
+          config: this.config,
+          subagents: this.subagents,
+          skillLoader: this.skillLoader,
+          extensionRegistry: this.extensionRegistry,
+          toolProvider: this.toolProvider,
+          getSandboxExecutor: (p) => this.getSandboxExecutor(p),
+        },
+      );
       const toolNames = Array.from(new Set(tools.map((tool) => tool.name)));
-      const systemPrompt = await this.buildSystemPrompt({
+      const systemPromptText = await buildSystemPrompt({
         homeDir,
         workspaceDir,
         basePrompt: entry?.systemPrompt,
         skills: entry?.skills,
         tools: toolNames,
         sandboxConfig,
+        skillLoader: this.skillLoader,
+        skillsIndexSynced: this.skillsIndexSynced,
       });
       const piSessionManager = PiSessionManager.inMemory(workspaceDir);
       const piSettingsManager = PiSettingsManager.create(workspaceDir, this.resolvePiAgentDir());
@@ -946,16 +646,16 @@ export class AgentManager {
         settingsManager: piSettingsManager,
       });
       agent = created.session;
-      agent.agent.setSystemPrompt(systemPrompt);
+      agent.agent.setSystemPrompt(systemPromptText);
       let persistedContext = Array.isArray(session.context)
         ? (session.context as AgentMessage[])
         : [];
       if (persistedContext.length > 0) {
-        const historyLimit = this.resolveHistoryLimit(sessionKey);
+        const historyLimit = resolveHistoryLimit(this.config, sessionKey);
         if (historyLimit && historyLimit > 0) {
           persistedContext = limitHistoryTurns(persistedContext, historyLimit);
         }
-        const pruningConfig = this.resolveContextPruningConfig(entry);
+        const pruningConfig = resolveContextPruningConfig(this.config, entry);
         const pruningSettings = computeEffectiveSettings(pruningConfig);
         const pruningResult = pruneContextMessages({
           messages: persistedContext,
@@ -974,7 +674,6 @@ export class AgentManager {
             "Context pruning applied",
           );
         }
-        // Sanitize messages before loading into agent to prevent proxy-side metadata pollution
         const sanitizedMessages = sanitizePromptInputForModel(
           pruningResult.messages,
           modelRef,
@@ -983,12 +682,27 @@ export class AgentManager {
         );
         agent.agent.replaceMessages(sanitizedMessages);
       }
-      const thinkingLevel = this.resolveThinkingLevel(entry);
+      const thinkingLevel = resolveThinkingLevel({
+        config: this.config,
+        sessions: this.sessions,
+        entry,
+        sessionKey,
+      });
       if (thinkingLevel) {
         agent.setThinkingLevel(thinkingLevel);
       }
       this.agents.set(sessionKey, agent);
       this.agentModelRefs.set(sessionKey, modelRef);
+    }
+
+    const thinkingLevel = resolveThinkingLevel({
+      config: this.config,
+      sessions: this.sessions,
+      entry,
+      sessionKey,
+    });
+    if (thinkingLevel) {
+      agent.setThinkingLevel(thinkingLevel);
     }
 
     return {
@@ -1003,7 +717,7 @@ export class AgentManager {
    * Check if home is in bootstrap mode
    */
   async checkBootstrap(homeDir: string): Promise<BootstrapState> {
-    return checkBootstrapState(homeDir);
+    return checkBootstrap(homeDir);
   }
 
   /**
@@ -1017,63 +731,11 @@ export class AgentManager {
     tools?: string[];
     sandboxConfig?: SandboxConfig;
   }): Promise<string> {
-    // Check bootstrap state from home directory
-    const bootstrapState = await checkBootstrapState(params.homeDir);
-
-    // Load home files (agent identity)
-    const homeFiles = await loadHomeFiles(params.homeDir);
-
-    // Build home context with bootstrap instructions if needed
-    const homeContext = buildContextWithBootstrap(homeFiles, bootstrapState);
-
-    // Load workspace files (TOOLS.md)
-    const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
-    const workspaceContext = buildWorkspaceContext(workspaceFiles, params.workspaceDir);
-
-    let skillsPrompt = "";
-    if (this.skillLoader) {
-      await this.skillLoader.loadAll();
-      if (!this.skillsIndexSynced.has(params.homeDir)) {
-        await this.skillLoader.syncHomeIndex(params.homeDir);
-        this.skillsIndexSynced.add(params.homeDir);
-      }
-      skillsPrompt = this.skillLoader.formatForPrompt(params.skills);
-    }
-
-    const sections: string[] = [];
-
-    const sandboxNote = this.buildSandboxPrompt({
-      workspaceDir: params.workspaceDir,
-      sandboxConfig: params.sandboxConfig,
+    return buildSystemPrompt({
+      ...params,
+      skillLoader: this.skillLoader,
+      skillsIndexSynced: this.skillsIndexSynced,
     });
-    const toolsNote = this.buildToolsSection(params.tools);
-    if (params.basePrompt) {
-      sections.push(params.basePrompt);
-    }
-
-    // Add home context (identity + bootstrap if applicable)
-    if (homeContext) {
-      sections.push(`# Agent Identity\n${homeContext}`);
-    }
-
-    // Add workspace context
-    if (workspaceContext) {
-      sections.push(workspaceContext);
-    }
-
-    if (toolsNote) {
-      sections.push(toolsNote);
-    }
-
-    if (sandboxNote) {
-      sections.push(sandboxNote);
-    }
-
-    if (skillsPrompt) {
-      sections.push(this.buildSkillsSection(skillsPrompt, params.tools));
-    }
-
-    return sections.join("\n\n");
   }
 
   async setSessionModel(
@@ -1100,8 +762,8 @@ export class AgentManager {
     const oldModelRef = this.agentModelRefs.get(sessionKey);
     if (oldModelRef) {
       const oldSpec = this.modelRegistry.get(oldModelRef);
-      const oldNeedsSanitize = oldSpec ? this.shouldSanitizeTools(oldSpec) : false;
-      const newNeedsSanitize = this.shouldSanitizeTools(spec);
+      const oldNeedsSanitize = oldSpec ? shouldSanitizeTools(this.config, oldSpec) : false;
+      const newNeedsSanitize = shouldSanitizeTools(this.config, spec);
       if (oldNeedsSanitize !== newNeedsSanitize) {
         agent.dispose();
         this.agents.delete(sessionKey);

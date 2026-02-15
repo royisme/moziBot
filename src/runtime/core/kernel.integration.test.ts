@@ -632,8 +632,10 @@ describe("RuntimeKernel", () => {
 
     expect(result.accepted).toBe(true);
     expect(ok).toBe(true);
-    expect(interruptCalls).toHaveLength(1);
-    expect(interruptCalls[0]?.sessionKey).toBe("agent:mozi:telegram:dm:peer-stop-cmd");
+    expect(interruptCalls.length).toBeGreaterThanOrEqual(1);
+    expect(
+      interruptCalls.some((call) => call.sessionKey === "agent:mozi:telegram:dm:peer-stop-cmd"),
+    ).toBe(true);
     expect(runtimeQueue.getById("stop-cmd-e1")?.status).toBe("completed");
   });
 

@@ -1,6 +1,6 @@
 import { run } from "@grammyjs/runner";
 import { Bot } from "grammy";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TelegramPlugin } from "./plugin";
 
 // Type for mocked Bot
@@ -76,8 +76,14 @@ describe("TelegramPlugin", () => {
   const config = { botToken: "test-token" };
 
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     plugin = new TelegramPlugin(config);
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await plugin.disconnect();
   });
 
   it("should have correct id and name", () => {
@@ -151,24 +157,21 @@ describe("TelegramPlugin", () => {
   });
 
   it("should send typing indicator while typing is active", async () => {
+    await plugin.connect();
     vi.useFakeTimers();
     try {
-      await plugin.connect();
       const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
 
       const stopTyping = await plugin.beginTyping?.("12345");
       expect(botInstance.api.sendChatAction).toHaveBeenCalledTimes(1);
       expect(botInstance.api.sendChatAction).toHaveBeenLastCalledWith("12345", "typing");
 
-      vi.advanceTimersByTime(6000);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(6000);
       expect(botInstance.api.sendChatAction).toHaveBeenCalledTimes(2);
 
       await stopTyping?.();
-      vi.advanceTimersByTime(12000);
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(12000);
       expect(botInstance.api.sendChatAction).toHaveBeenCalledTimes(2);
-      await plugin.disconnect();
     } finally {
       vi.useRealTimers();
     }
@@ -351,40 +354,44 @@ describe("TelegramPlugin", () => {
     });
     await mentionPlugin.connect();
 
-    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[1].value;
-    const handler = botInstance.on.mock.calls.find(
-      (call: unknown[]) => (call[0] as string) === "message:text",
-    )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
-    expect(handler).toBeDefined();
-    if (!handler) {
-      return;
+    try {
+      const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[1].value;
+      const handler = botInstance.on.mock.calls.find(
+        (call: unknown[]) => (call[0] as string) === "message:text",
+      )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
+      expect(handler).toBeDefined();
+      if (!handler) {
+        return;
+      }
+
+      let received = false;
+      mentionPlugin.on("message", () => {
+        received = true;
+      });
+
+      await handler({
+        message: {
+          message_id: 11,
+          chat: { id: -1001, type: "supergroup" },
+          from: { id: 101, first_name: "Member" },
+          date: 1675468800,
+          text: "hello everyone",
+        },
+      });
+      expect(received).toBe(false);
+
+      await handler({
+        message: {
+          message_id: 12,
+          chat: { id: -1001, type: "supergroup" },
+          from: { id: 101, first_name: "Member" },
+          date: 1675468800,
+          text: "hello @mozi_bot",
+        },
+      });
+      expect(received).toBe(true);
+    } finally {
+      await mentionPlugin.disconnect();
     }
-
-    let received = false;
-    mentionPlugin.on("message", () => {
-      received = true;
-    });
-
-    await handler({
-      message: {
-        message_id: 11,
-        chat: { id: -1001, type: "supergroup" },
-        from: { id: 101, first_name: "Member" },
-        date: 1675468800,
-        text: "hello everyone",
-      },
-    });
-    expect(received).toBe(false);
-
-    await handler({
-      message: {
-        message_id: 12,
-        chat: { id: -1001, type: "supergroup" },
-        from: { id: 101, first_name: "Member" },
-        date: 1675468800,
-        text: "hello @mozi_bot",
-      },
-    });
-    expect(received).toBe(true);
   });
 });

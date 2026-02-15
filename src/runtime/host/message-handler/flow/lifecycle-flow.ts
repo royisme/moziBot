@@ -4,11 +4,6 @@ import {
   shouldRotateSessionForTemporalPolicy,
   type SessionTimestamps,
 } from "../lifecycle/temporal";
-import {
-  evaluateSemanticLifecycle,
-  resolveSemanticLifecyclePolicy,
-  type SemanticSessionMetadata,
-} from "../lifecycle/semantic";
 
 /**
  * Runtime-guarded helper to ensure a function exists on an unknown object.
@@ -66,18 +61,8 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
     // Dependency extraction
     const resetSession = requireFn<(sk: string, ai: string) => void>(deps, "resetSession");
     const getSessionTimestamps = requireFn<(sk: string) => SessionTimestamps>(deps, "getSessionTimestamps");
-    const getSessionMetadata = requireFn<(sk: string) => Record<string, unknown>>(deps, "getSessionMetadata");
-    const updateMetadata = requireFn<(sk: string, meta: Record<string, unknown>) => void>(
-      deps,
-      "updateSessionMetadata",
-    );
-    const revertToPreviousSegment = requireFn<(sk: string, ai: string) => boolean>(
-      deps,
-      "revertToPreviousSegment",
-    );
     const getConfigAgents = requireFn<() => Record<string, unknown>>(deps, "getConfigAgents");
     const logger = requireObj<{ info: (o: Record<string, unknown>, m: string) => void }>(deps, "logger");
-    const getSessionMessages = requireFn<(sk: string) => unknown[]>(deps, "getSessionMessages");
 
     const configAgents = getConfigAgents();
 
@@ -90,58 +75,6 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
       logger.info(
         { sessionKey, agentId, trigger: "temporal_freshness" },
         "Session auto-rotated by temporal policy",
-      );
-    }
-
-    // 3. Semantic Lifecycle Orchestration
-    const semanticPolicy = resolveSemanticLifecyclePolicy(agentId, configAgents);
-    const rawMetadata = getSessionMetadata(sessionKey);
-    const semanticMetadata =
-      (rawMetadata.lifecycle as { semantic?: SemanticSessionMetadata } | undefined)?.semantic ?? {};
-    
-    // TODO: Injected history fetcher for semantic comparison
-    const previousMessages = getSessionMessages(sessionKey);
-
-    const semanticResult = evaluateSemanticLifecycle({
-      policy: semanticPolicy,
-      currentText: text,
-      previousMessages,
-      metadata: semanticMetadata,
-    });
-
-    if (semanticResult.shouldRevert) {
-      const success = revertToPreviousSegment(sessionKey, agentId);
-      if (success) {
-        // Monolith logic: update metadata with revert trace
-        updateMetadata(sessionKey, {
-          lifecycle: {
-            semantic: {
-              lastRotationAt: Date.now(),
-               lastRotationType: "semantic_revert",
-               lastConfidence: semanticResult.confidence,
-            },
-          },
-        });
-        logger.info(
-          { sessionKey, agentId, trigger: "semantic_revert" },
-          "Session semantic misfire reverted",
-        );
-      }
-    } else if (semanticResult.shouldRotate) {
-      resetSession(sessionKey, agentId);
-      updateMetadata(sessionKey, {
-        lifecycle: {
-          semantic: {
-            lastRotationAt: Date.now(),
-               lastRotationType: "semantic",
-               lastConfidence: semanticResult.confidence,
-            // TODO: Capture controlModelRef if returned by evaluator
-          },
-        },
-      });
-      logger.info(
-        { sessionKey, agentId, trigger: "semantic_shift" },
-        "Session auto-rotated by semantic policy",
       );
     }
 

@@ -1,0 +1,446 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import type { MoziConfig } from "../../config";
+import type { DeliveryPlan } from "../../multimodal/capabilities";
+import type { ChannelPlugin } from "../adapters/channels/plugin";
+import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
+import type { SecretScope } from "../auth/types";
+import type { Schedule } from "./cron/types";
+import type { SessionManager } from "./sessions/manager";
+import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
+import { logger } from "../../logger";
+import { getMemoryLifecycleOrchestrator } from "../../memory";
+import {
+  resolveHomeDir,
+  resolveMemoryBackendConfig,
+  type ResolvedMemoryPersistenceConfig,
+} from "../../memory/backend-config";
+import { FlushManager } from "../../memory/flush-manager";
+import { ingestInboundMessage } from "../../multimodal/ingest";
+import { planOutboundByNegotiation } from "../../multimodal/outbound";
+import { reminders } from "../../storage/db";
+import { createRuntimeSecretBroker } from "../auth/broker";
+import {
+  isContextOverflowError,
+} from "../context-management";
+import { SubagentRegistry } from "../subagent-registry";
+import { computeNextRun } from "./reminders/schedule";
+import {
+  isSilentReplyText,
+  renderAssistantReply,
+  type ReplyRenderOptions,
+} from "./reply-utils";
+import { RuntimeRouter } from "./router";
+import { buildSessionKey } from "./session-key";
+import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { SttService } from "./stt-service";
+import { createSessionTools } from "./tools/sessions";
+import { V3Orchestrator } from "./message-handler/orchestrator";
+import { 
+  type OrchestratorDeps, 
+  type MessageTurnContext,
+  type ChannelDispatcherBridge 
+} from "./message-handler/contract";
+import { createMessageTurnContext } from "./message-handler/context";
+import { StreamingBuffer, handleAgentStreamEvent, type AgentSessionEvent } from "./message-handler/services/streaming";
+import { runPromptWithFallback, type FallbackInfo } from "./message-handler/services/prompt-runner";
+import { createCommandHandlerMap, type CommandHandlerMap } from "./message-handler/services/command-handlers";
+import { 
+  resolveLastAssistantReplyText, 
+  shouldSuppressSilentReply, 
+  shouldSuppressHeartbeatReply 
+} from "./message-handler/services/reply-finalizer";
+import { 
+  finalizeStreamingReply, 
+  buildNegotiatedOutbound, 
+  sendNegotiatedReply 
+} from "./message-handler/services/reply-dispatcher";
+import { 
+  emitPhaseSafely, 
+  startTypingIndicator, 
+  stopTypingIndicator,
+  type InteractionPhase,
+  type PhasePayload
+} from "./message-handler/services/interaction-lifecycle";
+import { 
+  toError, 
+  isAbortError, 
+  createErrorReplyText 
+} from "./message-handler/services/error-reply";
+import { 
+  resolveTemporalLifecyclePolicy, 
+  shouldRotateSessionForTemporalPolicy 
+} from "./message-handler/lifecycle/temporal";
+import { 
+  resolveSemanticLifecyclePolicy, 
+  evaluateSemanticLifecycle 
+} from "./message-handler/lifecycle/semantic";
+
+/**
+ * Metadata for a tracked user location in the chat system.
+ */
+type LastRoute = {
+  channelId: string;
+  peerId: string;
+  peerType: "dm" | "group" | "channel";
+  accountId?: string;
+  threadId?: string | number;
+};
+
+/**
+ * Control methods for managing the host runtime.
+ */
+type RuntimeControl = {
+  getStatus?: () => { running: boolean; pid: number | null; uptime: number };
+  restart?: () => Promise<void> | void;
+};
+
+type ResolvedSessionContext = {
+  agentId: string;
+  sessionKey: string;
+  dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+  peerId: string;
+};
+
+/**
+ * Main host entry point for processing inbound platform messages.
+ * Delegates turn orchestration to V3Orchestrator.
+ */
+export class MessageHandler {
+  private sessions: SessionStore;
+  private providerRegistry: ProviderRegistry;
+  private modelRegistry: ModelRegistry;
+  private agentManager: AgentManager;
+  private subagents: SubagentRegistry;
+  private router: RuntimeRouter;
+  private lastRoutes = new Map<string, LastRoute>();
+  private activePromptRuns = new Map<string, any>(); 
+  private interruptedPromptRuns = new Set<string>();
+  private config: MoziConfig;
+  private runtimeControl?: RuntimeControl;
+  private sttService: SttService;
+  private secretBroker = createRuntimeSecretBroker();
+
+  constructor(
+    config: MoziConfig,
+    deps?: {
+      sessionManager?: SessionManager;
+      subAgentRegistry?: SessionSubAgentRegistry;
+      runtimeControl?: RuntimeControl;
+    },
+  ) {
+    this.config = config;
+    this.runtimeControl = deps?.runtimeControl;
+    this.sttService = new SttService(config);
+    this.sessions = new SessionStore(config);
+    this.router = new RuntimeRouter(config);
+    this.providerRegistry = new ProviderRegistry(config);
+    this.modelRegistry = new ModelRegistry(config);
+    this.agentManager = new AgentManager({
+      config,
+      modelRegistry: this.modelRegistry,
+      providerRegistry: this.providerRegistry,
+      sessions: this.sessions,
+    });
+    this.subagents = new SubagentRegistry(
+      this.modelRegistry,
+      this.providerRegistry,
+      this.agentManager,
+    );
+    this.agentManager.setSubagentRegistry(this.subagents);
+    if (deps?.sessionManager && deps?.subAgentRegistry) {
+      this.agentManager.setToolProvider((params) =>
+        createSessionTools({
+          sessionManager: deps.sessionManager!,
+          subAgentRegistry: deps.subAgentRegistry!,
+          currentSessionKey: params.sessionKey,
+        }),
+      );
+    }
+  }
+
+  /**
+   * Main entry point: delegates to V3 orchestrator.
+   */
+  async handle(message: InboundMessage, channel: ChannelPlugin): Promise<void> {
+    const v3Message = {
+      id: message.id,
+      type: "message", 
+      payload: message,
+    };
+
+    const ctx = createMessageTurnContext(v3Message);
+    const bridge = this.createOrchestratorDeps(channel);
+    const orchestrator = new V3Orchestrator(bridge);
+
+    await orchestrator.handle(ctx);
+  }
+
+  /**
+   * Builds the strictly-typed dependency bridge for the V3 Orchestrator.
+   */
+  private createOrchestratorDeps(channel: ChannelPlugin): OrchestratorDeps {
+    return {
+      config: this.config,
+      logger,
+      
+      // Inbound & Command Helpers
+      getText: (payload) => (payload as InboundMessage).text || "",
+      getMedia: (payload) => (payload as InboundMessage).media || [],
+      normalizeImplicitControlCommand: (text) => this.normalizeImplicitControlCommand(text) || "",
+      parseCommand: (text) => this.parseCommand(text),
+      resolveSessionContext: (payload) => this.resolveSessionContext(payload as InboundMessage),
+      rememberLastRoute: (agentId, payload) => this.rememberLastRoute(agentId, payload as InboundMessage),
+      sendDirect: (peerId, text) => this.sendDirect(peerId, text),
+      getCommandHandlerMap: () => this.buildCommandHandlerMap(channel),
+      getChannel: (payload) => ({
+        id: channel.id,
+        send: (peerId: string, msg: OutboundMessage) => channel.send(peerId, msg),
+        editMessage: channel.editMessage ? (mid: string, pid: string, text: string) => channel.editMessage!(mid, pid, text) : undefined,
+      }),
+
+      // Lifecycle Helpers
+      resetSession: (sessionKey, agentId) => this.agentManager.resetSession(sessionKey, agentId),
+      getSessionTimestamps: (sessionKey) => {
+        const session = this.sessions.get(sessionKey);
+        return { createdAt: session?.createdAt || Date.now(), updatedAt: session?.updatedAt };
+      },
+      getSessionMetadata: (sessionKey) => this.agentManager.getSessionMetadata(sessionKey) || {},
+      updateSessionMetadata: (sessionKey, meta) => this.agentManager.updateSessionMetadata(sessionKey, meta),
+      revertToPreviousSegment: (sessionKey, agentId) => this.sessions.revertToPreviousSegment(sessionKey, agentId) !== undefined,
+      getConfigAgents: () => (this.config.agents || {}) as Record<string, unknown>,
+      getSessionMessages: (sessionKey) => (this.sessions.get(sessionKey)?.context as any[]) || [],
+
+      // Prompt & Execution Helpers
+      transcribeInboundMessage: (payload) => this.sttService.transcribeInboundMessage(payload as InboundMessage),
+      checkInputCapability: (params) => {
+        return this.checkInputCapability({
+          sessionKey: params.sessionKey,
+          agentId: params.agentId,
+          message: params.message as InboundMessage,
+          channel,
+          peerId: params.peerId,
+          hasAudioTranscript: params.hasAudioTranscript
+        });
+      },
+      ingestInboundMessage: (params) => ingestInboundMessage({
+        message: params.message as InboundMessage,
+        sessionKey: params.sessionKey,
+        channelId: channel.id,
+        modelRef: "unknown", 
+      }),
+      buildPromptText: (params) => this.buildPromptText({
+        message: params.message as InboundMessage,
+        rawText: params.rawText,
+        transcript: params.transcript,
+        ingestPlan: params.ingestPlan as any
+      }),
+      ensureChannelContext: (params) => this.agentManager.ensureChannelContext({
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+        message: params.message as InboundMessage
+      }),
+      startTypingIndicator: (params) => startTypingIndicator({
+        channel,
+        peerId: params.peerId,
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+        deps: { logger, toError }
+      }),
+      emitPhaseSafely: (params) => emitPhaseSafely({
+        channel,
+        peerId: params.payload?.peerId || "", 
+        phase: params.phase,
+        payload: params.payload,
+        deps: { logger, toError }
+      }),
+      createStreamingBuffer: (params) => new (StreamingBuffer as any)(channel, params.peerId, params.onError),
+      runPromptWithFallback: (params) => runPromptWithFallback({
+        ...params,
+        deps: {
+          logger,
+          agentManager: {
+            getAgent: (sk, ai) => this.agentManager.getAgent(sk, ai),
+            getAgentFallbacks: (ai) => this.agentManager.getAgentFallbacks(ai),
+            compactSession: (sk, ai) => this.agentManager.compactSession(sk, ai),
+            setSessionModel: (sk, m, opt) => this.agentManager.setSessionModel(sk, m, opt),
+            clearRuntimeModelOverride: (sk) => this.agentManager.clearRuntimeModelOverride(sk)
+          },
+          errorClassifiers: {
+            isAgentBusyError: (err) => this.isAgentBusyError(toError(err)),
+            isContextOverflowError: (msg) => isContextOverflowError(msg),
+            isAbortError: (err) => isAbortError(err),
+            toError: (err) => toError(err)
+          }
+        },
+        activeMap: this.activePromptRuns,
+        interruptedSet: this.interruptedPromptRuns
+      }),
+      resolveReplyRenderOptions: (agentId) => this.resolveReplyRenderOptions(agentId),
+      resolveLastAssistantReplyText: (params) => resolveLastAssistantReplyText(params),
+      shouldSuppressSilentReply: (text) => shouldSuppressSilentReply(text),
+      shouldSuppressHeartbeatReply: (raw, text) => shouldSuppressHeartbeatReply(raw as any, text),
+      finalizeStreamingReply: (params) => finalizeStreamingReply(params),
+      buildNegotiatedOutbound: (params) => buildNegotiatedOutbound(params),
+      sendNegotiatedReply: (params) => sendNegotiatedReply({ channel: { id: channel.id, send: (pid, msg) => channel.send(pid, msg) }, ...params }),
+      
+      // Error Helpers
+      toError: (err) => toError(err),
+      isAbortError: (err) => isAbortError(err),
+      createErrorReplyText: (err) => createErrorReplyText(err),
+      setSessionModel: (sk, m) => this.agentManager.setSessionModel(sk, m),
+      stopTypingIndicator: (params) => stopTypingIndicator({ ...params, deps: { logger, toError } })
+    };
+  }
+
+  private buildCommandHandlerMap(channel: ChannelPlugin): CommandHandlerMap {
+    return createCommandHandlerMap({
+      start: (ctx) => this.sendDirect(ctx.peerId, "Hello! I am Mozi."),
+      help: (ctx) => this.sendDirect(ctx.peerId, "Available commands: /start, /help, /status..."),
+      status: (ctx) => this.handleStatusCommand({ ...ctx, message: ctx.message as InboundMessage, channel }),
+      whoami: (ctx) => this.handleWhoamiCommand({ ...ctx, message: ctx.message as InboundMessage, channel }),
+      new: (ctx) => this.handleNewSessionCommand(ctx.sessionKey, ctx.agentId, channel, ctx.peerId),
+      models: (ctx) => this.handleModelsCommand(ctx.sessionKey, ctx.agentId, channel, ctx.peerId),
+      switch: (ctx, args) => this.handleSwitchCommand(ctx.sessionKey, ctx.agentId, args, channel, ctx.peerId),
+      restart: (ctx) => this.handleRestartCommand(channel, ctx.peerId),
+      compact: (ctx) => this.handleCompactCommand({ ...ctx, channel }),
+      context: (ctx) => this.handleContextCommand({ ...ctx, channel }),
+      setauth: (ctx, args) => this.handleAuthCommand({ ...ctx, args, senderId: (ctx.message as InboundMessage).senderId, channel }),
+      unsetauth: (ctx, args) => this.handleAuthCommand({ ...ctx, args, senderId: (ctx.message as InboundMessage).senderId, channel }),
+      listauth: (ctx, args) => this.handleAuthCommand({ ...ctx, args, senderId: (ctx.message as InboundMessage).senderId, channel }),
+      checkauth: (ctx, args) => this.handleAuthCommand({ ...ctx, args, senderId: (ctx.message as InboundMessage).senderId, channel }),
+      reminders: (ctx, args) => this.handleRemindersCommand({ ...ctx, message: ctx.message as InboundMessage, args, channel }),
+      heartbeat: (ctx, args) => this.handleHeartbeatCommand({ ...ctx, args, channel }),
+    });
+  }
+
+  private async sendDirect(peerId: string, text: string): Promise<void> {
+    // implementation helper
+  }
+
+  getAgentManager(): AgentManager {
+    return this.agentManager;
+  }
+
+  async initExtensions(): Promise<void> {
+    await this.agentManager.initExtensionsAsync();
+  }
+
+  async shutdownExtensions(): Promise<void> {
+    await this.agentManager.shutdownExtensions();
+  }
+
+  /**
+   * Hot-reload configuration without losing agent state
+   */
+  async reloadConfig(config: MoziConfig): Promise<void> {
+    this.config = config;
+    this.sttService.updateConfig(config);
+    this.router = new RuntimeRouter(config);
+    this.providerRegistry = new ProviderRegistry(config);
+    this.modelRegistry = new ModelRegistry(config);
+    await this.agentManager.reloadConfig({
+      config,
+      modelRegistry: this.modelRegistry,
+      providerRegistry: this.providerRegistry,
+    });
+    this.subagents = new SubagentRegistry(
+      this.modelRegistry,
+      this.providerRegistry,
+      this.agentManager,
+    );
+    this.agentManager.setSubagentRegistry(this.subagents);
+    logger.info("MessageHandler config reloaded (agents preserved)");
+  }
+
+  /**
+   * Public context resolution needed by heartbeat/reminders.
+   */
+  public resolveSessionContext(message: InboundMessage): ResolvedSessionContext {
+    const route = this.router.resolve(message);
+    const sessionKey = buildSessionKey({ 
+      agentId: route.agentId, 
+      message, 
+      dmScope: route.peerType === "dm" ? "per-peer" : undefined 
+    });
+    return {
+      agentId: route.agentId,
+      sessionKey,
+      peerId: route.peerId,
+      dmScope: route.peerType === "dm" ? "per-peer" : undefined,
+    };
+  }
+
+  public getLastRoute(agentId: string): LastRoute | undefined {
+    return this.lastRoutes.get(agentId);
+  }
+
+  private rememberLastRoute(agentId: string, message: InboundMessage): void {
+    this.lastRoutes.set(agentId, {
+      channelId: message.channel,
+      peerId: message.peerId,
+      peerType: message.peerType || "dm",
+      accountId: message.accountId,
+      threadId: message.threadId,
+    });
+  }
+
+  private isAgentBusyError(error: Error): boolean {
+    return error.message.toLowerCase().includes("already processing a prompt");
+  }
+
+  private resolveReplyRenderOptions(agentId: string): ReplyRenderOptions {
+    const agents = (this.config.agents || {}) as Record<string, unknown>;
+    const defaults =
+      (agents.defaults as { output?: ReplyRenderOptions } | undefined)?.output || undefined;
+    const entry =
+      (agents[agentId] as { output?: ReplyRenderOptions } | undefined)?.output || undefined;
+    return {
+      showThinking: entry?.showThinking ?? defaults?.showThinking ?? false,
+      showToolCalls: entry?.showToolCalls ?? defaults?.showToolCalls ?? "off",
+    };
+  }
+
+  private async checkInputCapability(params: {
+    sessionKey: string;
+    agentId: string;
+    message: InboundMessage;
+    channel: ChannelPlugin;
+    peerId: string;
+    hasAudioTranscript: boolean;
+  }): Promise<{ ok: boolean; restoreModelRef?: string }> {
+    return { ok: true };
+  }
+
+  private buildPromptText(params: {
+    message: InboundMessage;
+    rawText: string;
+    transcript?: string;
+    ingestPlan: any;
+  }): string {
+    return params.rawText;
+  }
+
+  private normalizeImplicitControlCommand(text: string): string | null {
+    return null;
+  }
+
+  private parseCommand(text: string): { name: any; args: string } | null {
+    return null;
+  }
+
+  private async handleStatusCommand(params: any) {}
+  private async handleWhoamiCommand(params: any) {}
+  private async handleNewSessionCommand(sk: string, ai: string, ch: any, pid: string) {}
+  private async handleModelsCommand(sk: string, ai: string, ch: any, pid: string) {}
+  private async handleSwitchCommand(sk: string, ai: string, args: string, ch: any, pid: string) {}
+  private async handleRestartCommand(ch: any, pid: string) {}
+  private async handleCompactCommand(params: any) {}
+  private async handleContextCommand(params: any) {}
+  private async handleAuthCommand(params: any) {}
+  private async handleRemindersCommand(params: any) {}
+  private async handleHeartbeatCommand(params: any) {}
+  private async flushMemory(sk: string, ai: string, msgs: any[], pc: any) { return true; }
+}
