@@ -2,16 +2,17 @@ import * as PIXI from "pixi.js";
 import { Live2DModel } from "pixi-live2d-display-lipsyncpatch/cubism4";
 import type { AvatarRenderer, Phase } from "./types";
 
-Live2DModel.registerTicker(PIXI.Ticker);
-
 export class Live2DRenderer implements AvatarRenderer {
   private app: PIXI.Application | null = null;
   private model: InstanceType<typeof Live2DModel> | null = null;
+  private canvas: HTMLCanvasElement | null = null;
   private container: HTMLElement | null = null;
   private currentPhase: Phase = "idle";
   private manualMouthValue = 0;
   private manualMouthTarget = 0;
   private isSpeaking = false;
+  private recovering = false;
+  private initializing: Promise<void> | null = null;
 
   constructor(
     private modelPath: string,
@@ -19,14 +20,30 @@ export class Live2DRenderer implements AvatarRenderer {
   ) {}
 
   async init(container: HTMLElement): Promise<void> {
+    if (this.initializing) {
+      return this.initializing;
+    }
+    this.initializing = this.initInternal(container).finally(() => {
+      this.initializing = null;
+    });
+    return this.initializing;
+  }
+
+  private async initInternal(container: HTMLElement): Promise<void> {
     this.container = container;
 
-    const canvas = document.createElement("canvas");
-    canvas.className = "live2d-canvas";
-    container.appendChild(canvas);
+    if (!this.canvas) {
+      const canvas = document.createElement("canvas");
+      canvas.className = "live2d-canvas";
+      container.appendChild(canvas);
+      this.canvas = canvas;
+
+      canvas.addEventListener("webglcontextlost", this.onContextLost);
+      canvas.addEventListener("webglcontextrestored", this.onContextRestored);
+    }
 
     this.app = new PIXI.Application({
-      view: canvas,
+      view: this.canvas,
       backgroundAlpha: 0,
       width: container.clientWidth,
       height: container.clientHeight,
@@ -35,6 +52,7 @@ export class Live2DRenderer implements AvatarRenderer {
 
     this.model = await Live2DModel.from(this.modelPath, {
       autoInteract: false,
+      ticker: this.app.ticker,
     });
 
     const scale = this.modelScale ?? this.computeDefaultScale();
@@ -94,9 +112,11 @@ export class Live2DRenderer implements AvatarRenderer {
       volume: 1,
       onFinish: () => {
         this.isSpeaking = false;
+        URL.revokeObjectURL(audioUrl);
       },
       onError: () => {
         this.isSpeaking = false;
+        URL.revokeObjectURL(audioUrl);
       },
     });
   }
@@ -116,11 +136,40 @@ export class Live2DRenderer implements AvatarRenderer {
   }
 
   destroy(): void {
+    this.recovering = false;
+    if (this.canvas) {
+      this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
+      this.canvas.removeEventListener("webglcontextrestored", this.onContextRestored);
+      this.canvas = null;
+    }
     this.model?.destroy();
     this.model = null;
     this.app?.destroy(true);
     this.app = null;
   }
+
+  private onContextLost = (e: Event): void => {
+    e.preventDefault();
+    this.recovering = true;
+    console.warn("WebGL context lost — waiting for restore");
+  };
+
+  private onContextRestored = (): void => {
+    if (!this.recovering) {
+      return;
+    }
+    console.log("WebGL context restored — re-initializing");
+    this.recovering = false;
+    if (!this.container) return;
+    if (this.initializing) {
+      return;
+    }
+    this.model?.destroy();
+    this.model = null;
+    this.app?.destroy(false);
+    this.app = null;
+    void this.init(this.container);
+  };
 
   private computeDefaultScale(): number {
     if (!this.app || !this.model) return 0.2;
@@ -158,10 +207,20 @@ export class Live2DRenderer implements AvatarRenderer {
       if (Math.abs(this.manualMouthValue) < 0.001) {
         this.manualMouthValue = 0;
       }
-      const core = (this.model.internalModel as any)?.coreModel;
-      if (core && typeof core.setParameterValueById === "function") {
-        core.setParameterValueById("ParamMouthOpenY", this.manualMouthValue);
-      }
+      this.setCoreParameter("ParamMouthOpenY", this.manualMouthValue);
     });
+  }
+
+  private setCoreParameter(id: string, value: number): void {
+    if (!this.model) return;
+    try {
+      const internal = this.model.internalModel as unknown as Record<string, unknown> | undefined;
+      const core = internal?.coreModel as Record<string, unknown> | undefined;
+      if (core && typeof core.setParameterValueById === "function") {
+        (core.setParameterValueById as (id: string, value: number) => void)(id, value);
+      }
+    } catch {
+      // Internal API may have changed; silently ignore.
+    }
   }
 }

@@ -114,6 +114,15 @@ function normalizePort(input: unknown): number | undefined {
   return Math.trunc(n);
 }
 
+function normalizeScale(input: unknown): number | undefined {
+  const n =
+    typeof input === "number" ? input : typeof input === "string" ? Number(input) : Number.NaN;
+  if (!Number.isFinite(n) || n < 0.01 || n > 10) {
+    return undefined;
+  }
+  return n;
+}
+
 function normalizeToken(input: unknown): string | undefined {
   if (typeof input !== "string") {
     return undefined;
@@ -146,9 +155,9 @@ function resolveAvatarConfig(
     (runtimeAvatar ? normalizeToken(runtimeAvatar.modelPath) : undefined) ??
     (mode === "live2d" ? DEFAULT_MODEL_PATH : undefined);
   const scaleRaw =
-    normalizePort(envScale) ??
+    normalizeScale(envScale) ??
     (runtimeAvatar && typeof runtimeAvatar.scale === "number"
-      ? runtimeAvatar.scale
+      ? normalizeScale(runtimeAvatar.scale)
       : undefined);
   return { mode, modelPath, scale: scaleRaw };
 }

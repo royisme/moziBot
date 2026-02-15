@@ -1,11 +1,13 @@
 /**
  * Captures microphone audio, frames it as PCM s16le, and sends
  * audio_chunk / audio_commit messages via the provided callbacks.
+ *
+ * Uses AudioWorklet for off-main-thread processing.
  */
 export class AudioCaptureService {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private workletNode: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private streamId = "";
   private seq = 0;
@@ -27,27 +29,24 @@ export class AudioCaptureService {
     });
 
     this.audioContext = new AudioContext({ sampleRate: 16000 });
-    this.source = this.audioContext.createMediaStreamSource(this.stream);
+    await this.audioContext.audioWorklet.addModule("/pcm-worklet-processor.js");
 
-    // ScriptProcessorNode (deprecated but widely supported in webviews)
-    // Buffer size of 4096 at 16kHz = ~256ms per frame
-    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
+    this.workletNode = new AudioWorkletNode(this.audioContext, "pcm-worklet-processor");
 
     this.streamId = crypto.randomUUID();
     this.seq = 0;
     this.capturing = true;
 
-    this.processor.onaudioprocess = (e) => {
+    this.workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
       if (!this.capturing) return;
-      const float32 = e.inputBuffer.getChannelData(0);
-      const pcm16 = float32ToPcm16(float32);
-      const base64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+      const base64 = uint8ArrayToBase64(new Uint8Array(e.data));
       this.onChunk?.(this.streamId, this.seq, 16000, base64);
       this.seq++;
     };
 
-    this.source.connect(this.processor);
-    this.processor.connect(this.audioContext.destination);
+    this.source.connect(this.workletNode);
+    this.workletNode.connect(this.audioContext.destination);
   }
 
   stop(reason: "manual_stop" | "vad_silence" | "max_duration" = "manual_stop"): void {
@@ -56,9 +55,9 @@ export class AudioCaptureService {
 
     this.onCommit?.(this.streamId, this.seq, reason);
 
-    this.processor?.disconnect();
+    this.workletNode?.disconnect();
     this.source?.disconnect();
-    this.processor = null;
+    this.workletNode = null;
     this.source = null;
 
     if (this.audioContext?.state !== "closed") {
@@ -81,15 +80,6 @@ export class AudioCaptureService {
     this.onChunk = null;
     this.onCommit = null;
   }
-}
-
-function float32ToPcm16(float32: Float32Array): Int16Array {
-  const pcm16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const clamped = Math.max(-1, Math.min(1, float32[i]));
-    pcm16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-  }
-  return pcm16;
 }
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {

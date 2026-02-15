@@ -79,7 +79,8 @@ async function bootstrap(): Promise<void> {
     await renderer.init(avatarContainer);
   }
 
-  window.addEventListener("resize", () => renderer.resize());
+  const onResize = () => renderer.resize();
+  window.addEventListener("resize", onResize);
 
   // ── Services ──
 
@@ -177,4 +178,21 @@ async function bootstrap(): Promise<void> {
 
   client.connectSse();
   client.connectWs();
+
+  // ── Cleanup on unload ──
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) {
+      return;
+    }
+    cleanedUp = true;
+    window.removeEventListener("resize", onResize);
+    window.removeEventListener("beforeunload", cleanup);
+    capture.destroy();
+    playback.destroy();
+    client.destroy();
+    renderer.destroy();
+  };
+  window.addEventListener("beforeunload", cleanup, { once: true });
 }

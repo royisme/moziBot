@@ -27,9 +27,11 @@ export class MoziClient {
   private listeners = new Map<string, Set<Function>>();
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private wsReconnectAttempt = 0;
+  private sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private sseReconnectAttempt = 0;
   private destroyed = false;
 
-  private static readonly WS_BACKOFF = [1000, 2000, 5000];
+  private static readonly RECONNECT_BACKOFF = [1000, 2000, 5000];
 
   constructor(config: MoziClientConfig) {
     this.config = config;
@@ -72,6 +74,7 @@ export class MoziClient {
     this.eventSource = new EventSource(url.toString());
 
     this.eventSource.addEventListener("open", () => {
+      this.sseReconnectAttempt = 0;
       this.emit("sseConnected");
     });
 
@@ -85,7 +88,10 @@ export class MoziClient {
     });
 
     this.eventSource.addEventListener("error", () => {
+      this.eventSource?.close();
+      this.eventSource = null;
       this.emit("sseDisconnected");
+      this.scheduleSseReconnect();
     });
   }
 
@@ -169,6 +175,9 @@ export class MoziClient {
     if (this.wsReconnectTimer) {
       clearTimeout(this.wsReconnectTimer);
     }
+    if (this.sseReconnectTimer) {
+      clearTimeout(this.sseReconnectTimer);
+    }
     this.eventSource?.close();
     this.eventSource = null;
     this.ws?.close(1000, "client_shutdown");
@@ -226,13 +235,28 @@ export class MoziClient {
   private scheduleWsReconnect(): void {
     if (this.destroyed) return;
     const delay =
-      MoziClient.WS_BACKOFF[
-        Math.min(this.wsReconnectAttempt, MoziClient.WS_BACKOFF.length - 1)
+      MoziClient.RECONNECT_BACKOFF[
+        Math.min(this.wsReconnectAttempt, MoziClient.RECONNECT_BACKOFF.length - 1)
       ];
     this.wsReconnectAttempt++;
     this.wsReconnectTimer = setTimeout(() => {
       if (!this.destroyed) {
         this.connectWs();
+      }
+    }, delay);
+  }
+
+  private scheduleSseReconnect(): void {
+    if (this.destroyed) return;
+    const delay =
+      MoziClient.RECONNECT_BACKOFF[
+        Math.min(this.sseReconnectAttempt, MoziClient.RECONNECT_BACKOFF.length - 1)
+      ];
+    this.sseReconnectAttempt++;
+    console.log(`SSE reconnecting in ${delay}ms (attempt ${this.sseReconnectAttempt})`);
+    this.sseReconnectTimer = setTimeout(() => {
+      if (!this.destroyed) {
+        this.connectSse();
       }
     }, delay);
   }
