@@ -1,12 +1,9 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
-import { type AgentMessage, type AgentTool, type ThinkingLevel } from "@mariozechner/pi-agent-core";
+import { type AgentTool, type ThinkingLevel } from "@mariozechner/pi-agent-core";
 import {
   AuthStorage as PiAuthStorage,
-  createAgentSession,
   type AgentSession,
   ModelRegistry as PiCodingModelRegistry,
-  SessionManager as PiSessionManager,
-  SettingsManager as PiSettingsManager,
 } from "@mariozechner/pi-coding-agent";
 import os from "node:os";
 import path from "node:path";
@@ -22,27 +19,39 @@ import {
   type BootstrapState,
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
-import { resolveAgentModelRouting } from "../config/model-routing";
-import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../extensions";
-import { logger } from "../logger";
+import { type ExtensionRegistry } from "../extensions";
 import {
   clearMemoryManagerCache,
 } from "../memory";
 import {
-  resolveContextWindowInfo,
-  evaluateContextWindowGuard,
-  CONTEXT_WINDOW_HARD_MIN_TOKENS,
-  CONTEXT_WINDOW_WARN_BELOW_TOKENS,
-  limitHistoryTurns,
-  estimateTokens,
-  estimateMessagesTokens,
-} from "./context-management";
+  compactSession as compactSessionMetric,
+  getContextBreakdown as getContextBreakdownMetric,
+  getContextUsage as getContextUsageMetric,
+  updateSessionContext as updateSessionContextMetric,
+} from "./agent-manager/context-metrics";
 import {
-  pruneContextMessages,
-  computeEffectiveSettings,
-} from "./context-pruning";
+  clearRuntimeModelOverride as clearRuntimeModelOverrideState,
+  disposeAllRuntimeSessions,
+  disposeRuntimeSession as disposeRuntimeSessionState,
+  resetSession as resetSessionState,
+} from "./agent-manager/runtime-state";
+import {
+  createExtensionRegistry,
+  createSkillLoader,
+  initExtensions,
+  rebuildLifecycle,
+  shutdownExtensions as shutdownExtensionsLifecycle,
+} from "./agent-manager/lifecycle";
+import {
+  ensureSessionModelForInput as ensureSessionModelForInputService,
+  getAgentFallbacks as getAgentFallbacksService,
+  resolveAgentModelRef as resolveAgentModelRefService,
+  resolveLifecycleControlModel as resolveLifecycleControlModelService,
+  setSessionModel as setSessionModelService,
+} from "./agent-manager/model-session-service";
+import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
+import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
 import { ModelRegistry } from "./model-registry";
-import { sanitizePromptInputForModel } from "./payload-sanitizer";
 import { ProviderRegistry } from "./provider-registry";
 import {
   buildSandboxExecutorCacheKey,
@@ -51,37 +60,23 @@ import {
   type SandboxExecutor,
 } from "./sandbox/executor";
 import { SessionStore } from "./session-store";
-import { filterTools } from "./tool-selection";
 
 // Extracted modules
 import {
   type AgentEntry,
   resolveWorkspaceDir,
-  resolveHomeDir,
   resolveSandboxConfig,
   resolveExecAllowlist,
-  resolveExecAllowedSecrets,
-  resolveToolAllowList,
-  resolveContextPruningConfig,
-  resolveHistoryLimit,
   resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
 } from "./agent-manager/config-resolver";
 import {
-  isThinkingLevel,
   resolveThinkingLevel,
 } from "./agent-manager/thinking-resolver";
 import {
   buildChannelContext,
-  buildSandboxPrompt,
-  buildToolsSection,
-  buildSkillsSection,
   buildSystemPrompt,
   checkBootstrap,
 } from "./agent-manager/prompt-builder";
-import {
-  buildTools,
-  shouldSanitizeTools,
-} from "./agent-manager/tool-builder";
 
 export type { AgentEntry };
 
@@ -141,29 +136,13 @@ export class AgentManager {
     this.modelRegistry = params.modelRegistry;
     this.providerRegistry = params.providerRegistry;
     this.sessions = params.sessions;
-    this.extensionRegistry = loadExtensions(this.config.extensions);
+    this.extensionRegistry = createExtensionRegistry(this.config);
     this.piModelRegistry = this.createPiModelRegistry();
-    this.initSkillLoader();
+    this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
   }
 
   private initSkillLoader() {
-    const dirs: string[] = [];
-    const bundledDir = path.join(process.env.PI_PACKAGE_DIR || process.cwd(), "skills", "bundled");
-    dirs.push(bundledDir);
-    const baseDir = this.config.paths?.baseDir || path.join(os.homedir(), ".mozi");
-    dirs.push(path.join(baseDir, "skills"));
-    const extraDirs = this.config.skills?.dirs || [];
-    dirs.push(...extraDirs);
-    if (this.config.paths?.skills) {
-      dirs.push(this.config.paths.skills);
-    }
-    // Merge skill directories exported by enabled extensions
-    const extSkillDirs = this.extensionRegistry.collectSkillDirs();
-    dirs.push(...extSkillDirs);
-    this.skillLoader = new SkillLoader(dirs, {
-      bundledDirs: [bundledDir],
-      allowBundled: this.config.skills?.allowBundled,
-    });
+    this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
   }
 
   private resolvePiAgentDir(): string {
@@ -225,22 +204,26 @@ export class AgentManager {
     modelRegistry: ModelRegistry;
     providerRegistry: ProviderRegistry;
   }) {
-    await this.extensionRegistry.shutdown();
+    const previousRegistry = this.extensionRegistry;
     this.config = params.config;
     this.modelRegistry = params.modelRegistry;
     this.providerRegistry = params.providerRegistry;
-    this.extensionRegistry = loadExtensions(this.config.extensions);
+    const lifecycle = await rebuildLifecycle({
+      previousRegistry,
+      config: this.config,
+    });
+    this.extensionRegistry = lifecycle.extensionRegistry;
+    this.skillLoader = lifecycle.skillLoader;
     this.piModelRegistry = this.createPiModelRegistry();
-    await this.initExtensionsAsync();
-    this.initSkillLoader();
     this.skillsIndexSynced.clear();
     clearMemoryManagerCache();
     this.sandboxExecutors.clear();
-    for (const session of this.agents.values()) {
-      session.dispose();
-    }
-    this.agents.clear();
-    this.channelContextSessions.clear();
+    disposeAllRuntimeSessions({
+      agents: this.agents,
+      agentModelRefs: this.agentModelRefs,
+      runtimeModelOverrides: this.runtimeModelOverrides,
+      channelContextSessions: this.channelContextSessions,
+    });
   }
 
   setSubagentRegistry(registry: SubagentRegistry) {
@@ -252,11 +235,12 @@ export class AgentManager {
   }
 
   async initExtensionsAsync(): Promise<void> {
-    await initExtensionsAsync(this.config.extensions, this.extensionRegistry);
+    await initExtensions(this.config, this.extensionRegistry);
+    this.initSkillLoader();
   }
 
   async shutdownExtensions(): Promise<void> {
-    await this.extensionRegistry.shutdown();
+    await shutdownExtensionsLifecycle(this.extensionRegistry);
   }
 
   setToolProvider(
@@ -373,14 +357,11 @@ export class AgentManager {
   }
 
   private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
-    const routing = resolveAgentModelRouting(this.config, agentId);
-    if (routing.defaultModel.primary) {
-      return routing.defaultModel.primary;
-    }
-    if (entry?.model && typeof entry.model === "string") {
-      return entry.model;
-    }
-    return undefined;
+    return resolveAgentModelRefService({
+      config: this.config,
+      agentId,
+      entry,
+    });
   }
 
   resolveConfiguredThinkingLevel(agentId: string): ThinkingLevel | undefined {
@@ -394,114 +375,24 @@ export class AgentManager {
   }
 
   getAgentFallbacks(agentId: string): string[] {
-    const routing = resolveAgentModelRouting(this.config, agentId);
-    return routing.defaultModel.fallbacks;
+    return getAgentFallbacksService({
+      config: this.config,
+      agentId,
+    });
   }
 
   resolveLifecycleControlModel(params: { sessionKey: string; agentId?: string }): {
     modelRef: string;
     source: "session" | "agent" | "defaults" | "fallback";
   } {
-    const { sessionKey } = params;
-    const resolvedAgentId = params.agentId || this.resolveDefaultAgentId();
-    const entry = this.getAgentEntry(resolvedAgentId);
-    const defaults = (this.config.agents?.defaults as AgentEntry | undefined) || undefined;
-    const sessionControl =
-      (this.sessions.get(sessionKey)?.metadata?.lifecycle as { controlModel?: string } | undefined)
-        ?.controlModel || undefined;
-
-    if (sessionControl && this.modelRegistry.get(sessionControl)) {
-      return { modelRef: sessionControl, source: "session" };
-    }
-
-    const agentControl = entry?.lifecycle?.control?.model;
-    if (agentControl && this.modelRegistry.get(agentControl)) {
-      return { modelRef: agentControl, source: "agent" };
-    }
-
-    const defaultsControl = defaults?.lifecycle?.control?.model;
-    if (defaultsControl && this.modelRegistry.get(defaultsControl)) {
-      return { modelRef: defaultsControl, source: "defaults" };
-    }
-
-    const fallbacks = [
-      ...(entry?.lifecycle?.control?.fallback || []),
-      ...(defaults?.lifecycle?.control?.fallback || []),
-    ];
-    const deterministic = Array.from(new Set(fallbacks)).toSorted();
-    for (const ref of deterministic) {
-      if (this.modelRegistry.get(ref)) {
-        return { modelRef: ref, source: "fallback" };
-      }
-    }
-
-    const defaultReply = this.resolveAgentModelRef(resolvedAgentId, entry);
-    if (defaultReply && this.modelRegistry.get(defaultReply)) {
-      return { modelRef: defaultReply, source: "fallback" };
-    }
-
-    const first = this.modelRegistry
-      .list()
-      .map((spec) => `${spec.provider}/${spec.id}`)
-      .toSorted()[0];
-    if (!first) {
-      throw new Error("No model available for lifecycle control plane");
-    }
-    return { modelRef: first, source: "fallback" };
-  }
-
-  private modelSupportsInput(
-    modelRef: string,
-    input: "text" | "image" | "audio" | "video" | "file",
-  ): boolean {
-    const spec = this.modelRegistry.get(modelRef);
-    if (!spec) {
-      return false;
-    }
-    const supported = spec.input ?? ["text"];
-    return supported.includes(input);
-  }
-
-  private getAgentModalityModelRef(
-    agentId: string,
-    modality: "image" | "audio" | "video" | "file",
-  ): string | undefined {
-    const routing = resolveAgentModelRouting(this.config, agentId);
-    if (modality !== "image") {
-      return undefined;
-    }
-    return routing.imageModel.primary;
-  }
-
-  private getAgentModalityFallbacks(
-    agentId: string,
-    modality: "image" | "audio" | "video" | "file",
-  ): string[] {
-    const routing = resolveAgentModelRouting(this.config, agentId);
-    if (modality !== "image") {
-      return [];
-    }
-    return routing.imageModel.fallbacks;
-  }
-
-  private resolveModalityRoutingCandidates(
-    agentId: string,
-    modality: "image" | "audio" | "video" | "file",
-  ): string[] {
-    const refs = [
-      this.getAgentModalityModelRef(agentId, modality),
-      ...this.getAgentModalityFallbacks(agentId, modality),
-      ...this.getAgentFallbacks(agentId),
-    ].filter((ref): ref is string => Boolean(ref));
-    return Array.from(new Set(refs));
-  }
-
-  private listCapableModels(input: "text" | "image" | "audio" | "video" | "file"): string[] {
-    return this.modelRegistry
-      .list()
-      .filter((spec) => (spec.input ?? ["text"]).includes(input))
-      .map((spec) => `${spec.provider}/${spec.id}`)
-      .toSorted();
+    return resolveLifecycleControlModelService({
+      ...params,
+      config: this.config,
+      sessions: this.sessions,
+      modelRegistry: this.modelRegistry,
+      resolveDefaultAgentId: () => this.resolveDefaultAgentId(),
+      getAgentEntry: (agentId) => this.getAgentEntry(agentId),
+    });
   }
 
   async ensureSessionModelForInput(params: {
@@ -512,30 +403,14 @@ export class AgentManager {
     | { ok: true; modelRef: string; switched: boolean }
     | { ok: false; modelRef: string; candidates: string[] }
   > {
-    const { sessionKey, agentId, input } = params;
-    const { modelRef } = await this.getAgent(sessionKey, agentId);
-    if (this.modelSupportsInput(modelRef, input)) {
-      return { ok: true, modelRef, switched: false };
-    }
-
-    if (input === "text") {
-      return { ok: false, modelRef, candidates: this.listCapableModels("text") };
-    }
-
-    const candidates = this.resolveModalityRoutingCandidates(agentId, input);
-    for (const candidate of candidates) {
-      const resolved = this.modelRegistry.resolve(candidate);
-      if (!resolved) {
-        continue;
-      }
-      if (!this.modelSupportsInput(resolved.ref, input)) {
-        continue;
-      }
-      await this.setSessionModel(sessionKey, resolved.ref, { persist: false });
-      return { ok: true, modelRef: resolved.ref, switched: resolved.ref !== modelRef };
-    }
-
-    return { ok: false, modelRef, candidates: this.listCapableModels(input) };
+    return await ensureSessionModelForInputService({
+      ...params,
+      config: this.config,
+      modelRegistry: this.modelRegistry,
+      getAgent: async (sessionKey, agentId) => await this.getAgent(sessionKey, agentId),
+      setSessionModel: async (sessionKey, modelRef, options) =>
+        await this.setSessionModel(sessionKey, modelRef, options),
+    });
   }
 
   private buildPiModel(spec: ModelSpec): Model<Api> {
@@ -555,145 +430,36 @@ export class AgentManager {
   }
 
   async getAgent(sessionKey: string, agentId?: string): Promise<ResolvedAgent> {
-    const resolvedId = agentId || this.resolveDefaultAgentId();
-    const entry = this.getAgentEntry(resolvedId);
-    const workspaceDir = resolveWorkspaceDir(this.config, resolvedId, entry);
-    const homeDir = resolveHomeDir(this.config, resolvedId, entry);
-    const session = this.sessions.getOrCreate(sessionKey, resolvedId);
-
-    const runtimeOverride = this.runtimeModelOverrides.get(sessionKey);
-    const lockedModel = session.currentModel;
-    const modelRef = runtimeOverride || lockedModel || this.resolveAgentModelRef(resolvedId, entry);
-    if (!modelRef) {
-      throw new Error(`No model configured for agent ${resolvedId}`);
-    }
-
-    let agent = this.agents.get(sessionKey);
-    if (agent) {
-      const activeModelRef = this.agentModelRefs.get(sessionKey);
-      if (activeModelRef !== modelRef) {
-        await this.setSessionModel(sessionKey, modelRef, { persist: false });
-        agent = this.agents.get(sessionKey);
-      }
-    }
-    if (!agent) {
-      const modelSpec = this.modelRegistry.get(modelRef);
-      if (!modelSpec) {
-        throw new Error(`Model not found: ${modelRef}`);
-      }
-
-      const ctxInfo = resolveContextWindowInfo({
-        modelContextWindow: modelSpec.contextWindow,
-        configContextTokens: (
-          this.config.agents?.defaults as { contextTokens?: number } | undefined
-        )?.contextTokens,
-      });
-      const guard = evaluateContextWindowGuard({ info: ctxInfo });
-      if (guard.shouldBlock) {
-        throw new Error(
-          `Model context window (${guard.tokens}) is below minimum (${CONTEXT_WINDOW_HARD_MIN_TOKENS})`,
-        );
-      }
-      if (guard.shouldWarn) {
-        logger.warn(
-          { contextWindow: guard.tokens, source: guard.source },
-          `Model context window (${guard.tokens}) is below recommended (${CONTEXT_WINDOW_WARN_BELOW_TOKENS})`,
-        );
-      }
-
-      const sandboxConfig = resolveSandboxConfig(this.config, entry);
-      const model = this.buildPiModel(modelSpec);
-      const tools = await buildTools(
-        {
-          sessionKey,
-          agentId: resolvedId,
-          entry,
-          workspaceDir,
-          homeDir,
-          sandboxConfig,
-          modelSpec,
-        },
-        {
+    const { agent, resolvedId, entry, modelRef } = await resolveOrCreateAgentSession({
+      sessionKey,
+      agentId,
+      config: this.config,
+      sessions: this.sessions,
+      agents: this.agents,
+      agentModelRefs: this.agentModelRefs,
+      runtimeModelOverrides: this.runtimeModelOverrides,
+      resolveDefaultAgentId: () => this.resolveDefaultAgentId(),
+      getAgentEntry: (agentId) => this.getAgentEntry(agentId),
+      resolveAgentModelRef: (agentId, entry) => this.resolveAgentModelRef(agentId, entry),
+      setSessionModel: async (sessionKey, modelRef, options) =>
+        await this.setSessionModel(sessionKey, modelRef, options),
+      createAndInitializeAgentSession: async (params) =>
+        await createAndInitializeAgentSession({
+          ...params,
           config: this.config,
+          sessions: this.sessions,
+          modelRegistry: this.modelRegistry,
+          piModelRegistry: this.piModelRegistry,
+          resolvePiAgentDir: () => this.resolvePiAgentDir(),
+          buildPiModel: (spec) => this.buildPiModel(spec),
           subagents: this.subagents,
           skillLoader: this.skillLoader,
           extensionRegistry: this.extensionRegistry,
+          skillsIndexSynced: this.skillsIndexSynced,
           toolProvider: this.toolProvider,
           getSandboxExecutor: (p) => this.getSandboxExecutor(p),
-        },
-      );
-      const toolNames = Array.from(new Set(tools.map((tool) => tool.name)));
-      const systemPromptText = await buildSystemPrompt({
-        homeDir,
-        workspaceDir,
-        basePrompt: entry?.systemPrompt,
-        skills: entry?.skills,
-        tools: toolNames,
-        sandboxConfig,
-        skillLoader: this.skillLoader,
-        skillsIndexSynced: this.skillsIndexSynced,
-      });
-      const piSessionManager = PiSessionManager.inMemory(workspaceDir);
-      const piSettingsManager = PiSettingsManager.create(workspaceDir, this.resolvePiAgentDir());
-      const created = await createAgentSession({
-        cwd: workspaceDir,
-        agentDir: this.resolvePiAgentDir(),
-        modelRegistry: this.piModelRegistry,
-        model,
-        tools: [],
-        customTools: tools,
-        sessionManager: piSessionManager,
-        settingsManager: piSettingsManager,
-      });
-      agent = created.session;
-      agent.agent.setSystemPrompt(systemPromptText);
-      let persistedContext = Array.isArray(session.context)
-        ? (session.context as AgentMessage[])
-        : [];
-      if (persistedContext.length > 0) {
-        const historyLimit = resolveHistoryLimit(this.config, sessionKey);
-        if (historyLimit && historyLimit > 0) {
-          persistedContext = limitHistoryTurns(persistedContext, historyLimit);
-        }
-        const pruningConfig = resolveContextPruningConfig(this.config, entry);
-        const pruningSettings = computeEffectiveSettings(pruningConfig);
-        const pruningResult = pruneContextMessages({
-          messages: persistedContext,
-          settings: pruningSettings,
-          contextWindowTokens: modelSpec.contextWindow ?? 128000,
-        });
-        if (pruningResult.stats.charsSaved > 0) {
-          logger.info(
-            {
-              sessionKey,
-              softTrimmed: pruningResult.stats.softTrimCount,
-              hardCleared: pruningResult.stats.hardClearCount,
-              charsSaved: pruningResult.stats.charsSaved,
-              ratio: pruningResult.stats.ratio.toFixed(2),
-            },
-            "Context pruning applied",
-          );
-        }
-        const sanitizedMessages = sanitizePromptInputForModel(
-          pruningResult.messages,
-          modelRef,
-          modelSpec.api,
-          modelSpec.provider,
-        );
-        agent.agent.replaceMessages(sanitizedMessages);
-      }
-      const thinkingLevel = resolveThinkingLevel({
-        config: this.config,
-        sessions: this.sessions,
-        entry,
-        sessionKey,
-      });
-      if (thinkingLevel) {
-        agent.setThinkingLevel(thinkingLevel);
-      }
-      this.agents.set(sessionKey, agent);
-      this.agentModelRefs.set(sessionKey, modelRef);
-    }
+        }),
+    });
 
     const thinkingLevel = resolveThinkingLevel({
       config: this.config,
@@ -743,77 +509,55 @@ export class AgentManager {
     modelRef: string,
     options?: { persist?: boolean },
   ): Promise<void> {
-    const persist = options?.persist ?? true;
-    if (persist) {
-      this.sessions.update(sessionKey, { currentModel: modelRef });
-      this.runtimeModelOverrides.delete(sessionKey);
-    } else {
-      this.runtimeModelOverrides.set(sessionKey, modelRef);
-    }
-    const agent = this.agents.get(sessionKey);
-    if (!agent) {
-      return;
-    }
-    const spec = this.modelRegistry.get(modelRef);
-    if (!spec) {
-      return;
-    }
-
-    const oldModelRef = this.agentModelRefs.get(sessionKey);
-    if (oldModelRef) {
-      const oldSpec = this.modelRegistry.get(oldModelRef);
-      const oldNeedsSanitize = oldSpec ? shouldSanitizeTools(this.config, oldSpec) : false;
-      const newNeedsSanitize = shouldSanitizeTools(this.config, spec);
-      if (oldNeedsSanitize !== newNeedsSanitize) {
-        agent.dispose();
-        this.agents.delete(sessionKey);
-        this.agentModelRefs.delete(sessionKey);
-        return;
-      }
-    }
-
-    await agent.setModel(this.buildPiModel(spec));
-    this.agentModelRefs.set(sessionKey, modelRef);
+    await setSessionModelService({
+      sessionKey,
+      modelRef,
+      options,
+      sessions: this.sessions,
+      runtimeModelOverrides: this.runtimeModelOverrides,
+      agents: this.agents,
+      agentModelRefs: this.agentModelRefs,
+      modelRegistry: this.modelRegistry,
+      config: this.config,
+      buildPiModel: (spec) => this.buildPiModel(spec),
+    });
   }
 
   clearRuntimeModelOverride(sessionKey: string): void {
-    this.runtimeModelOverrides.delete(sessionKey);
+    clearRuntimeModelOverrideState({
+      sessionKey,
+      runtimeModelOverrides: this.runtimeModelOverrides,
+    });
   }
 
   resetSession(sessionKey: string, agentId?: string): void {
-    const resolvedAgentId = agentId || this.resolveDefaultAgentId();
-    this.sessions.rotateSegment(sessionKey, resolvedAgentId);
-    this.disposeRuntimeSession(sessionKey);
+    resetSessionState({
+      sessionKey,
+      agentId,
+      sessions: this.sessions,
+      resolveDefaultAgentId: () => this.resolveDefaultAgentId(),
+      disposeRuntimeSession: (targetSessionKey) => this.disposeRuntimeSession(targetSessionKey),
+    });
   }
 
   disposeRuntimeSession(sessionKey: string): void {
-    const session = this.agents.get(sessionKey);
-    if (session) {
-      session.dispose();
-    }
-    this.agents.delete(sessionKey);
-    this.agentModelRefs.delete(sessionKey);
-    this.runtimeModelOverrides.delete(sessionKey);
-    this.channelContextSessions.delete(sessionKey);
+    disposeRuntimeSessionState({
+      sessionKey,
+      agents: this.agents,
+      agentModelRefs: this.agentModelRefs,
+      runtimeModelOverrides: this.runtimeModelOverrides,
+      channelContextSessions: this.channelContextSessions,
+    });
   }
 
   updateSessionContext(sessionKey: string, messages: unknown): void {
-    const session = this.sessions.get(sessionKey);
-    const modelRef = this.agentModelRefs.get(sessionKey) || session?.currentModel;
-
-    if (Array.isArray(messages) && modelRef) {
-      const modelSpec = this.modelRegistry.get(modelRef);
-      const sanitized = sanitizePromptInputForModel(
-        messages as AgentMessage[],
-        modelRef,
-        modelSpec?.api,
-        modelSpec?.provider,
-      );
-      this.sessions.update(sessionKey, { context: sanitized });
-      return;
-    }
-
-    this.sessions.update(sessionKey, { context: messages });
+    updateSessionContextMetric({
+      sessionKey,
+      messages,
+      sessions: this.sessions,
+      modelRegistry: this.modelRegistry,
+      agentModelRefs: this.agentModelRefs,
+    });
   }
 
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined {
@@ -833,29 +577,11 @@ export class AgentManager {
     tokensReclaimed: number;
     reason?: string;
   }> {
-    const agent = this.agents.get(sessionKey);
-    if (!agent) {
-      return { success: false, tokensReclaimed: 0, reason: "No active agent session" };
-    }
-
-    const messages = agent.messages;
-    if (messages.length < 4) {
-      return { success: false, tokensReclaimed: 0, reason: "Too few messages to compact" };
-    }
-
-    try {
-      const result = await agent.compact();
-
-      this.sessions.update(sessionKey, { context: agent.messages });
-
-      return {
-        success: true,
-        tokensReclaimed: result.tokensBefore,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return { success: false, tokensReclaimed: 0, reason: msg };
-    }
+    return await compactSessionMetric({
+      sessionKey,
+      agents: this.agents,
+      sessions: this.sessions,
+    });
   }
 
   getContextUsage(sessionKey: string): {
@@ -864,23 +590,12 @@ export class AgentManager {
     percentage: number;
     messageCount: number;
   } | null {
-    const agent = this.agents.get(sessionKey);
-    if (!agent) {
-      return null;
-    }
-
-    const messages = agent.messages;
-    const modelRef = this.agentModelRefs.get(sessionKey);
-    const modelSpec = modelRef ? this.modelRegistry.get(modelRef) : undefined;
-    const totalTokens = modelSpec?.contextWindow ?? 128_000;
-    const usedTokens = estimateMessagesTokens(messages);
-
-    return {
-      usedTokens,
-      totalTokens,
-      percentage: Math.round((usedTokens / totalTokens) * 100),
-      messageCount: messages.length,
-    };
+    return getContextUsageMetric({
+      sessionKey,
+      agents: this.agents,
+      agentModelRefs: this.agentModelRefs,
+      modelRegistry: this.modelRegistry,
+    });
   }
 
   getContextBreakdown(sessionKey: string): {
@@ -890,39 +605,9 @@ export class AgentManager {
     toolResultTokens: number;
     totalTokens: number;
   } | null {
-    const agent = this.agents.get(sessionKey);
-    if (!agent) {
-      return null;
-    }
-
-    const messages = agent.messages;
-    let system = 0;
-    let user = 0;
-    let assistant = 0;
-    let tool = 0;
-
-    system = Math.ceil((agent.systemPrompt || "").length / 4);
-    for (const msg of messages) {
-      const tokens = estimateTokens(msg);
-      switch (msg.role) {
-        case "user":
-          user += tokens;
-          break;
-        case "assistant":
-          assistant += tokens;
-          break;
-        case "toolResult":
-          tool += tokens;
-          break;
-      }
-    }
-
-    return {
-      systemPromptTokens: system,
-      userMessageTokens: user,
-      assistantMessageTokens: assistant,
-      toolResultTokens: tool,
-      totalTokens: system + user + assistant + tool,
-    };
+    return getContextBreakdownMetric({
+      sessionKey,
+      agents: this.agents,
+    });
   }
 }
