@@ -401,6 +401,7 @@ export class RuntimeHost {
           port: config.channels.localDesktop.port,
           authToken: config.channels.localDesktop.authToken,
           allowOrigins: config.channels.localDesktop.allowOrigins,
+          voice: config.voice,
         });
 
         localDesktop.on("message", (msg) => {
