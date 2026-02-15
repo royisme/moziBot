@@ -1,4 +1,4 @@
-import type { Bot, InputFile as InputFileType } from "grammy";
+import type { Bot } from "grammy";
 import { InputFile } from "grammy";
 import { logger } from "../../../../logger";
 import type { OutboundMessage } from "../types";
@@ -13,7 +13,7 @@ export async function sendMessage(
   bot: Bot,
   peerId: string,
   message: OutboundMessage,
-  botToken: string,
+  _botToken: string,
 ): Promise<string> {
   const chatId = peerId;
   const rawText = message.text || "";

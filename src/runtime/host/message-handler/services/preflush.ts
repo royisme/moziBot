@@ -46,7 +46,7 @@ export async function performMemoryFlush(params: {
       ),
     ]);
 
-    const success = result === true;
+    const success = result;
 
     if (success) {
       // Parity: call handle({ type: 'flush_completed', sessionKey })

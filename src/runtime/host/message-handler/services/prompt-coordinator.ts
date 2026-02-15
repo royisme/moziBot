@@ -160,7 +160,7 @@ export async function runPromptWithCoordinator(params: {
   if (failureReason) {
     throw new Error(failureReason);
   }
-  agentManager.updateSessionContext(sessionKey, current.agent.messages as AgentMessage[]);
+  agentManager.updateSessionContext(sessionKey, current.agent.messages);
   const usage = agentManager.getContextUsage(sessionKey);
   if (usage) {
     logger.debug(

@@ -29,7 +29,7 @@ export function resolveLastAssistantReplyText(params: {
 
   // Parity: locate last assistant message
   const lastAssistant = [...messages]
-    .reverse()
+    .toReversed()
     .find((m) => m.role === "assistant");
 
   if (!lastAssistant) {

@@ -111,7 +111,9 @@ export class StreamingBuffer {
   }
 
   private scheduleFlush(): void {
-    if (this.flushTimer) return;
+    if (this.flushTimer) {
+      return;
+    }
 
     const timeSinceFlush = Date.now() - this.lastFlushTime;
     const shouldFlushNow =
@@ -136,7 +138,9 @@ export class StreamingBuffer {
     }
 
     // Monolith parity: check !this.buffer (NOT trim)
-    if (!this.messageId || !this.buffer) return;
+    if (!this.messageId || !this.buffer) {
+      return;
+    }
 
     try {
       await this.channel.editMessage(this.messageId, this.peerId, this.buffer);
@@ -155,7 +159,9 @@ export class StreamingBuffer {
       this.flushTimer = null;
     }
 
-    if (!this.messageId) return null;
+    if (!this.messageId) {
+      return null;
+    }
 
     const textToSend = finalText || this.buffer || '(no response)';
 

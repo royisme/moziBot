@@ -1,5 +1,3 @@
-import { logger } from "../../../../logger";
-
 const TYPING_INTERVAL_MS = 6_000;
 const TYPING_TTL_MS = 2 * 60_000;
 

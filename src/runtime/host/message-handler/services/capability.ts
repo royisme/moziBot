@@ -44,9 +44,15 @@ export interface InputCapabilityResult {
  * Maps raw media types to internal input modalities.
  */
 export function mediaTypeToInput(type: MediaType): ModalityInput {
-  if (type === 'photo') return 'image';
-  if (type === 'video') return 'video';
-  if (type === 'audio' || type === 'voice') return 'audio';
+  if (type === 'photo') {
+    return 'image';
+  }
+  if (type === 'video') {
+    return 'video';
+  }
+  if (type === 'audio' || type === 'voice') {
+    return 'audio';
+  }
   return 'file';
 }
 

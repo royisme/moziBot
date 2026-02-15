@@ -32,23 +32,31 @@ export class MessageTurnOrchestrator implements MessageTurnHandler {
     try {
       // 1. Inbound Flow: Extraction, Parsing, Early Short-circuits
       const inboundRes = await runInboundFlow(ctx, this.deps);
-      if (inboundRes === 'handled' || inboundRes === 'abort') return null;
+      if (inboundRes === 'handled' || inboundRes === 'abort') {
+        return null;
+      }
 
       // 2. Command Flow: Routing to dedicated command handlers
       const commandRes = await runCommandFlow(ctx, this.deps);
-      if (commandRes === 'handled' || commandRes === 'abort') return null;
+      if (commandRes === 'handled' || commandRes === 'abort') {
+        return null;
+      }
 
       // 3. Lifecycle Flow: Temporal and Semantic session management
       const lifecycleRes = await runLifecycleFlow(ctx, this.deps);
-      if (lifecycleRes === 'handled' || lifecycleRes === 'abort') return null;
+      if (lifecycleRes === 'handled' || lifecycleRes === 'abort') {
+        return null;
+      }
 
       // 4. Prompt Flow: Media transcription, capability validation, and prep
       const promptRes = await runPromptFlow(ctx, this.deps);
-      if (promptRes === 'handled' || promptRes === 'abort') return null;
+      if (promptRes === 'handled' || promptRes === 'abort') {
+        return null;
+      }
       
       // If promptRes is not handled/abort/continue, it's the prepared bundle
       if (typeof promptRes === 'object' && promptRes !== null) {
-        preparedBundle = promptRes as PreparedPromptBundle;
+        preparedBundle = promptRes;
       } else {
         // If it was 'continue' with no bundle, we have nothing to execute
         return null;
@@ -56,7 +64,9 @@ export class MessageTurnOrchestrator implements MessageTurnHandler {
 
       // 5. Execution Flow: Model interaction and reply delivery
       const executionRes = await runExecutionFlow(ctx, this.deps, preparedBundle);
-      if (executionRes === 'handled' || executionRes === 'abort') return null;
+      if (executionRes === 'handled' || executionRes === 'abort') {
+        return null;
+      }
 
       result = { success: true, messageId: ctx.messageId };
 

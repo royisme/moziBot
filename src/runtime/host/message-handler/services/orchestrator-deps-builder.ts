@@ -175,7 +175,7 @@ export function buildOrchestratorDeps(params: {
     getCommandHandlerMap: () => createCommandHandlerMap(channel),
     getChannel: () => ({
       id: channel.id,
-      editMessage: channel.editMessage,
+      editMessage: (messageId, peerId, text) => channel.editMessage?.(messageId, peerId, text) ?? Promise.resolve(),
       send: (peerId, message) => channel.send(peerId, message),
     }),
     resetSession: (sessionKey, agentId) => {

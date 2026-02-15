@@ -1,6 +1,5 @@
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import path from "node:path";
-import os from "node:os";
 import type { MoziConfig } from "../../config";
 import type { SandboxConfig } from "../sandbox/types";
 import type { ContextPruningConfig } from "../context-pruning";
