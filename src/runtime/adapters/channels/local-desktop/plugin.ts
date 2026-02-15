@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import type { MoziConfig } from "../../../../config";
 import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
+import { SttService } from "../../../media-understanding/stt-service";
+import { TtsService } from "../../../tts/tts-service";
 import { BaseChannelPlugin } from "../plugin";
 
 export interface LocalDesktopPluginConfig {
@@ -10,6 +14,7 @@ export interface LocalDesktopPluginConfig {
   port?: number;
   authToken?: string;
   allowOrigins?: string[];
+  voice?: MoziConfig["voice"];
 }
 
 type LocalWidgetConfigPayload = {
@@ -28,15 +33,36 @@ type SseClient = {
   res: ServerResponse;
 };
 
+type AudioWsClient = {
+  id: string;
+  peerId: string;
+  socket: WebSocket;
+};
+
+type AudioInboundStream = {
+  streamId: string;
+  chunks: Buffer[];
+  sampleRate: number;
+  channels: number;
+  encoding: "pcm_s16le";
+};
+
 export class LocalDesktopPlugin extends BaseChannelPlugin {
   readonly id = "localDesktop";
   readonly name = "Local Desktop";
 
   private server: ReturnType<typeof createServer> | null = null;
+  private audioWsServer: WebSocketServer | null = null;
   private clients = new Map<string, SseClient>();
+  private audioClients = new Map<string, AudioWsClient>();
+  private audioStreams = new Map<string, AudioInboundStream>();
+  private sttService: SttService;
+  private ttsService: TtsService;
 
   constructor(private config: LocalDesktopPluginConfig) {
     super();
+    this.sttService = new SttService({ voice: config.voice } as MoziConfig);
+    this.ttsService = new TtsService({ voice: config.voice } as MoziConfig);
   }
 
   async connect(): Promise<void> {
@@ -54,6 +80,11 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
         logger.warn({ err: error }, "Local desktop request failed");
         this.writeJson(res, 500, { error: "internal_error" });
       }
+    });
+
+    this.audioWsServer = new WebSocketServer({ noServer: true });
+    this.server.on("upgrade", (req, socket, head) => {
+      void this.handleUpgrade(req, socket, head);
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -76,10 +107,17 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
   async disconnect(): Promise<void> {
     const server = this.server;
     this.server = null;
+    this.audioWsServer?.close();
+    this.audioWsServer = null;
     for (const client of this.clients.values()) {
       client.res.end();
     }
     this.clients.clear();
+    for (const client of this.audioClients.values()) {
+      client.socket.close(1001, "server_shutdown");
+    }
+    this.audioClients.clear();
+    this.audioStreams.clear();
 
     if (!server) {
       this.setStatus("disconnected");
@@ -92,19 +130,389 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
     this.setStatus("disconnected");
   }
 
+  private async handleUpgrade(
+    req: IncomingMessage,
+    socket: Parameters<WebSocketServer["handleUpgrade"]>[1],
+    head: Parameters<WebSocketServer["handleUpgrade"]>[2],
+  ): Promise<void> {
+    try {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      if (url.pathname !== "/audio") {
+        socket.destroy();
+        return;
+      }
+
+      if (!this.isAuthorized(req, url)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      const peerId = url.searchParams.get("peerId") ?? "desktop-default";
+      const wsServer = this.audioWsServer;
+      if (!wsServer) {
+        socket.write("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+
+      wsServer.handleUpgrade(req, socket, head, (ws) => {
+        this.attachAudioClient(peerId, ws);
+      });
+    } catch {
+      socket.destroy();
+    }
+  }
+
+  private attachAudioClient(peerId: string, socket: WebSocket): void {
+    const existing = this.audioClients.get(peerId);
+    if (existing) {
+      existing.socket.close(1000, "replaced");
+    }
+
+    const client: AudioWsClient = {
+      id: randomUUID(),
+      peerId,
+      socket,
+    };
+
+    this.audioClients.set(peerId, client);
+
+    socket.send(
+      JSON.stringify({
+        type: "audio_ready",
+        peerId,
+        ts: Date.now(),
+      }),
+    );
+
+    socket.on("message", (raw) => {
+      this.handleAudioMessage(client, raw);
+    });
+
+    socket.on("close", () => {
+      const latest = this.audioClients.get(peerId);
+      if (latest?.id === client.id) {
+        this.audioClients.delete(peerId);
+      }
+    });
+  }
+
+  private handleAudioMessage(client: AudioWsClient, raw: RawData): void {
+    try {
+      const content = this.decodeWsPayload(raw);
+      const data = JSON.parse(content) as
+        | {
+            type?: "ping";
+            ts?: number;
+          }
+        | {
+            type?: "audio_chunk";
+            streamId?: string;
+            seq?: number;
+            sampleRate?: number;
+            channels?: number;
+            encoding?: "pcm_s16le";
+            chunkBase64?: string;
+          }
+        | {
+            type?: "audio_commit";
+            streamId?: string;
+          };
+
+      if (data.type === "ping") {
+        client.socket.send(JSON.stringify({ type: "pong", ts: data.ts ?? Date.now() }));
+        return;
+      }
+
+      if (data.type === "audio_chunk") {
+        this.handleAudioChunk(client, data);
+        return;
+      }
+
+      if (data.type === "audio_commit") {
+        void this.handleAudioCommit(client, data);
+        return;
+      }
+
+      client.socket.send(
+        JSON.stringify({
+          type: "error",
+          code: "unsupported_message",
+          message: "Unsupported audio websocket message type",
+          retryable: false,
+        }),
+      );
+    } catch {
+      client.socket.send(
+        JSON.stringify({
+          type: "error",
+          code: "invalid_payload",
+          message: "Invalid websocket payload",
+          retryable: false,
+        }),
+      );
+    }
+  }
+
+  private handleAudioChunk(
+    client: AudioWsClient,
+    data: {
+      streamId?: string;
+      seq?: number;
+      sampleRate?: number;
+      channels?: number;
+      encoding?: "pcm_s16le";
+      chunkBase64?: string;
+    },
+  ): void {
+    const streamId = typeof data.streamId === "string" ? data.streamId : "";
+    const encoding = data.encoding;
+    const chunkBase64 = typeof data.chunkBase64 === "string" ? data.chunkBase64 : "";
+    const sampleRate = typeof data.sampleRate === "number" ? data.sampleRate : 16000;
+    const channels = typeof data.channels === "number" ? data.channels : 1;
+
+    if (!streamId || encoding !== "pcm_s16le" || !chunkBase64) {
+      this.sendAudioError(client, "invalid_payload", "Invalid audio_chunk payload", false);
+      return;
+    }
+
+    const key = this.makeAudioStreamKey(client.peerId, streamId);
+    const existing = this.audioStreams.get(key);
+    const stream: AudioInboundStream =
+      existing ??
+      {
+        streamId,
+        chunks: [],
+        sampleRate,
+        channels,
+        encoding,
+      };
+
+    try {
+      const chunk = Buffer.from(chunkBase64, "base64");
+      if (chunk.byteLength === 0) {
+        this.sendAudioError(client, "invalid_payload", "Empty audio chunk", false);
+        return;
+      }
+      stream.chunks.push(chunk);
+      this.audioStreams.set(key, stream);
+    } catch {
+      this.sendAudioError(client, "invalid_payload", "Invalid base64 audio chunk", false);
+    }
+  }
+
+  private async handleAudioCommit(
+    client: AudioWsClient,
+    data: {
+      streamId?: string;
+    },
+  ): Promise<void> {
+    const streamId = typeof data.streamId === "string" ? data.streamId : "";
+    if (!streamId) {
+      this.sendAudioError(client, "invalid_payload", "Missing streamId in audio_commit", false);
+      return;
+    }
+
+    const key = this.makeAudioStreamKey(client.peerId, streamId);
+    const stream = this.audioStreams.get(key);
+    this.audioStreams.delete(key);
+
+    if (!stream || stream.chunks.length === 0) {
+      this.sendAudioError(client, "invalid_payload", "No buffered audio for streamId", false);
+      return;
+    }
+
+    const pcmBuffer = Buffer.concat(stream.chunks);
+    const wavBuffer = this.buildWavFromPcm16(pcmBuffer, stream.sampleRate, stream.channels);
+
+    await this.emitPhase(client.peerId, "listening");
+
+    const inbound: InboundMessage = {
+      id: `local-audio-${randomUUID()}`,
+      channel: this.id,
+      peerId: client.peerId,
+      peerType: "dm",
+      senderId: "desktop-user",
+      senderName: "Desktop User",
+      text: "",
+      media: [
+        {
+          type: "voice",
+          buffer: wavBuffer,
+          mimeType: "audio/wav",
+          filename: `${stream.streamId}.wav`,
+        },
+      ],
+      timestamp: new Date(),
+      raw: {
+        source: "audio_ws",
+        streamId: stream.streamId,
+      },
+    };
+
+    const transcript = await this.sttService.transcribeInboundMessage(inbound);
+    if (!transcript || !transcript.trim()) {
+      this.sendAudioError(client, "stt_failed", "STT failed to produce transcript", true);
+      await this.emitPhase(client.peerId, "error");
+      return;
+    }
+
+    this.broadcast(client.peerId, {
+      type: "transcript",
+      peerId: client.peerId,
+      text: transcript,
+      isUser: true,
+      isFinal: true,
+      streamId: stream.streamId,
+      timestamp: new Date().toISOString(),
+    });
+
+    this.emitMessage({
+      ...inbound,
+      text: transcript,
+      media: undefined,
+    });
+  }
+
+  private sendAudioError(
+    client: AudioWsClient,
+    code:
+      | "unauthorized"
+      | "invalid_payload"
+      | "unsupported_message"
+      | "unsupported_audio_format"
+      | "stt_failed"
+      | "tts_failed"
+      | "internal_error",
+    message: string,
+    retryable: boolean,
+  ): void {
+    client.socket.send(
+      JSON.stringify({
+        type: "error",
+        code,
+        message,
+        retryable,
+      }),
+    );
+  }
+
+  private makeAudioStreamKey(peerId: string, streamId: string): string {
+    return `${peerId}:${streamId}`;
+  }
+
+  private buildWavFromPcm16(pcm: Buffer, sampleRate: number, channels: number): Buffer {
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * channels * (bitsPerSample / 8);
+    const blockAlign = channels * (bitsPerSample / 8);
+    const dataSize = pcm.byteLength;
+    const header = Buffer.alloc(44);
+
+    header.write("RIFF", 0, "ascii");
+    header.writeUInt32LE(36 + dataSize, 4);
+    header.write("WAVE", 8, "ascii");
+    header.write("fmt ", 12, "ascii");
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20);
+    header.writeUInt16LE(channels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(byteRate, 28);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bitsPerSample, 34);
+    header.write("data", 36, "ascii");
+    header.writeUInt32LE(dataSize, 40);
+
+    return Buffer.concat([header, pcm]);
+  }
+
+  private decodeWsPayload(raw: RawData): string {
+    if (typeof raw === "string") {
+      return raw;
+    }
+    if (Buffer.isBuffer(raw)) {
+      return raw.toString("utf8");
+    }
+    if (raw instanceof ArrayBuffer) {
+      return Buffer.from(raw).toString("utf8");
+    }
+    if (Array.isArray(raw)) {
+      return Buffer.concat(raw).toString("utf8");
+    }
+    return Buffer.from(raw).toString("utf8");
+  }
+
   async send(peerId: string, message: OutboundMessage): Promise<string> {
     const eventId = `out-${randomUUID()}`;
+    const text = message.text ?? "";
     this.broadcast(peerId, {
       type: "assistant_message",
       id: eventId,
       peerId,
       payload: {
-        text: message.text ?? "",
+        text,
         media: message.media ?? [],
       },
       timestamp: new Date().toISOString(),
     });
+
+    if (text.trim()) {
+      await this.sendTtsAudio(peerId, text);
+    }
+
     return eventId;
+  }
+
+  private async sendTtsAudio(peerId: string, text: string): Promise<void> {
+    const audioClient = this.audioClients.get(peerId);
+    if (!audioClient) {
+      return;
+    }
+
+    try {
+      const result = await this.ttsService.textToSpeech(text, { peerId });
+      const streamId = `tts-${randomUUID()}`;
+      const chunkSize = 32 * 1024;
+      let seq = 0;
+
+      audioClient.socket.send(
+        JSON.stringify({
+          type: "audio_meta",
+          streamId,
+          mimeType: result.mimeType,
+          durationMs: result.durationMs ?? 0,
+          text,
+          voice: result.voice,
+        }),
+      );
+
+      for (let offset = 0; offset < result.buffer.byteLength; offset += chunkSize) {
+        const end = Math.min(offset + chunkSize, result.buffer.byteLength);
+        const chunk = result.buffer.subarray(offset, end);
+        audioClient.socket.send(
+          JSON.stringify({
+            type: "audio_chunk",
+            streamId,
+            seq,
+            mimeType: result.mimeType,
+            chunkBase64: chunk.toString("base64"),
+            isLast: end >= result.buffer.byteLength,
+          }),
+        );
+        seq += 1;
+      }
+
+      this.broadcast(peerId, {
+        type: "audio_ready",
+        peerId,
+        streamId,
+        mimeType: result.mimeType,
+        durationMs: result.durationMs ?? 0,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      this.sendAudioError(audioClient, "tts_failed", "TTS failed to generate audio", true);
+    }
   }
 
   async emitPhase(
