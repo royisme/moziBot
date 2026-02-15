@@ -2,13 +2,10 @@ import type { InboundMessage } from "../../adapters/channels/types";
 import type { SessionManager } from "../../host/sessions/manager";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
-import { continuationRegistry } from "../continuation";
 import { QueueMode, PeerType, SessionStatus } from "../constants";
+import { continuationRegistry } from "../continuation";
 
-export function hasActiveSession(params: {
-  messageHandler: unknown;
-  sessionKey: string;
-}): boolean {
+export function hasActiveSession(params: { messageHandler: unknown; sessionKey: string }): boolean {
   const isSessionActive = (
     params.messageHandler as {
       isSessionActive?: (sessionKey: string) => boolean;

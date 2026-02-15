@@ -20,21 +20,23 @@ import {
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
 import { type ExtensionRegistry } from "../extensions";
+import { clearMemoryManagerCache } from "../memory";
+import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
+import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
+// Extracted modules
 import {
-  clearMemoryManagerCache,
-} from "../memory";
+  type AgentEntry,
+  resolveWorkspaceDir,
+  resolveSandboxConfig,
+  resolveExecAllowlist,
+  resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
+} from "./agent-manager/config-resolver";
 import {
   compactSession as compactSessionMetric,
   getContextBreakdown as getContextBreakdownMetric,
   getContextUsage as getContextUsageMetric,
   updateSessionContext as updateSessionContextMetric,
 } from "./agent-manager/context-metrics";
-import {
-  clearRuntimeModelOverride as clearRuntimeModelOverrideState,
-  disposeAllRuntimeSessions,
-  disposeRuntimeSession as disposeRuntimeSessionState,
-  resetSession as resetSessionState,
-} from "./agent-manager/runtime-state";
 import {
   createExtensionRegistry,
   createSkillLoader,
@@ -49,8 +51,18 @@ import {
   resolveLifecycleControlModel as resolveLifecycleControlModelService,
   setSessionModel as setSessionModelService,
 } from "./agent-manager/model-session-service";
-import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
-import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
+import {
+  buildChannelContext,
+  buildSystemPrompt,
+  checkBootstrap,
+} from "./agent-manager/prompt-builder";
+import {
+  clearRuntimeModelOverride as clearRuntimeModelOverrideState,
+  disposeAllRuntimeSessions,
+  disposeRuntimeSession as disposeRuntimeSessionState,
+  resetSession as resetSessionState,
+} from "./agent-manager/runtime-state";
+import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import {
@@ -60,23 +72,6 @@ import {
   type SandboxExecutor,
 } from "./sandbox/executor";
 import { SessionStore } from "./session-store";
-
-// Extracted modules
-import {
-  type AgentEntry,
-  resolveWorkspaceDir,
-  resolveSandboxConfig,
-  resolveExecAllowlist,
-  resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
-} from "./agent-manager/config-resolver";
-import {
-  resolveThinkingLevel,
-} from "./agent-manager/thinking-resolver";
-import {
-  buildChannelContext,
-  buildSystemPrompt,
-  checkBootstrap,
-} from "./agent-manager/prompt-builder";
 
 export type { AgentEntry };
 

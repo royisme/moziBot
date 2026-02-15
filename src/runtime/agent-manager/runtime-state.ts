@@ -15,7 +15,8 @@ export function disposeRuntimeSession(params: {
   runtimeModelOverrides: Map<string, string>;
   channelContextSessions: Set<string>;
 }): void {
-  const { sessionKey, agents, agentModelRefs, runtimeModelOverrides, channelContextSessions } = params;
+  const { sessionKey, agents, agentModelRefs, runtimeModelOverrides, channelContextSessions } =
+    params;
   const session = agents.get(sessionKey);
   if (session) {
     session.dispose();

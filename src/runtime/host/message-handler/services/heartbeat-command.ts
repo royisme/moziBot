@@ -9,7 +9,10 @@ interface HeartbeatLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
 }
 
-function getHeartbeatFilePath(agentId: string, resolveWorkspaceDir: (agentId: string) => string | null): string | null {
+function getHeartbeatFilePath(
+  agentId: string,
+  resolveWorkspaceDir: (agentId: string) => string | null,
+): string | null {
   const workspaceDir = resolveWorkspaceDir(agentId);
   if (!workspaceDir) {
     return null;

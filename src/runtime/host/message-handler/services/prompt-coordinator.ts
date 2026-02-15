@@ -1,8 +1,15 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
+import type { MoziConfig } from "../../../../config";
+import type { FlushMetadata } from "../../../../memory/flush-manager";
+import type { StreamingCallback } from "./streaming";
+import {
+  resolveMemoryBackendConfig,
+  type ResolvedMemoryPersistenceConfig,
+} from "../../../../memory/backend-config";
 import { estimateMessagesTokens } from "../../../context-management";
 import { isCompactionFailureError, isContextOverflowError } from "../../../context-management";
 import { isTransientError } from "../../../core/error-policy";
+import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
 import {
   isAbortError as isAbortErrorService,
   isAgentBusyError as isAgentBusyErrorService,
@@ -12,10 +19,6 @@ import {
   runPromptWithFallback as runPromptWithFallbackService,
   type PromptAgent,
 } from "./prompt-runner";
-import type { StreamingCallback } from "./streaming";
-import { resolveMemoryBackendConfig, type ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
-import type { MoziConfig } from "../../../../config";
-import type { FlushMetadata } from "../../../../memory/flush-manager";
 
 interface PromptCoordinatorAgentManager {
   getAgent(
@@ -23,7 +26,11 @@ interface PromptCoordinatorAgentManager {
     agentId: string,
   ): Promise<{ agent: PromptAgent & { messages: AgentMessage[] }; modelRef: string }>;
   getAgentFallbacks(agentId: string): string[];
-  setSessionModel(sessionKey: string, modelRef: string, options: { persist: boolean }): Promise<void>;
+  setSessionModel(
+    sessionKey: string,
+    modelRef: string,
+    options: { persist: boolean },
+  ): Promise<void>;
   clearRuntimeModelOverride(sessionKey: string): void;
   resolvePromptTimeoutMs(agentId: string): number;
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined;
@@ -33,13 +40,11 @@ interface PromptCoordinatorAgentManager {
     agentId: string,
   ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
   updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
-  getContextUsage(sessionKey: string):
-    | {
-        usedTokens: number;
-        totalTokens: number;
-        percentage: number;
-      }
-    | null;
+  getContextUsage(sessionKey: string): {
+    usedTokens: number;
+    totalTokens: number;
+    percentage: number;
+  } | null;
 }
 
 interface PromptCoordinatorLogger {
@@ -84,7 +89,10 @@ export async function runPromptWithCoordinator(params: {
   config: MoziConfig;
   logger: PromptCoordinatorLogger;
   agentManager: PromptCoordinatorAgentManager;
-  activeMap: Map<string, { agentId: string; modelRef: string; startedAt: number; agent: PromptAgent }>;
+  activeMap: Map<
+    string,
+    { agentId: string; modelRef: string; startedAt: number; agent: PromptAgent }
+  >;
   interruptedSet: Set<string>;
   flushMemory: (
     sessionKey: string,
@@ -135,9 +143,16 @@ export async function runPromptWithCoordinator(params: {
       const { agent } = await agentManager.getAgent(sessionKey, agentId);
       const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
       if (memoryConfig.persistence.enabled && memoryConfig.persistence.onOverflowCompaction) {
-        const meta = agentManager.getSessionMetadata(sessionKey)?.memoryFlush as FlushMetadata | undefined;
+        const meta = agentManager.getSessionMetadata(sessionKey)?.memoryFlush as
+          | FlushMetadata
+          | undefined;
         if (!meta || meta.lastAttemptedCycle < attempt) {
-          const success = await flushMemory(sessionKey, agentId, agent.messages, memoryConfig.persistence);
+          const success = await flushMemory(
+            sessionKey,
+            agentId,
+            agent.messages,
+            memoryConfig.persistence,
+          );
           agentManager.updateSessionMetadata(sessionKey, {
             memoryFlush: {
               lastAttemptedCycle: attempt,
@@ -151,7 +166,10 @@ export async function runPromptWithCoordinator(params: {
 
       const compactResult = await agentManager.compactSession(sessionKey, agentId);
       if (!compactResult.success) {
-        logger.warn({ traceId, sessionKey, reason: compactResult.reason }, "Auto-compaction failed");
+        logger.warn(
+          { traceId, sessionKey, reason: compactResult.reason },
+          "Auto-compaction failed",
+        );
         throw new Error("Auto-compaction failed");
       }
       logger.info(
@@ -172,7 +190,8 @@ export async function runPromptWithCoordinator(params: {
         },
         clearRuntimeModelOverride: (targetSessionKey) =>
           agentManager.clearRuntimeModelOverride(targetSessionKey),
-        resolvePromptTimeoutMs: (targetAgentId) => agentManager.resolvePromptTimeoutMs(targetAgentId),
+        resolvePromptTimeoutMs: (targetAgentId) =>
+          agentManager.resolvePromptTimeoutMs(targetAgentId),
       },
       errorClassifiers: {
         isAgentBusyError: (err) => isAgentBusyErrorService(err),
@@ -188,9 +207,9 @@ export async function runPromptWithCoordinator(params: {
   });
 
   const current = await agentManager.getAgent(sessionKey, agentId);
-  const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)].toReversed().find(
-    (m) => m && m.role === "assistant",
-  );
+  const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)]
+    .toReversed()
+    .find((m) => m && m.role === "assistant");
   const assistantRenderedText = latestAssistant ? extractAssistantText(latestAssistant) : "";
   const assistantStopReason =
     latestAssistant && typeof (latestAssistant as Record<string, unknown>).stopReason === "string"
@@ -248,7 +267,9 @@ export async function runPromptWithCoordinator(params: {
         traceId,
         sessionKey,
         agentId,
-        responseTokens: latestAssistant ? estimateMessagesTokens([latestAssistant as AgentMessage]) : 0,
+        responseTokens: latestAssistant
+          ? estimateMessagesTokens([latestAssistant as AgentMessage])
+          : 0,
         totalContextTokens: usage.usedTokens,
         contextWindow: usage.totalTokens,
         fillPercentage: usage.percentage,

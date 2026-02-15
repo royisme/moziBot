@@ -17,12 +17,12 @@ Use this skill to run coding agents for software development tasks. The coding a
 
 ## Supported Agents
 
-| Agent | Command | Best For |
-|-------|---------|----------|
-| Claude Code | `claude` | Complex refactoring, debugging |
-| OpenAI Codex | `codex` | Quick implementations |
-| OpenCode | `opencode` | Multi-file changes |
-| Pi | `pi` | Lightweight tasks |
+| Agent        | Command    | Best For                       |
+| ------------ | ---------- | ------------------------------ |
+| Claude Code  | `claude`   | Complex refactoring, debugging |
+| OpenAI Codex | `codex`    | Quick implementations          |
+| OpenCode     | `opencode` | Multi-file changes             |
+| Pi           | `pi`       | Lightweight tasks              |
 
 ## Basic Usage
 
@@ -62,21 +62,25 @@ Without PTY, agents may hang or produce broken output.
 ## Examples
 
 ### Refactoring
+
 ```bash
 claude "Extract this validation logic into a separate function"
 ```
 
 ### Debugging
+
 ```bash
 claude "Find and fix the memory leak in this module"
 ```
 
 ### Testing
+
 ```bash
 codex "Generate unit tests for all public methods in this class"
 ```
 
 ### Code Review
+
 ```bash
 pi "Review this function for potential edge cases"
 ```

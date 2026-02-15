@@ -1,10 +1,10 @@
-import type { CommandFlow } from '../contract';
-import { 
-  type ParsedCommand, 
-  type CommandHandlerMap, 
-  type CommandDispatchContext, 
-  dispatchParsedCommand 
-} from '../services/command-handlers';
+import type { CommandFlow } from "../contract";
+import {
+  type ParsedCommand,
+  type CommandHandlerMap,
+  type CommandDispatchContext,
+  dispatchParsedCommand,
+} from "../services/command-handlers";
 
 /**
  * Runtime-guarded helper to ensure a function exists on an unknown object.
@@ -34,7 +34,7 @@ function isParsedCommand(obj: unknown): obj is ParsedCommand {
 
 /**
  * Command Flow Implementation
- * 
+ *
  * Orchestrates the dispatching of parsed commands using artifacts stored
  * in ctx.state and services/command-handlers helpers.
  * Preserves monolith parity with strict narrow guards.
@@ -53,8 +53,8 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
     inlineOverrides &&
     typeof inlineOverrides === "object" &&
     (rawCommand as { name?: string }).name &&
-    (((rawCommand as { name?: string }).name === "think") ||
-      ((rawCommand as { name?: string }).name === "reasoning"))
+    ((rawCommand as { name?: string }).name === "think" ||
+      (rawCommand as { name?: string }).name === "reasoning")
   ) {
     return "continue";
   }
@@ -78,7 +78,7 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
     // 3. Obtain injected command handler map and channel from deps
     const getHandlerMap = requireFn<() => CommandHandlerMap>(deps, "getCommandHandlerMap");
     const getChannel = requireFn<(p: unknown) => unknown>(deps, "getChannel");
-    
+
     const handlerMap = getHandlerMap();
     const channel = getChannel(payload);
 

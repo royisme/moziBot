@@ -1,5 +1,5 @@
-import * as PIXI from "pixi.js";
 import { Live2DModel } from "pixi-live2d-display-lipsyncpatch/cubism4";
+import * as PIXI from "pixi.js";
 import type { AvatarRenderer, Phase } from "./types";
 
 export class Live2DRenderer implements AvatarRenderer {
@@ -202,8 +202,7 @@ export class Live2DRenderer implements AvatarRenderer {
     this.app.ticker.add(() => {
       if (this.isSpeaking || !this.model) return;
       // Smoothly interpolate manual mouth value
-      this.manualMouthValue +=
-        (this.manualMouthTarget - this.manualMouthValue) * 0.3;
+      this.manualMouthValue += (this.manualMouthTarget - this.manualMouthValue) * 0.3;
       if (Math.abs(this.manualMouthValue) < 0.001) {
         this.manualMouthValue = 0;
       }

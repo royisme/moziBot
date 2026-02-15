@@ -1,31 +1,31 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentManager } from "../../..";
+import type { ModelRegistry } from "../../..";
+import type { MoziConfig } from "../../../../config";
+import type { ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
+import type { CommandHandlerMap } from "./command-handlers";
 import { handleReasoningCommand, handleThinkCommand } from "../../commands/reasoning";
 import {
   handleWhoamiCommand as handleWhoamiCommandService,
   handleStatusCommand as handleStatusCommandService,
   handleContextCommand as handleContextCommandService,
 } from "../../commands/session";
-import type { AgentManager } from "../../..";
-import type { CommandHandlerMap } from "./command-handlers";
+import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
 import { createMessageCommandHandlerMap } from "./command-map";
+import { toError as toErrorService } from "./error-utils";
+import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./heartbeat-command";
 import {
   handleModelsCommand as handleModelsCommandService,
   handleSwitchCommand as handleSwitchCommandService,
 } from "./models-command";
+import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./reasoning-level";
+import { handleRemindersCommand as handleRemindersCommandService } from "./reminders-command";
 import {
   handleCompactCommand as handleCompactCommandService,
   handleNewSessionCommand as handleNewSessionCommandService,
   handleRestartCommand as handleRestartCommandService,
 } from "./session-control-command";
-import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
-import { handleRemindersCommand as handleRemindersCommandService } from "./reminders-command";
-import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./heartbeat-command";
-import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./reasoning-level";
-import { toError as toErrorService } from "./error-utils";
-import type { MoziConfig } from "../../../../config";
-import type { ModelRegistry } from "../../..";
-import type { ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
 export function buildCommandHandlerMap(params: {
   channel: ChannelPlugin;

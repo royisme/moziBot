@@ -196,12 +196,7 @@ export class MoziClient {
       this.emit("phase", data.phase as Phase);
     }
     if (data.type === "transcript") {
-      this.emit(
-        "transcript",
-        data.text as string,
-        data.isUser as boolean,
-        data.isFinal as boolean,
-      );
+      this.emit("transcript", data.text as string, data.isUser as boolean, data.isFinal as boolean);
     }
     if (data.type === "assistant_message") {
       const payload = data.payload as Record<string, unknown> | undefined;

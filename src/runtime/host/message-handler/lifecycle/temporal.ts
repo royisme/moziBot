@@ -1,6 +1,6 @@
 /**
  * Temporal Lifecycle Pure Functions
- * 
+ *
  * This module contains pure logic for time-based session rotation.
  * It is decoupled from the runtime host and class instances.
  */
@@ -35,17 +35,19 @@ export function isSameLocalDay(aMs: number, bMs: number): boolean {
  */
 export function resolveTemporalLifecyclePolicy(
   agentId: string,
-  configAgents: Record<string, unknown> | undefined
+  configAgents: Record<string, unknown> | undefined,
 ): TemporalLifecyclePolicy {
   const agents = configAgents || {};
-  
+
   // Extract defaults from config
-  const defaults = (agents.defaults as { lifecycle?: { temporal?: Partial<TemporalLifecyclePolicy> } } | undefined)
-    ?.lifecycle?.temporal;
-    
+  const defaults = (
+    agents.defaults as { lifecycle?: { temporal?: Partial<TemporalLifecyclePolicy> } } | undefined
+  )?.lifecycle?.temporal;
+
   // Extract agent-specific entry
-  const entry = (agents[agentId] as { lifecycle?: { temporal?: Partial<TemporalLifecyclePolicy> } } | undefined)
-    ?.lifecycle?.temporal;
+  const entry = (
+    agents[agentId] as { lifecycle?: { temporal?: Partial<TemporalLifecyclePolicy> } } | undefined
+  )?.lifecycle?.temporal;
 
   return {
     enabled: entry?.enabled ?? defaults?.enabled ?? true,
@@ -61,7 +63,7 @@ export function resolveTemporalLifecyclePolicy(
 export function shouldRotateSessionForTemporalPolicy(
   policy: TemporalLifecyclePolicy,
   session: SessionTimestamps,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
 ): boolean {
   if (!policy.enabled) {
     return false;

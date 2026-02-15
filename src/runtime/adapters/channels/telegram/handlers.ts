@@ -1,7 +1,7 @@
 import type { Context } from "grammy";
-import { logger } from "../../../../logger";
 import type { InboundMessage } from "../types";
 import type { TelegramPluginConfig } from "./plugin";
+import { logger } from "../../../../logger";
 import { isSenderAllowed, isCommandText, isBotMentioned } from "./access";
 
 export async function handleMessage(
@@ -66,10 +66,7 @@ export async function handleMessage(
         botId,
       });
       if (!mentioned) {
-        logger.info(
-          { chatId, senderId },
-          "Telegram group message dropped by requireMention=true",
-        );
+        logger.info({ chatId, senderId }, "Telegram group message dropped by requireMention=true");
         return;
       }
     }

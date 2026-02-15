@@ -1,12 +1,15 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { FlushManager } from "../../../../memory/flush-manager";
-import { resolveHomeDir, type ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
-import { getMemoryLifecycleOrchestrator } from "../../../../memory";
 import type { MoziConfig } from "../../../../config";
+import { getMemoryLifecycleOrchestrator } from "../../../../memory";
+import {
+  resolveHomeDir,
+  type ResolvedMemoryPersistenceConfig,
+} from "../../../../memory/backend-config";
+import { FlushManager } from "../../../../memory/flush-manager";
 
 /**
  * Preflush and Memory Persistence Service
- * 
+ *
  * Manages the orchestration of persisting messages to long-term memory
  * and notifying the memory lifecycle orchestrator.
  */
@@ -41,8 +44,8 @@ export async function performMemoryFlush(params: {
 
     const result = await Promise.race([
       flushManager.flush({ messages, config: persistenceConfig, sessionKey }),
-      new Promise<boolean>((_, reject) => 
-        setTimeout(() => reject(new Error("Flush timeout")), timeout)
+      new Promise<boolean>((_, reject) =>
+        setTimeout(() => reject(new Error("Flush timeout")), timeout),
       ),
     ]);
 
@@ -57,7 +60,10 @@ export async function performMemoryFlush(params: {
     return success;
   } catch (err) {
     // Parity: return false and log warning
-    deps.logger.warn({ err: err instanceof Error ? err : new Error(String(err)), sessionKey }, "Memory flush failed or timed out");
+    deps.logger.warn(
+      { err: err instanceof Error ? err : new Error(String(err)), sessionKey },
+      "Memory flush failed or timed out",
+    );
     return false;
   }
 }

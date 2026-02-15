@@ -1,10 +1,10 @@
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import path from "node:path";
 import type { MoziConfig } from "../../config";
-import type { SandboxConfig } from "../sandbox/types";
 import type { ContextPruningConfig } from "../context-pruning";
-import { resolveToolAllowList as resolveToolAllowListCore } from "../tool-selection";
+import type { SandboxConfig } from "../sandbox/types";
 import { resolveHistoryLimitFromSessionKey } from "../context-management";
+import { resolveToolAllowList as resolveToolAllowListCore } from "../tool-selection";
 
 export type AgentEntry = {
   name?: string;
@@ -77,11 +77,7 @@ export function resolveWorkspaceDir(
   return path.join("./workspace", agentId);
 }
 
-export function resolveHomeDir(
-  config: MoziConfig,
-  agentId: string,
-  entry?: AgentEntry,
-): string {
+export function resolveHomeDir(config: MoziConfig, agentId: string, entry?: AgentEntry): string {
   if (entry?.home) {
     return entry.home;
   }
@@ -109,30 +105,19 @@ export function resolveSandboxConfig(
   };
 }
 
-export function resolveExecAllowlist(
-  config: MoziConfig,
-  entry?: AgentEntry,
-): string[] | undefined {
-  const defaults = (
-    config.agents?.defaults as { exec?: { allowlist?: string[] } } | undefined
-  )?.exec;
+export function resolveExecAllowlist(config: MoziConfig, entry?: AgentEntry): string[] | undefined {
+  const defaults = (config.agents?.defaults as { exec?: { allowlist?: string[] } } | undefined)
+    ?.exec;
   return entry?.exec?.allowlist ?? defaults?.allowlist;
 }
 
-export function resolveExecAllowedSecrets(
-  config: MoziConfig,
-  entry?: AgentEntry,
-): string[] {
-  const defaults = (
-    config.agents?.defaults as { exec?: { allowedSecrets?: string[] } } | undefined
-  )?.exec;
+export function resolveExecAllowedSecrets(config: MoziConfig, entry?: AgentEntry): string[] {
+  const defaults = (config.agents?.defaults as { exec?: { allowedSecrets?: string[] } } | undefined)
+    ?.exec;
   return entry?.exec?.allowedSecrets ?? defaults?.allowedSecrets ?? [];
 }
 
-export function resolveToolAllowList(
-  config: MoziConfig,
-  entry?: AgentEntry,
-): string[] {
+export function resolveToolAllowList(config: MoziConfig, entry?: AgentEntry): string[] {
   const defaults = (config.agents?.defaults as { tools?: string[] } | undefined)?.tools;
   return resolveToolAllowListCore({
     agentTools: entry?.tools,
@@ -157,10 +142,7 @@ export function resolveContextPruningConfig(
   return { ...defaults, ...agentConfig };
 }
 
-export function resolveHistoryLimit(
-  config: MoziConfig,
-  sessionKey: string,
-): number | undefined {
+export function resolveHistoryLimit(config: MoziConfig, sessionKey: string): number | undefined {
   const channelMatch = sessionKey.match(/^agent:[^:]+:([^:]+):/);
   const channelId = channelMatch?.[1];
   if (!channelId) {
@@ -180,12 +162,9 @@ export function resolveHistoryLimit(
   return resolveHistoryLimitFromSessionKey(sessionKey, channelConfig);
 }
 
-export function resolvePromptTimeoutMs(
-  config: MoziConfig,
-  entry?: AgentEntry,
-): number {
+export function resolvePromptTimeoutMs(config: MoziConfig, entry?: AgentEntry): number {
   const perAgent = entry?.timeoutSeconds;
-  const defaults =
-    (config.agents?.defaults as { timeoutSeconds?: number } | undefined)?.timeoutSeconds;
+  const defaults = (config.agents?.defaults as { timeoutSeconds?: number } | undefined)
+    ?.timeoutSeconds;
   return (perAgent ?? defaults ?? 300) * 1000;
 }

@@ -1,8 +1,12 @@
-import { handleAgentStreamEvent, type AgentSessionEvent, type StreamingCallback } from "./streaming";
+import {
+  handleAgentStreamEvent,
+  type AgentSessionEvent,
+  type StreamingCallback,
+} from "./streaming";
 
 /**
  * Prompt Runner and Active Run Bookkeeping Service
- * 
+ *
  * Manages the execution lifecycle of agent prompts, including fallback model loops,
  * active run tracking, and event routing.
  */
@@ -33,9 +37,16 @@ export interface PromptRunnerDeps {
     warn(obj: Record<string, unknown>, msg: string): void;
   };
   readonly agentManager: {
-    getAgent(sessionKey: string, agentId: string): Promise<{ agent: PromptAgent; modelRef: string }>;
+    getAgent(
+      sessionKey: string,
+      agentId: string,
+    ): Promise<{ agent: PromptAgent; modelRef: string }>;
     getAgentFallbacks(agentId: string): string[];
-    setSessionModel(sessionKey: string, modelRef: string, options: { persist: boolean }): Promise<void>;
+    setSessionModel(
+      sessionKey: string,
+      modelRef: string,
+      options: { persist: boolean },
+    ): Promise<void>;
     clearRuntimeModelOverride(sessionKey: string): void;
     resolvePromptTimeoutMs(agentId: string): number;
   };
@@ -54,7 +65,7 @@ export interface PromptRunnerDeps {
 export function registerActivePromptRun(
   activeMap: Map<string, ActivePromptRun>,
   interruptedSet: Set<string>,
-  params: { sessionKey: string } & ActivePromptRun
+  params: { sessionKey: string } & ActivePromptRun,
 ): void {
   const { sessionKey, ...run } = params;
   interruptedSet.delete(sessionKey);
@@ -67,7 +78,7 @@ export function registerActivePromptRun(
 export function clearActivePromptRun(
   activeMap: Map<string, ActivePromptRun>,
   interruptedSet: Set<string>,
-  sessionKey: string
+  sessionKey: string,
 ): void {
   activeMap.delete(sessionKey);
   interruptedSet.delete(sessionKey);
@@ -142,7 +153,18 @@ export async function runPromptWithFallback(params: {
   activeMap: Map<string, ActivePromptRun>;
   interruptedSet: Set<string>;
 }): Promise<void> {
-  const { sessionKey, agentId, text, traceId, onStream, onFallback, onContextOverflow, deps, activeMap, interruptedSet } = params;
+  const {
+    sessionKey,
+    agentId,
+    text,
+    traceId,
+    onStream,
+    onFallback,
+    onContextOverflow,
+    deps,
+    activeMap,
+    interruptedSet,
+  } = params;
 
   const fallbacks = deps.agentManager.getAgentFallbacks(agentId);
   const tried = new Set<string>();
@@ -157,24 +179,32 @@ export async function runPromptWithFallback(params: {
       const { agent, modelRef } = await deps.agentManager.getAgent(sessionKey, agentId);
       attempt += 1;
       const startedAt = Date.now();
-      
+
       const progressTimer = setInterval(() => {
         deps.logger.warn(
-          { traceId, sessionKey, agentId, modelRef, attempt, elapsedMs: Date.now() - startedAt, textChars: text.length },
-          "Agent prompt still running"
+          {
+            traceId,
+            sessionKey,
+            agentId,
+            modelRef,
+            attempt,
+            elapsedMs: Date.now() - startedAt,
+            textChars: text.length,
+          },
+          "Agent prompt still running",
         );
       }, promptProgressLogIntervalMs);
 
       let unsubscribe: (() => void) | undefined;
       let accumulatedText = "";
-      
+
       try {
         registerActivePromptRun(activeMap, interruptedSet, {
           sessionKey,
           agentId,
           modelRef,
           startedAt,
-          agent
+          agent,
         });
 
         if (onStream && typeof agent.subscribe === "function") {
@@ -210,7 +240,9 @@ export async function runPromptWithFallback(params: {
 
           return await new Promise<T>((resolve, reject) => {
             const onAbort = () => {
-              reject(deps.errorClassifiers.toError(signal.reason ?? new Error("Agent prompt aborted")));
+              reject(
+                deps.errorClassifiers.toError(signal.reason ?? new Error("Agent prompt aborted")),
+              );
             };
             signal.addEventListener("abort", onAbort, { once: true });
             promise.then(
@@ -232,7 +264,7 @@ export async function runPromptWithFallback(params: {
 
         try {
           await abortable(Promise.resolve(agent.prompt(text)));
-          
+
           if (onStream && accumulatedText) {
             await onStream({ type: "agent_end", fullText: accumulatedText });
           }
@@ -240,7 +272,6 @@ export async function runPromptWithFallback(params: {
         } finally {
           clearTimeout(timeoutHandle);
         }
-
       } catch (err) {
         const error = deps.errorClassifiers.toError(err);
 
@@ -273,7 +304,15 @@ export async function runPromptWithFallback(params: {
             transientRetryCounts.set(modelRef, transientAttempts + 1);
             const delayMs = 1000 * 2 ** transientAttempts;
             deps.logger.warn(
-              { traceId, sessionKey, agentId, modelRef, attempt, transientAttempts: transientAttempts + 1, delayMs },
+              {
+                traceId,
+                sessionKey,
+                agentId,
+                modelRef,
+                attempt,
+                transientAttempts: transientAttempts + 1,
+                delayMs,
+              },
               "Transient error, retrying current model after backoff",
             );
             await new Promise((r) => setTimeout(r, delayMs));
@@ -283,8 +322,8 @@ export async function runPromptWithFallback(params: {
 
         // Handle Fallback
         tried.add(modelRef);
-        const nextModel = fallbacks.find(m => !tried.has(m));
-        
+        const nextModel = fallbacks.find((m) => !tried.has(m));
+
         if (nextModel) {
           await deps.agentManager.setSessionModel(sessionKey, nextModel, { persist: false });
           if (onFallback) {
@@ -292,7 +331,7 @@ export async function runPromptWithFallback(params: {
               fromModel: modelRef,
               toModel: nextModel,
               attempt: tried.size,
-              error: error.message
+              error: error.message,
             });
           }
           continue;

@@ -1,10 +1,10 @@
-import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
-import type { OutboundMessage } from "../../../adapters/channels/types";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
+import type { OutboundMessage } from "../../../adapters/channels/types";
+import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
 
 /**
  * Reply Dispatcher and Outbound Delivery Service
- * 
+ *
  * Manages the final delivery of messages to channels, including multimodal
  * negotiation and streaming finalization.
  */

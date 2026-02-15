@@ -3,11 +3,11 @@ import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { MessageHandler } from "../../host/message-handler";
 import type { SessionManager } from "../../host/sessions/manager";
+import type { RuntimeErrorPolicy } from "../contracts";
 import { logger } from "../../../logger";
 import { runtimeQueue, type RuntimeQueueItem } from "../../../storage/db";
-import { continuationRegistry } from "../continuation";
-import type { RuntimeErrorPolicy } from "../contracts";
 import { SessionStatus } from "../constants";
+import { continuationRegistry } from "../continuation";
 
 export async function processQueueItem(params: {
   queueItem: RuntimeQueueItem;
@@ -15,7 +15,10 @@ export async function processQueueItem(params: {
   sessionManager: SessionManager;
   errorPolicy: RuntimeErrorPolicy;
   parseInbound: (json: string) => InboundMessage;
-  buildRuntimeChannel: (params: { queueItem: RuntimeQueueItem; envelopeId: string }) => ChannelPlugin;
+  buildRuntimeChannel: (params: {
+    queueItem: RuntimeQueueItem;
+    envelopeId: string;
+  }) => ChannelPlugin;
   schedulePump: () => void;
 }): Promise<void> {
   continuationRegistry.resumeSession(params.queueItem.session_key);
@@ -44,7 +47,10 @@ export async function processQueueItem(params: {
     if (!completed) {
       const current = runtimeQueue.getById(params.queueItem.id);
       if (current?.status === SessionStatus.INTERRUPTED) {
-        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+        await params.sessionManager.setStatus(
+          params.queueItem.session_key,
+          SessionStatus.INTERRUPTED,
+        );
         logger.warn(
           {
             queueItemId: params.queueItem.id,
@@ -90,7 +96,10 @@ export async function processQueueItem(params: {
     const err = error instanceof Error ? error : new Error(String(error));
     const current = runtimeQueue.getById(params.queueItem.id);
     if (current?.status === SessionStatus.INTERRUPTED) {
-      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+      await params.sessionManager.setStatus(
+        params.queueItem.session_key,
+        SessionStatus.INTERRUPTED,
+      );
       logger.warn(
         {
           queueItemId: params.queueItem.id,
@@ -115,7 +124,10 @@ export async function processQueueItem(params: {
       if (!retried) {
         const latest = runtimeQueue.getById(params.queueItem.id);
         if (latest?.status === SessionStatus.INTERRUPTED) {
-          await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+          await params.sessionManager.setStatus(
+            params.queueItem.session_key,
+            SessionStatus.INTERRUPTED,
+          );
           return;
         }
         logger.warn(
@@ -152,7 +164,10 @@ export async function processQueueItem(params: {
     if (!failed) {
       const latest = runtimeQueue.getById(params.queueItem.id);
       if (latest?.status === SessionStatus.INTERRUPTED) {
-        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+        await params.sessionManager.setStatus(
+          params.queueItem.session_key,
+          SessionStatus.INTERRUPTED,
+        );
         return;
       }
       logger.warn(

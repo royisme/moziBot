@@ -1,20 +1,20 @@
 import type { MoziConfig } from "../../../config";
 import type { DeliveryPlan } from "../../../multimodal/capabilities";
 import type { OutboundMessage } from "../../adapters/channels/types";
+import type { SessionTimestamps } from "./lifecycle/temporal";
+import type { ReplyRenderOptions } from "./render/reasoning";
 import type { CommandHandlerMap } from "./services/command-handlers";
 import type { InteractionPhase, PhasePayload } from "./services/interaction-lifecycle";
-import type { StreamingCallback, StreamingBuffer } from "./services/streaming";
 import type { FallbackInfo } from "./services/prompt-runner";
-import type { ReplyRenderOptions } from "./render/reasoning";
 import type { AssistantMessageShape } from "./services/reply-finalizer";
-import type { SessionTimestamps } from "./lifecycle/temporal";
+import type { StreamingCallback, StreamingBuffer } from "./services/streaming";
 
 /**
  * Canonical contracts for message-handler turn orchestration
  * Strict typing only, no 'any'.
  */
 
-export type FlowResult = 'continue' | 'handled' | 'abort';
+export type FlowResult = "continue" | "handled" | "abort";
 
 export interface MessageTurnContext {
   readonly messageId: string;
@@ -47,7 +47,7 @@ export interface OrchestratorDeps {
     warn(obj: Record<string, unknown>, msg: string): void;
     error(obj: Record<string, unknown>, msg: string): void;
   };
-  
+
   // Inbound & Command Helpers
   getText(payload: unknown): string;
   getMedia(payload: unknown): unknown[];
@@ -58,11 +58,11 @@ export interface OrchestratorDeps {
     reasoningLevel?: "off" | "on" | "stream";
     promptText: string;
   } | null;
-  resolveSessionContext(payload: unknown): { 
-    agentId: string; 
-    sessionKey: string; 
-    peerId: string; 
-    dmScope?: string 
+  resolveSessionContext(payload: unknown): {
+    agentId: string;
+    sessionKey: string;
+    peerId: string;
+    dmScope?: string;
   };
   rememberLastRoute(agentId: string, payload: unknown): void;
   sendDirect(peerId: string, text: string): Promise<void>;
@@ -108,10 +108,7 @@ export interface OrchestratorDeps {
     agentId: string;
     peerId: string;
   }): Promise<(() => Promise<void> | void) | undefined>;
-  emitPhaseSafely(params: {
-    phase: InteractionPhase;
-    payload: PhasePayload;
-  }): Promise<void>;
+  emitPhaseSafely(params: { phase: InteractionPhase; payload: PhasePayload }): Promise<void>;
   createStreamingBuffer(params: {
     peerId: string;
     onError: (err: Error) => void;
@@ -125,10 +122,7 @@ export interface OrchestratorDeps {
     onStream?: StreamingCallback;
     onFallback?: (info: FallbackInfo) => Promise<void>;
   }): Promise<void>;
-  maybePreFlushBeforePrompt(params: {
-    sessionKey: string;
-    agentId: string;
-  }): Promise<void>;
+  maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
   resolveReplyRenderOptions(agentId: string): ReplyRenderOptions;
   resolveLastAssistantReplyText(params: {
     messages: AssistantMessageShape[];
@@ -145,11 +139,8 @@ export interface OrchestratorDeps {
     replyText?: string;
     inboundPlan: DeliveryPlan | null;
   }): OutboundMessage;
-  sendNegotiatedReply(params: {
-    peerId: string;
-    outbound: OutboundMessage;
-  }): Promise<string>;
-  
+  sendNegotiatedReply(params: { peerId: string; outbound: OutboundMessage }): Promise<string>;
+
   // Error Helpers
   toError(err: unknown): Error;
   isAbortError(err: Error): boolean;
@@ -172,11 +163,29 @@ export interface ChannelDispatcherBridge {
 // Flow Function Aliases
 export type InboundFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps) => Promise<FlowResult>;
 export type CommandFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps) => Promise<FlowResult>;
-export type LifecycleFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps) => Promise<FlowResult>;
-export type PromptFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps) => Promise<FlowResult | PreparedPromptBundle>;
-export type ExecutionFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps, bundle: PreparedPromptBundle) => Promise<FlowResult>;
-export type ErrorFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps, error: unknown) => Promise<FlowResult>;
-export type CleanupFlow = (ctx: MessageTurnContext, deps: OrchestratorDeps, bundle: CleanupBundle) => Promise<void>;
+export type LifecycleFlow = (
+  ctx: MessageTurnContext,
+  deps: OrchestratorDeps,
+) => Promise<FlowResult>;
+export type PromptFlow = (
+  ctx: MessageTurnContext,
+  deps: OrchestratorDeps,
+) => Promise<FlowResult | PreparedPromptBundle>;
+export type ExecutionFlow = (
+  ctx: MessageTurnContext,
+  deps: OrchestratorDeps,
+  bundle: PreparedPromptBundle,
+) => Promise<FlowResult>;
+export type ErrorFlow = (
+  ctx: MessageTurnContext,
+  deps: OrchestratorDeps,
+  error: unknown,
+) => Promise<FlowResult>;
+export type CleanupFlow = (
+  ctx: MessageTurnContext,
+  deps: OrchestratorDeps,
+  bundle: CleanupBundle,
+) => Promise<void>;
 
 export interface MessageTurnHandler {
   handle(ctx: MessageTurnContext): Promise<unknown>;

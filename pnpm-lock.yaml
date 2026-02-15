@@ -116,6 +116,9 @@ importers:
       tslog:
         specifier: ^4.10.2
         version: 4.10.2
+      ws:
+        specifier: ^8.18.1
+        version: 8.19.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6

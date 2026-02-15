@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import { InputFile } from "grammy";
-import { logger } from "../../../../logger";
 import type { OutboundMessage } from "../types";
+import { logger } from "../../../../logger";
 import {
   chunkMessage,
   isTelegramParseError,
@@ -136,11 +136,7 @@ export async function reactToMessage(
   }
 }
 
-export async function deleteMsg(
-  bot: Bot,
-  messageId: string,
-  peerId: string,
-): Promise<void> {
+export async function deleteMsg(bot: Bot, messageId: string, peerId: string): Promise<void> {
   try {
     await bot.api.deleteMessage(peerId, parseInt(messageId));
   } catch (error) {
@@ -161,11 +157,17 @@ export async function editMsg(
     });
   } catch (error) {
     if (isTelegramParseError(error)) {
-      logger.warn({ error, messageId }, "Telegram HTML parse failed on edit, retrying with plain text");
+      logger.warn(
+        { error, messageId },
+        "Telegram HTML parse failed on edit, retrying with plain text",
+      );
       try {
         await bot.api.editMessageText(peerId, parseInt(messageId), newText);
       } catch (fallbackError) {
-        logger.warn({ error: fallbackError, messageId }, "Failed to edit message (plain text fallback)");
+        logger.warn(
+          { error: fallbackError, messageId },
+          "Failed to edit message (plain text fallback)",
+        );
       }
     } else {
       logger.warn({ error, messageId }, "Failed to edit message");

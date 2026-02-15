@@ -1,6 +1,6 @@
 {
   "name": "@royisme/mozi-bot",
-  "version": "1.0.7",
+  "version": "1.1.1",
   "description": "Personal AI coding agent that runs securely in containers",
   "homepage": "https://github.com/royisme/moziBot#readme",
   "bugs": {
@@ -8,13 +8,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/royisme/moziBot"
+    "url": "git+https://github.com/royisme/moziBot.git"
   },
   "bin": {
-    "mozi": "./dist/mozi.mjs"
+    "mozi": "dist/mozi.mjs"
   },
   "files": [
     "dist",
+    "desktop-widget/dist",
     "README.md",
     "LICENSE",
     "package.json",
@@ -41,7 +42,7 @@
     "lint": "oxlint --type-aware",
     "lint:fix": "oxlint --type-aware --fix",
     "package": "bash scripts/package.sh",
-    "prepack": "pnpm run build:all",
+    "prepack": "pnpm run build:full",
     "release": "bash scripts/release.sh",
     "release:check": "pnpm tsx scripts/release-check.ts",
     "schema:check": "pnpm run schema:config && git diff --exit-code schema/config.schema.json",
@@ -94,6 +95,7 @@
     "sqlite-vec": "0.1.7-alpha.2",
     "tar": "7.5.7",
     "tslog": "^4.10.2",
+    "ws": "^8.18.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

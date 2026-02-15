@@ -3,47 +3,40 @@ import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
+import type { OrchestratorDeps } from "./message-handler/contract";
 import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
 import { logger } from "../../logger";
-import {
-  type ResolvedMemoryPersistenceConfig,
-} from "../../memory/backend-config";
-import { SubagentRegistry } from "../subagent-registry";
-import {
-  waitForAgentIdle,
-  type PromptAgent,
-} from "./message-handler/services/prompt-runner";
-import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
-import {
-  toError as toErrorService,
-} from "./message-handler/services/error-utils";
-import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
-import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
-import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
-import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
-import { RuntimeRouter } from "./router";
-import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { type ResolvedMemoryPersistenceConfig } from "../../memory/backend-config";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
-import { createSessionTools } from "./tools/sessions";
-import {
-  parseCommand,
-  normalizeImplicitControlCommand,
-} from "./commands/parser";
-import {
-  parseInlineOverrides as _unusedParseInlineOverridesService,
-} from "./commands/reasoning";
-import type { OrchestratorDeps } from "./message-handler/contract";
+import { SubagentRegistry } from "../subagent-registry";
+import { parseCommand, normalizeImplicitControlCommand } from "./commands/parser";
+import { parseInlineOverrides as _unusedParseInlineOverridesService } from "./commands/reasoning";
 import { createMessageTurnContext } from "./message-handler/context";
 import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
-import {
-  type CommandHandlerMap,
-} from "./message-handler/services/command-handlers";
+import { resolveReplyRenderOptionsFromConfig as _unusedResolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
+import { checkInputCapability as _unusedCheckInputCapabilityService } from "./message-handler/services/capability";
+import { type CommandHandlerMap } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
+import { createErrorReplyText as _unusedCreateErrorReplyTextService } from "./message-handler/services/error-reply";
+import { toError as toErrorService } from "./message-handler/services/error-utils";
+import {
+  emitPhaseSafely as _unusedEmitPhaseSafelyService,
+  startTypingIndicator as _unusedStartTypingIndicatorService,
+  stopTypingIndicator as _unusedStopTypingIndicatorService,
+  type InteractionPhase as _unusedInteractionPhase,
+  type PhasePayload as _unusedPhasePayload,
+} from "./message-handler/services/interaction-lifecycle";
+import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import {
   resolveSessionContext as resolveSessionContextService,
   type LastRoute,
 } from "./message-handler/services/message-router";
+import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
+import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
+import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
+import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
+import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
 import {
   finalizeStreamingReply as _unusedFinalizeStreamingReply,
   buildNegotiatedOutbound as _unusedBuildNegotiatedOutbound,
@@ -54,21 +47,10 @@ import {
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
   shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
-import {
-  StreamingBuffer as _unusedTurnStreamingBuffer,
-} from "./message-handler/services/streaming";
-import {
-  emitPhaseSafely as _unusedEmitPhaseSafelyService,
-  startTypingIndicator as _unusedStartTypingIndicatorService,
-  stopTypingIndicator as _unusedStopTypingIndicatorService,
-  type InteractionPhase as _unusedInteractionPhase,
-  type PhasePayload as _unusedPhasePayload,
-} from "./message-handler/services/interaction-lifecycle";
-import {
-  createErrorReplyText as _unusedCreateErrorReplyTextService,
-} from "./message-handler/services/error-reply";
-import { resolveReplyRenderOptionsFromConfig as _unusedResolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
-import { checkInputCapability as _unusedCheckInputCapabilityService } from "./message-handler/services/capability";
+import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler/services/streaming";
+import { RuntimeRouter } from "./router";
+import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { createSessionTools } from "./tools/sessions";
 
 /**
  * Callback interface for streaming agent responses to channels.
@@ -342,7 +324,8 @@ export class MessageHandler {
       getVersion: () => this.getVersion(),
       flushMemory: async (sessionKey, agentId, messages, config) =>
         await this.flushMemory(sessionKey, agentId, messages, config),
-      interruptSession: async (sessionKey, reason) => await this.interruptSession(sessionKey, reason),
+      interruptSession: async (sessionKey, reason) =>
+        await this.interruptSession(sessionKey, reason),
       resolveWorkspaceDir: (agentId) => this.agentManager.getWorkspaceDir(agentId) ?? null,
     });
   }

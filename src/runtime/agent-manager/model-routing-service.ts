@@ -1,8 +1,8 @@
 import type { MoziConfig } from "../../config";
-import { resolveAgentModelRouting } from "../../config/model-routing";
 import type { ModelRegistry } from "../model-registry";
 import type { SessionStore } from "../session-store";
 import type { AgentEntry } from "./config-resolver";
+import { resolveAgentModelRouting } from "../../config/model-routing";
 
 type ModalityInput = "text" | "image" | "audio" | "video" | "file";
 type NonTextModalityInput = "image" | "audio" | "video" | "file";
@@ -159,7 +159,11 @@ export async function ensureSessionModelForInput(params: {
   config: MoziConfig;
   modelRegistry: ModelRegistry;
   getAgent: (sessionKey: string, agentId: string) => Promise<{ modelRef: string }>;
-  setSessionModel: (sessionKey: string, modelRef: string, options?: { persist?: boolean }) => Promise<void>;
+  setSessionModel: (
+    sessionKey: string,
+    modelRef: string,
+    options?: { persist?: boolean },
+  ) => Promise<void>;
 }): Promise<
   | { ok: true; modelRef: string; switched: boolean }
   | { ok: false; modelRef: string; candidates: string[] }
@@ -171,7 +175,11 @@ export async function ensureSessionModelForInput(params: {
   }
 
   if (input === "text") {
-    return { ok: false, modelRef, candidates: listCapableModels({ modelRegistry: params.modelRegistry, input: "text" }) };
+    return {
+      ok: false,
+      modelRef,
+      candidates: listCapableModels({ modelRegistry: params.modelRegistry, input: "text" }),
+    };
   }
 
   const candidates = resolveModalityRoutingCandidates({
@@ -184,7 +192,9 @@ export async function ensureSessionModelForInput(params: {
     if (!resolved) {
       continue;
     }
-    if (!modelSupportsInput({ modelRegistry: params.modelRegistry, modelRef: resolved.ref, input })) {
+    if (
+      !modelSupportsInput({ modelRegistry: params.modelRegistry, modelRef: resolved.ref, input })
+    ) {
       continue;
     }
     await params.setSessionModel(sessionKey, resolved.ref, { persist: false });

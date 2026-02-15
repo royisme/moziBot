@@ -1,9 +1,9 @@
 import type { MoziConfig } from "../../config";
-import { logger } from "../../logger";
-import { elevenLabsTts } from "./providers/elevenlabs";
-import { edgeTts } from "./providers/edge";
-import { openAiTts } from "./providers/openai";
 import type { TtsProvider, TtsResult } from "./types";
+import { logger } from "../../logger";
+import { edgeTts } from "./providers/edge";
+import { elevenLabsTts } from "./providers/elevenlabs";
+import { openAiTts } from "./providers/openai";
 
 type VoiceTtsConfig = NonNullable<NonNullable<MoziConfig["voice"]>["tts"]>;
 

@@ -4,12 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup:models": "bash scripts/download-models.sh",
     "build": "pnpm run build:web",
     "build:native": "pnpm run build:web && pnpm tauri:build",
     "build:web": "tsc --noEmit && vite build",
     "dev": "vite --host 127.0.0.1 --port 1420",
     "preview": "vite preview --host 127.0.0.1 --port 1421",
+    "setup:models": "bash scripts/download-models.sh",
     "tauri:build": "tauri build",
     "tauri:dev": "tauri dev"
   },

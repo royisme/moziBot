@@ -1,5 +1,5 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import {
   createAgentSession,
   type AgentSession,
@@ -7,6 +7,14 @@ import {
   SessionManager as PiSessionManager,
   SettingsManager as PiSettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import type { SkillLoader } from "../../agents/skills/loader";
+import type { ExtensionRegistry } from "../../extensions";
+import type { ModelRegistry } from "../model-registry";
+import type { SandboxExecutor } from "../sandbox/executor";
+import type { SandboxConfig } from "../sandbox/types";
+import type { SessionStore } from "../session-store";
+import type { SubagentRegistry } from "../subagent-registry";
+import type { ModelSpec } from "../types";
 import { logger } from "../../logger";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
@@ -16,14 +24,6 @@ import {
   resolveContextWindowInfo,
 } from "../context-management";
 import { computeEffectiveSettings, pruneContextMessages } from "../context-pruning";
-import type { ExtensionRegistry } from "../../extensions";
-import type { SkillLoader } from "../../agents/skills/loader";
-import type { SandboxConfig } from "../sandbox/types";
-import type { SandboxExecutor } from "../sandbox/executor";
-import type { SubagentRegistry } from "../subagent-registry";
-import type { ModelRegistry } from "../model-registry";
-import type { SessionStore } from "../session-store";
-import type { ModelSpec } from "../types";
 import { sanitizePromptInputForModel } from "../payload-sanitizer";
 import {
   type AgentEntry,
@@ -121,7 +121,10 @@ export async function createAndInitializeAgentSession(params: {
   });
 
   const piSessionManager = PiSessionManager.inMemory(params.workspaceDir);
-  const piSettingsManager = PiSettingsManager.create(params.workspaceDir, params.resolvePiAgentDir());
+  const piSettingsManager = PiSettingsManager.create(
+    params.workspaceDir,
+    params.resolvePiAgentDir(),
+  );
   const created = await createAgentSession({
     cwd: params.workspaceDir,
     agentDir: params.resolvePiAgentDir(),

@@ -18,6 +18,7 @@ Use this skill to interact with the long-term memory and knowledge base system.
 ## Available Tools
 
 ### memory_search
+
 Search the knowledge base for relevant information.
 
 ```typescript
@@ -29,52 +30,60 @@ Search the knowledge base for relevant information.
 ```
 
 ### memory_get
+
 Retrieve specific memory files by path.
 
 ```typescript
 {
-  relPath: "projects/client-a/specs.md"
+  relPath: "projects/client-a/specs.md";
 }
 ```
 
 ## Search Strategies
 
 ### Semantic Search
+
 For conceptual queries, use natural language:
+
 ```typescript
 memory_search({
   query: "authentication implementation approaches",
-  maxResults: 5
-})
+  maxResults: 5,
+});
 ```
 
 ### Keyword Search
+
 For specific terms:
+
 ```typescript
 memory_search({
   query: "API_KEY environment variable",
-  maxResults: 10
-})
+  maxResults: 10,
+});
 ```
 
 ### Filtered Search
+
 Combine with context:
+
 ```typescript
 memory_search({
   query: "deployment process",
   maxResults: 8,
-  minScore: 0.8  // Higher relevance threshold
-})
+  minScore: 0.8, // Higher relevance threshold
+});
 ```
 
 ## Common Workflows
 
 ### Finding Project Information
+
 ```typescript
 // Search for architecture docs
 const results = await memory_search({
   query: "system architecture design",
-  maxResults: 5
+  maxResults: 5,
 });
 
 // Read full document if found
@@ -84,28 +93,33 @@ if (results[0]) {
 ```
 
 ### Context Recovery
+
 When user references past discussions:
+
 ```typescript
 // Search for previous context
 await memory_search({
   query: "user requirement about notification system",
-  maxResults: 10
+  maxResults: 10,
 });
 ```
 
 ### Knowledge Discovery
+
 Find related information:
+
 ```typescript
 // Find all documents about a topic
 await memory_search({
   query: "database migration",
-  maxResults: 20
+  maxResults: 20,
 });
 ```
 
 ## Output Format
 
 Search results include:
+
 - **path**: File location in memory
 - **score**: Relevance score (0-1)
 - **snippet**: Preview of content
@@ -132,7 +146,7 @@ Search results include:
 // 1. Search for relevant info
 const searchResults = await memory_search({
   query: "microservices communication patterns",
-  maxResults: 10
+  maxResults: 10,
 });
 
 // 2. Read most relevant documents
@@ -143,6 +157,6 @@ for (const result of searchResults.slice(0, 3)) {
 // 3. Search for specific implementation
 await memory_search({
   query: "message queue vs REST API",
-  maxResults: 5
+  maxResults: 5,
 });
 ```

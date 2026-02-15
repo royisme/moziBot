@@ -1,5 +1,5 @@
-import { withConnection } from "../connection";
 import type { Group } from "../types";
+import { withConnection } from "../connection";
 
 export const groups = {
   create: (group: Group) =>

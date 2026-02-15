@@ -13,28 +13,22 @@ import type {
   RuntimeQueueConfig,
   RuntimeQueueMode,
 } from "./contracts";
-import { QueueMode, PeerType, SessionStatus } from "./constants";
 import { logger } from "../../logger";
 import { runtimeQueue, type RuntimeQueueItem } from "../../storage/db";
+import { QueueMode, PeerType, SessionStatus } from "./constants";
 import { ChannelRuntimeEgress } from "./egress";
 import { DefaultRuntimeErrorPolicy } from "./error-policy";
+import { createRuntimeChannel } from "./kernel/channel-factory";
+import { handleInterruptMode, handleStopCommand } from "./kernel/enqueue-coordinator";
+import { tryInjectIntoActiveSession as tryInjectIntoActiveSessionHelper } from "./kernel/enqueue-policy";
 import {
   extractCommandToken as extractCommandTokenHelper,
   isStopCommand as isStopCommandHelper,
   parseInbound as parseInboundHelper,
   tryCollectIntoQueued as tryCollectIntoQueuedHelper,
 } from "./kernel/inbound-collector";
-import {
-  tryInjectIntoActiveSession as tryInjectIntoActiveSessionHelper,
-} from "./kernel/enqueue-policy";
+import { runPumpLoop, schedulePumpRunner, type PumpRunnerState } from "./kernel/pump-runner";
 import { processQueueItem } from "./kernel/queue-item-processor";
-import {
-  runPumpLoop,
-  schedulePumpRunner,
-  type PumpRunnerState,
-} from "./kernel/pump-runner";
-import { createRuntimeChannel } from "./kernel/channel-factory";
-import { handleInterruptMode, handleStopCommand } from "./kernel/enqueue-coordinator";
 
 type RuntimeKernelOptions = {
   messageHandler: MessageHandler;
@@ -127,7 +121,10 @@ export class RuntimeKernel implements RuntimeIngress {
     }
     const queueItemId = envelope.id || randomUUID();
 
-    if (this.queueConfig.mode === QueueMode.STEER || this.queueConfig.mode === QueueMode.STEER_BACKLOG) {
+    if (
+      this.queueConfig.mode === QueueMode.STEER ||
+      this.queueConfig.mode === QueueMode.STEER_BACKLOG
+    ) {
       const injected = await this.tryInjectIntoActiveSession({
         queueItemId,
         sessionKey: context.sessionKey,

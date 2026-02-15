@@ -1,14 +1,17 @@
 import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../../config";
-import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../../extensions";
 import { SkillLoader } from "../../agents/skills/loader";
+import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../../extensions";
 
 export function createExtensionRegistry(config: MoziConfig): ExtensionRegistry {
   return loadExtensions(config.extensions);
 }
 
-export function createSkillLoader(config: MoziConfig, extensionRegistry: ExtensionRegistry): SkillLoader {
+export function createSkillLoader(
+  config: MoziConfig,
+  extensionRegistry: ExtensionRegistry,
+): SkillLoader {
   const dirs: string[] = [];
   const bundledDir = path.join(import.meta.dirname, "..", "..", "agents", "skills", "bundled");
   dirs.push(bundledDir);
@@ -28,7 +31,10 @@ export function createSkillLoader(config: MoziConfig, extensionRegistry: Extensi
   });
 }
 
-export async function initExtensions(config: MoziConfig, extensionRegistry: ExtensionRegistry): Promise<void> {
+export async function initExtensions(
+  config: MoziConfig,
+  extensionRegistry: ExtensionRegistry,
+): Promise<void> {
   await initExtensionsAsync(config.extensions, extensionRegistry);
 }
 

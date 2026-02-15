@@ -1,11 +1,17 @@
 /**
  * Interaction Lifecycle Service
- * 
+ *
  * Manages side-effects related to the user interaction process,
  * such as typing indicators and phase notifications.
  */
 
-export type InteractionPhase = "idle" | "listening" | "thinking" | "speaking" | "executing" | "error";
+export type InteractionPhase =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "executing"
+  | "error";
 
 export interface PhasePayload {
   readonly sessionKey?: string;
@@ -17,7 +23,11 @@ export interface PhasePayload {
 
 export interface ChannelWithLifecycle {
   readonly beginTyping?: (peerId: string) => Promise<(() => Promise<void> | void) | undefined>;
-  readonly emitPhase?: (peerId: string, phase: InteractionPhase, payload?: PhasePayload) => Promise<void>;
+  readonly emitPhase?: (
+    peerId: string,
+    phase: InteractionPhase,
+    payload?: PhasePayload,
+  ) => Promise<void>;
 }
 
 export interface InteractionLifecycleDeps {
@@ -52,7 +62,7 @@ export async function emitPhaseSafely(params: {
         phase,
         error: deps.toError(error).message,
       },
-      "Failed to emit channel phase"
+      "Failed to emit channel phase",
     );
   }
 }
@@ -85,7 +95,7 @@ export async function startTypingIndicator(params: {
         peerId,
         error: deps.toError(error).message,
       },
-      "Failed to start typing indicator"
+      "Failed to start typing indicator",
     );
     return undefined;
   }
@@ -117,7 +127,7 @@ export async function stopTypingIndicator(params: {
         peerId,
         error: deps.toError(error).message,
       },
-      "Failed to stop typing indicator"
+      "Failed to stop typing indicator",
     );
   }
 }

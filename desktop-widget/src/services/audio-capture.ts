@@ -13,7 +13,9 @@ export class AudioCaptureService {
   private seq = 0;
   private capturing = false;
 
-  onChunk: ((streamId: string, seq: number, sampleRate: number, chunkBase64: string) => void) | null = null;
+  onChunk:
+    | ((streamId: string, seq: number, sampleRate: number, chunkBase64: string) => void)
+    | null = null;
   onCommit: ((streamId: string, totalChunks: number, reason: string) => void) | null = null;
 
   async start(): Promise<void> {

@@ -1,6 +1,6 @@
 /**
  * Semantic Lifecycle Pure Functions
- * 
+ *
  * This module contains pure logic for intent-based session rotation.
  * It uses NLP techniques to estimate topic shifts between user messages.
  */
@@ -31,13 +31,15 @@ export interface SemanticLifecycleResult {
  */
 export function resolveSemanticLifecyclePolicy(
   agentId: string,
-  configAgents: Record<string, unknown> | undefined
+  configAgents: Record<string, unknown> | undefined,
 ): SemanticLifecyclePolicy {
   const agents = configAgents || {};
-  const defaults = (agents.defaults as { lifecycle?: { semantic?: Partial<SemanticLifecyclePolicy> } } | undefined)
-    ?.lifecycle?.semantic;
-  const entry = (agents[agentId] as { lifecycle?: { semantic?: Partial<SemanticLifecyclePolicy> } } | undefined)
-    ?.lifecycle?.semantic;
+  const defaults = (
+    agents.defaults as { lifecycle?: { semantic?: Partial<SemanticLifecyclePolicy> } } | undefined
+  )?.lifecycle?.semantic;
+  const entry = (
+    agents[agentId] as { lifecycle?: { semantic?: Partial<SemanticLifecyclePolicy> } } | undefined
+  )?.lifecycle?.semantic;
 
   return {
     enabled: entry?.enabled ?? defaults?.enabled ?? false,
@@ -126,7 +128,8 @@ export function estimateSemanticShiftConfidence(prevText: string, nextText: stri
   const similarity = union > 0 ? intersection / union : 0;
   let confidence = 1 - similarity;
 
-  const explicitShiftPattern = /^(new\s+topic|switch\s+topic|换个话题|另外一个问题|design\b|marketing\b|slogan\b)\b/i;
+  const explicitShiftPattern =
+    /^(new\s+topic|switch\s+topic|换个话题|另外一个问题|design\b|marketing\b|slogan\b)\b/i;
   if (explicitShiftPattern.test(nextText.trim())) {
     confidence = Math.min(1, confidence + 0.2);
   }
@@ -163,7 +166,7 @@ export function evaluateSemanticLifecycle(params: {
       policy.reversible &&
       metadata.lastRotationType === "semantic" &&
       confidence < Math.max(0.15, policy.threshold * 0.5);
-    
+
     return {
       shouldRotate: false,
       shouldRevert: canRevert,

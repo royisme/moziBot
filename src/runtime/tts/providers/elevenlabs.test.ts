@@ -14,7 +14,7 @@ describe("elevenLabsTts", () => {
 
   it("returns audio result for successful response", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      const body = JSON.parse(String(init?.body));
+      const body = JSON.parse(init?.body as string);
       expect(body.apply_text_normalization).toBe("auto");
       expect(body.language_code).toBe("en");
       expect(body.voice_settings.similarity_boost).toBe(0.9);

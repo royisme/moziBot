@@ -1,12 +1,16 @@
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
-import { buildMessageCommandHandlerMap, type MessageCommandRegistryDeps } from "./command-registry";
 import type { CommandHandlerMap } from "./command-handlers";
+import { buildMessageCommandHandlerMap, type MessageCommandRegistryDeps } from "./command-registry";
 
 export function createMessageCommandHandlerMap(params: {
   channel: ChannelPlugin;
   deps: {
-    onWhoami: (params: { message: InboundMessage; channel: ChannelPlugin; peerId: string }) => Promise<void>;
+    onWhoami: (params: {
+      message: InboundMessage;
+      channel: ChannelPlugin;
+      peerId: string;
+    }) => Promise<void>;
     onStatus: (params: {
       sessionKey: string;
       agentId: string;
@@ -33,7 +37,11 @@ export function createMessageCommandHandlerMap(params: {
       channel: ChannelPlugin;
       peerId: string;
     }) => Promise<void>;
-    onStop: (params: { sessionKey: string; channel: ChannelPlugin; peerId: string }) => Promise<void>;
+    onStop: (params: {
+      sessionKey: string;
+      channel: ChannelPlugin;
+      peerId: string;
+    }) => Promise<void>;
     onRestart: (params: { channel: ChannelPlugin; peerId: string }) => Promise<void>;
     onCompact: (params: {
       sessionKey: string;

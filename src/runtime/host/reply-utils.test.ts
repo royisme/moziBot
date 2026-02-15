@@ -88,7 +88,9 @@ describe("reply-utils", () => {
 
     it("keeps reasoning preamble when showThinking is enabled", () => {
       const content = "Reasoning:\nstep\n\nanswer";
-      expect(renderAssistantReply(content, { showThinking: true })).toBe("Reasoning:\nstep\n\nanswer");
+      expect(renderAssistantReply(content, { showThinking: true })).toBe(
+        "Reasoning:\nstep\n\nanswer",
+      );
     });
   });
 

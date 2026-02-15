@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { InboundMessage } from "../../../adapters/channels/types";
 import type { Schedule } from "../../cron/types";
-import { computeNextRun } from "../../reminders/schedule";
 import { reminders } from "../../../../storage/db";
+import { computeNextRun } from "../../reminders/schedule";
 
 interface SendChannel {
   send(peerId: string, payload: { text: string }): Promise<unknown>;

@@ -1,5 +1,5 @@
-import { withConnection } from "../connection";
 import type { Message } from "../types";
+import { withConnection } from "../connection";
 
 export const messages = {
   create: (msg: Message) =>

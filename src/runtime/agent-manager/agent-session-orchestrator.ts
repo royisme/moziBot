@@ -1,8 +1,13 @@
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
-import type { SessionStore } from "../session-store";
 import type { SandboxConfig } from "../sandbox/types";
-import { type AgentEntry, resolveHomeDir, resolveSandboxConfig, resolveWorkspaceDir } from "./config-resolver";
+import type { SessionStore } from "../session-store";
+import {
+  type AgentEntry,
+  resolveHomeDir,
+  resolveSandboxConfig,
+  resolveWorkspaceDir,
+} from "./config-resolver";
 
 export async function resolveOrCreateAgentSession(params: {
   sessionKey: string;

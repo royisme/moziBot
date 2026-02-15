@@ -3,7 +3,10 @@ import type { AgentManager } from "../../..";
 import type { PromptAgent } from "./prompt-runner";
 
 export type PromptCoordinatorAgentManager = {
-  getAgent(sessionKey: string, agentId: string): Promise<{
+  getAgent(
+    sessionKey: string,
+    agentId: string,
+  ): Promise<{
     agent: PromptAgent & { messages: AgentMessage[] };
     modelRef: string;
   }>;
@@ -22,15 +25,15 @@ export type PromptCoordinatorAgentManager = {
     agentId: string,
   ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
   updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
-  getContextUsage(sessionKey: string):
-    | {
-        usedTokens: number;
-        totalTokens: number;
-        percentage: number;
-      }
-    | null;
+  getContextUsage(sessionKey: string): {
+    usedTokens: number;
+    totalTokens: number;
+    percentage: number;
+  } | null;
 };
 
-export function toPromptCoordinatorAgentManager(agentManager: AgentManager): PromptCoordinatorAgentManager {
+export function toPromptCoordinatorAgentManager(
+  agentManager: AgentManager,
+): PromptCoordinatorAgentManager {
   return agentManager as unknown as PromptCoordinatorAgentManager;
 }

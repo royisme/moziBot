@@ -1,27 +1,27 @@
 /**
  * Command Dispatch and Registry Service
- * 
+ *
  * Manages the routing of parsed commands to their respective implementations.
  * Decouples the branching logic from the main orchestrator.
  */
 
-export type ParsedCommandName = 
-  | "start" 
-  | "help" 
-  | "status" 
-  | "whoami" 
-  | "new" 
-  | "models" 
-  | "switch" 
-  | "stop" 
-  | "restart" 
-  | "compact" 
-  | "context" 
-  | "setauth" 
-  | "unsetauth" 
-  | "listauth" 
-  | "checkauth" 
-  | "reminders" 
+export type ParsedCommandName =
+  | "start"
+  | "help"
+  | "status"
+  | "whoami"
+  | "new"
+  | "models"
+  | "switch"
+  | "stop"
+  | "restart"
+  | "compact"
+  | "context"
+  | "setauth"
+  | "unsetauth"
+  | "listauth"
+  | "checkauth"
+  | "reminders"
   | "heartbeat"
   | "think"
   | "reasoning";
@@ -58,10 +58,10 @@ export function createCommandHandlerMap(handlers: CommandHandlerMap): CommandHan
 export async function dispatchParsedCommand(
   parsedCommand: ParsedCommand,
   handlerMap: CommandHandlerMap,
-  context: CommandDispatchContext
+  context: CommandDispatchContext,
 ): Promise<boolean> {
   const handler = handlerMap[parsedCommand.name];
-  
+
   if (handler) {
     await handler(context, parsedCommand.args);
     return true;

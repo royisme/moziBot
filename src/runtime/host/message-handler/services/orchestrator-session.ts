@@ -9,7 +9,8 @@ export function resolveSessionTimestamps(params: {
 }): { createdAt: number; updatedAt?: number } {
   const { sessionKey, sessions, agentManager } = params;
   const session =
-    sessions.get(sessionKey) || sessions.getOrCreate(sessionKey, agentManager.resolveDefaultAgentId());
+    sessions.get(sessionKey) ||
+    sessions.getOrCreate(sessionKey, agentManager.resolveDefaultAgentId());
   const now = Date.now();
   return {
     createdAt: session?.createdAt ?? now,

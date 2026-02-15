@@ -35,7 +35,7 @@ function requireObj<T extends object>(deps: unknown, key: string): T {
 
 /**
  * Lifecycle Flow Implementation
- * 
+ *
  * Orchestrates temporal and semantic session lifecycle checks and transitions.
  * Preserves monolith parity by skipping for commands and following exact update order.
  */
@@ -60,16 +60,22 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
 
     // Dependency extraction
     const resetSession = requireFn<(sk: string, ai: string) => void>(deps, "resetSession");
-    const getSessionTimestamps = requireFn<(sk: string) => SessionTimestamps>(deps, "getSessionTimestamps");
+    const getSessionTimestamps = requireFn<(sk: string) => SessionTimestamps>(
+      deps,
+      "getSessionTimestamps",
+    );
     const getConfigAgents = requireFn<() => Record<string, unknown>>(deps, "getConfigAgents");
-    const logger = requireObj<{ info: (o: Record<string, unknown>, m: string) => void }>(deps, "logger");
+    const logger = requireObj<{ info: (o: Record<string, unknown>, m: string) => void }>(
+      deps,
+      "logger",
+    );
 
     const configAgents = getConfigAgents();
 
     // 2. Temporal Lifecycle Orchestration
     const temporalPolicy = resolveTemporalLifecyclePolicy(agentId, configAgents);
     const timestamps = getSessionTimestamps(sessionKey);
-    
+
     if (shouldRotateSessionForTemporalPolicy(temporalPolicy, timestamps)) {
       resetSession(sessionKey, agentId);
       logger.info(

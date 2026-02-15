@@ -1,9 +1,9 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
-import { estimateMessagesTokens, estimateTokens } from "../context-management";
 import type { ModelRegistry } from "../model-registry";
-import { sanitizePromptInputForModel } from "../payload-sanitizer";
 import type { SessionStore } from "../session-store";
+import { estimateMessagesTokens, estimateTokens } from "../context-management";
+import { sanitizePromptInputForModel } from "../payload-sanitizer";
 
 export type ContextUsage = {
   usedTokens: number;

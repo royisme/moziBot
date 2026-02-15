@@ -1,7 +1,7 @@
+import type { RuntimeQueueItem } from "../../../storage/db";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { OutboundMessage } from "../../adapters/channels/types";
 import type { RuntimeDeliveryReceipt, RuntimeEgress } from "../contracts";
-import type { RuntimeQueueItem } from "../../../storage/db";
 
 export function createRuntimeChannel(params: {
   queueItem: RuntimeQueueItem;

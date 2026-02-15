@@ -10,11 +10,13 @@ Use this skill to interact with GitHub repositories via the `gh` CLI tool.
 ## Prerequisites
 
 Ensure `gh` CLI is installed and authenticated:
+
 ```bash
 gh auth status
 ```
 
 If not authenticated:
+
 ```bash
 gh auth login
 ```
@@ -31,6 +33,7 @@ gh auth login
 ## Common Commands
 
 ### Issues
+
 ```bash
 # List open issues
 gh issue list
@@ -46,6 +49,7 @@ gh issue close 123
 ```
 
 ### Pull Requests
+
 ```bash
 # List open PRs
 gh pr list
@@ -67,6 +71,7 @@ gh pr review 456 --approve
 ```
 
 ### Repository
+
 ```bash
 # View repository info
 gh repo view
@@ -85,6 +90,7 @@ gh release create v1.2.3 --title "Version 1.2.3" --notes "Changes..."
 ```
 
 ### Workflows & Actions
+
 ```bash
 # List workflow runs
 gh run list
@@ -107,6 +113,7 @@ gh run rerun 789
 ## Example Workflows
 
 ### Feature Development
+
 ```bash
 # 1. Create branch
 git checkout -b feature/new-feature
@@ -125,6 +132,7 @@ gh pr create --title "Add new feature" --body "Implements #456"
 ```
 
 ### Bug Fix
+
 ```bash
 # Create issue first
 gh issue create --title "Bug: ..." --label "bug"

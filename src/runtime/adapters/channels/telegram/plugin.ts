@@ -3,13 +3,13 @@ import { Bot } from "grammy";
 import type { OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
+import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
+import { handleMessage, handleCallback } from "./handlers";
 import {
   formatTelegramError,
   isGetUpdatesConflict,
   isRecoverableTelegramNetworkError,
 } from "./network-errors";
-import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
-import { handleMessage, handleCallback } from "./handlers";
 import { sendMessage, reactToMessage, deleteMsg, editMsg } from "./send";
 import { TypingManager } from "./typing";
 
@@ -67,34 +67,70 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
     this.bot.on("message:text", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("message:photo", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("message:document", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("message:voice", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("message:audio", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("message:video", (ctx) =>
-      handleMessage(ctx, this.config, this.id, this.botUsername, this.botId,
+      handleMessage(
+        ctx,
+        this.config,
+        this.id,
+        this.botUsername,
+        this.botId,
         (fileId) => this.getDownloadUrl(fileId),
-        (msg) => this.emitMessage(msg)),
+        (msg) => this.emitMessage(msg),
+      ),
     );
     this.bot.on("callback_query:data", (ctx) =>
       handleCallback(ctx, this.config, this.id, (msg) => this.emitMessage(msg)),

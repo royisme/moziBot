@@ -1,12 +1,12 @@
 /**
  * Streaming Service
- * 
- * Manages character-and-time-based debounce for message updates and 
+ *
+ * Manages character-and-time-based debounce for message updates and
  * handles mapping of agent session events to streaming callbacks.
  */
 
 export interface StreamEvent {
-  readonly type: 'text_delta' | 'tool_start' | 'tool_end' | 'agent_end';
+  readonly type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
   readonly delta?: string;
   readonly toolName?: string;
   readonly toolCallId?: string;
@@ -19,21 +19,21 @@ export type StreamingCallback = (event: StreamEvent) => void | Promise<void>;
 /**
  * Explicit subset of AgentSessionEvent from monolith handling.
  */
-export type AgentSessionEvent = 
-  | { 
-      type: "message_update"; 
-      assistantMessageEvent: { type: "text_delta"; delta: string } 
+export type AgentSessionEvent =
+  | {
+      type: "message_update";
+      assistantMessageEvent: { type: "text_delta"; delta: string };
     }
-  | { 
-      type: "tool_execution_start"; 
-      toolName: string; 
-      toolCallId: string 
+  | {
+      type: "tool_execution_start";
+      toolName: string;
+      toolCallId: string;
     }
-  | { 
-      type: "tool_execution_end"; 
-      toolName: string; 
-      toolCallId: string; 
-      isError: boolean 
+  | {
+      type: "tool_execution_end";
+      toolName: string;
+      toolCallId: string;
+      isError: boolean;
     };
 
 export interface StreamingBufferChannel {
@@ -48,26 +48,26 @@ export interface StreamingBufferChannel {
 export async function handleAgentStreamEvent(
   event: AgentSessionEvent,
   onStream: StreamingCallback,
-  updateAccumulated: (text: string) => void
+  updateAccumulated: (text: string) => void,
 ): Promise<void> {
-  if (event.type === 'message_update') {
+  if (event.type === "message_update") {
     const assistantEvent = event.assistantMessageEvent;
-    if (assistantEvent.type === 'text_delta') {
+    if (assistantEvent.type === "text_delta") {
       updateAccumulated(assistantEvent.delta);
-      await onStream({ type: 'text_delta', delta: assistantEvent.delta });
+      await onStream({ type: "text_delta", delta: assistantEvent.delta });
     }
-  } else if (event.type === 'tool_execution_start') {
-    await onStream({ 
-      type: 'tool_start', 
-      toolName: event.toolName, 
-      toolCallId: event.toolCallId 
+  } else if (event.type === "tool_execution_start") {
+    await onStream({
+      type: "tool_start",
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
     });
-  } else if (event.type === 'tool_execution_end') {
-    await onStream({ 
-      type: 'tool_end', 
-      toolName: event.toolName, 
-      toolCallId: event.toolCallId, 
-      isError: event.isError 
+  } else if (event.type === "tool_execution_end") {
+    await onStream({
+      type: "tool_end",
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      isError: event.isError,
     });
   }
 }
@@ -80,7 +80,7 @@ export class StreamingBuffer {
   private static readonly FLUSH_INTERVAL_MS = 500;
   private static readonly MIN_CHARS_TO_FLUSH = 50;
 
-  private buffer = '';
+  private buffer = "";
   private lastFlushTime = Date.now();
   private messageId: string | null = null;
   private flushTimer: NodeJS.Timeout | null = null;
@@ -97,7 +97,7 @@ export class StreamingBuffer {
    */
   async initialize(): Promise<void> {
     try {
-      this.messageId = await this.channel.send(this.peerId, { text: '⏳', traceId: this.traceId });
+      this.messageId = await this.channel.send(this.peerId, { text: "⏳", traceId: this.traceId });
     } catch (error) {
       this.handleError(error);
     }
@@ -164,7 +164,7 @@ export class StreamingBuffer {
       return null;
     }
 
-    const textToSend = finalText || this.buffer || '(no response)';
+    const textToSend = finalText || this.buffer || "(no response)";
 
     try {
       await this.channel.editMessage(this.messageId, this.peerId, textToSend);

@@ -1,11 +1,11 @@
 import "./style.css";
-import { loadWidgetConfig } from "./widget-config";
 import type { AvatarRenderer, Phase } from "./renderers/types";
-import { OrbRenderer } from "./renderers/orb-renderer";
 import { Live2DRenderer } from "./renderers/live2d-renderer";
-import { MoziClient } from "./services/mozi-client";
-import { AudioPlaybackService } from "./services/audio-playback";
+import { OrbRenderer } from "./renderers/orb-renderer";
 import { AudioCaptureService } from "./services/audio-capture";
+import { AudioPlaybackService } from "./services/audio-playback";
+import { MoziClient } from "./services/mozi-client";
+import { loadWidgetConfig } from "./widget-config";
 
 // ── DOM setup ──
 

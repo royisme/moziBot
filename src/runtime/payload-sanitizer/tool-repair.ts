@@ -140,7 +140,11 @@ export function repairToolCallInputs(messages: AgentMessage[]): {
   };
 }
 
-export function normalizeToolCallId(id: string, fallbackSeed: number, mode: ToolCallIdMode): string {
+export function normalizeToolCallId(
+  id: string,
+  fallbackSeed: number,
+  mode: ToolCallIdMode,
+): string {
   const trimmed = id.trim();
   const strictId = trimmed.replaceAll(/[^A-Za-z0-9]/g, "");
   if (mode === "strict9") {

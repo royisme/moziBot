@@ -37,18 +37,18 @@ pnpm build:native
 
 ## Avatar modes
 
-| Mode | Description |
-|------|-------------|
+| Mode               | Description                                                               |
+| ------------------ | ------------------------------------------------------------------------- |
 | `live2d` (default) | Live2D Cubism 4 model with lip-sync. Falls back to `orb` on load failure. |
-| `orb` | Three.js animated orb. |
+| `orb`              | Three.js animated orb.                                                    |
 
 Configure via env or runtime config:
 
-| Env var | Description | Default |
-|---------|-------------|---------|
-| `VITE_AVATAR_MODE` | `live2d` or `orb` | `live2d` |
+| Env var                  | Description            | Default                             |
+| ------------------------ | ---------------------- | ----------------------------------- |
+| `VITE_AVATAR_MODE`       | `live2d` or `orb`      | `live2d`                            |
 | `VITE_AVATAR_MODEL_PATH` | Path to `.model3.json` | `/models/Hiyori/Hiyori.model3.json` |
-| `VITE_AVATAR_SCALE` | Model scale (0.01–10) | auto-computed |
+| `VITE_AVATAR_SCALE`      | Model scale (0.01–10)  | auto-computed                       |
 
 ## Runtime channel expectation
 

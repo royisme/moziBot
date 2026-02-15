@@ -1,6 +1,6 @@
+import type { SkillLoader } from "../../agents/skills/loader";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { SandboxConfig } from "../sandbox/types";
-import type { SkillLoader } from "../../agents/skills/loader";
 import {
   checkBootstrapState,
   loadHomeFiles,

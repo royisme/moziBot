@@ -72,7 +72,8 @@ const HELP_TEXT =
   "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
 
 export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps): CommandHandlerMap {
-  const withInbound = (ctx: CommandDispatchContext): InboundMessage => ctx.message as InboundMessage;
+  const withInbound = (ctx: CommandDispatchContext): InboundMessage =>
+    ctx.message as InboundMessage;
 
   return createCommandHandlerMap({
     start: async ({ peerId }) => {
@@ -99,7 +100,12 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
       await deps.onModels({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
     },
     switch: async (ctx, args) => {
-      await deps.onSwitch({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId, args });
+      await deps.onSwitch({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+        args,
+      });
     },
     stop: async (ctx) => {
       await deps.onStop({ sessionKey: ctx.sessionKey, peerId: ctx.peerId });
@@ -108,10 +114,18 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
       await deps.onRestart({ peerId: ctx.peerId });
     },
     compact: async (ctx) => {
-      await deps.onCompact({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
+      await deps.onCompact({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+      });
     },
     context: async (ctx) => {
-      await deps.onContext({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
+      await deps.onContext({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+      });
     },
     think: async (ctx, args) => {
       await deps.onThink({

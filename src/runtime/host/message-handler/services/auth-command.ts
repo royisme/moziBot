@@ -1,6 +1,6 @@
-import { createRuntimeSecretBroker } from "../../../auth/broker";
-import type { SecretScope } from "../../../auth/types";
 import type { MoziConfig } from "../../../../config";
+import type { SecretScope } from "../../../auth/types";
+import { createRuntimeSecretBroker } from "../../../auth/broker";
 
 interface SendChannel {
   send(peerId: string, payload: { text: string }): Promise<unknown>;

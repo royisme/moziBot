@@ -88,7 +88,7 @@ async function waitForWsMessage(ws: WebSocket, timeoutMs = 3000): Promise<string
 
     ws.once("message", (raw) => {
       clearTimeout(timer);
-      resolve(raw.toString("utf8"));
+      resolve((raw as Buffer).toString("utf8"));
     });
 
     ws.once("error", (error) => {
@@ -127,7 +127,7 @@ async function waitForWsMessagesAfter(
     }, timeoutMs);
 
     const onMessage = (raw: WebSocket.RawData) => {
-      const message = raw.toString("utf8");
+      const message = (raw as Buffer).toString("utf8");
       combined += `\n${message}`;
       if (expectedTypes.every((type) => combined.includes(`"type":"${type}"`))) {
         clearTimeout(timer);
@@ -259,7 +259,9 @@ describe("LocalDesktopPlugin", () => {
     await plugin.connect();
     const port = plugin.getPort();
 
-    await expect(connectAudioWs(`ws://127.0.0.1:${port}/audio?peerId=desktop-default`)).rejects.toThrow();
+    await expect(
+      connectAudioWs(`ws://127.0.0.1:${port}/audio?peerId=desktop-default`),
+    ).rejects.toThrow();
   });
 
   it("accepts authorized websocket audio upgrade and replies pong", async () => {
@@ -343,9 +345,13 @@ describe("LocalDesktopPlugin", () => {
     }
 
     const ws = await connectAudioWs(`ws://127.0.0.1:${port}/audio?peerId=desktop-default`);
-    const audioMessages = await waitForWsMessagesAfter(ws, ["audio_meta", "audio_chunk"], async () => {
-      await plugin.send("desktop-default", { text: "assistant says hello" });
-    });
+    const audioMessages = await waitForWsMessagesAfter(
+      ws,
+      ["audio_meta", "audio_chunk"],
+      async () => {
+        await plugin.send("desktop-default", { text: "assistant says hello" });
+      },
+    );
     expect(audioMessages).toContain('"type":"audio_meta"');
     expect(audioMessages).toContain('"mimeType":"audio/mpeg"');
     expect(audioMessages).toContain("assistant says hello");

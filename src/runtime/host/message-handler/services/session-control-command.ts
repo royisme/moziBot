@@ -1,6 +1,9 @@
-import { resolveMemoryBackendConfig, type ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
-import type { MoziConfig } from "../../../../config";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { MoziConfig } from "../../../../config";
+import {
+  resolveMemoryBackendConfig,
+  type ResolvedMemoryPersistenceConfig,
+} from "../../../../memory/backend-config";
 
 interface SendChannel {
   send(peerId: string, payload: { text: string }): Promise<unknown>;

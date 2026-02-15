@@ -1,10 +1,10 @@
-import { renderAssistantReply, isSilentReplyText } from "../../reply-utils";
 import type { ReplyRenderOptions } from "../render/reasoning";
+import { renderAssistantReply, isSilentReplyText } from "../../reply-utils";
 
 /**
  * Reply Finalization Policy Service
- * 
- * Manages the transformation of agent messages into final reply text and 
+ *
+ * Manages the transformation of agent messages into final reply text and
  * implements suppression rules for silent/heartbeat responses.
  */
 
@@ -28,9 +28,7 @@ export function resolveLastAssistantReplyText(params: {
   const { messages, renderOptions } = params;
 
   // Parity: locate last assistant message
-  const lastAssistant = [...messages]
-    .toReversed()
-    .find((m) => m.role === "assistant");
+  const lastAssistant = [...messages].toReversed().find((m) => m.role === "assistant");
 
   if (!lastAssistant) {
     return undefined;
@@ -52,7 +50,7 @@ export function shouldSuppressSilentReply(replyText: string | undefined): boolea
  */
 export function shouldSuppressHeartbeatReply(
   messageRaw: MessageRawShape | undefined,
-  replyText: string
+  replyText: string,
 ): boolean {
   if (!messageRaw) {
     return false;

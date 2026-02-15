@@ -23,6 +23,7 @@ export {
   sanitizeToolCallIdsForProvider,
 } from "./payload-sanitizer/tool-repair";
 
+import { validateAnthropicTurns } from "./payload-sanitizer/anthropic";
 // Import for orchestration
 import {
   isGeminiLikeTarget,
@@ -31,7 +32,6 @@ import {
   sanitizeGoogleTurnOrdering,
   validateGeminiTurns,
 } from "./payload-sanitizer/gemini";
-import { validateAnthropicTurns } from "./payload-sanitizer/anthropic";
 import {
   repairToolCallInputs,
   repairToolUseResultPairing,

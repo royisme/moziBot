@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/schemas/oxlintrc.json",
+  "plugins": ["import", "typescript", "unicorn"],
+  "env": {
+    "browser": true,
+    "es2022": true
+  },
+  "globals": {
+    "Live2DCubismCore": "readonly"
+  },
+  "rules": {
+    "eslint/curly": "off",
+    "eslint/no-console": "off",
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-unnecessary-type-assertion": "warn",
+    "unicorn/prefer-add-event-listener": "warn"
+  },
+  "ignorePatterns": ["dist", "node_modules", "public/pcm-worklet-processor.js"]
+}

@@ -1,11 +1,11 @@
 /**
  * Capability and Input Routing Service
- * 
+ *
  * Manages agent input modality capabilities and auto-switching/degradation logic.
  */
 
-export type ModalityInput = 'image' | 'audio' | 'video' | 'file';
-export type MediaType = 'photo' | 'video' | 'audio' | 'document' | 'voice';
+export type ModalityInput = "image" | "audio" | "video" | "file";
+export type MediaType = "photo" | "video" | "audio" | "document" | "voice";
 
 export interface MediaItem {
   readonly type: MediaType;
@@ -44,16 +44,16 @@ export interface InputCapabilityResult {
  * Maps raw media types to internal input modalities.
  */
 export function mediaTypeToInput(type: MediaType): ModalityInput {
-  if (type === 'photo') {
-    return 'image';
+  if (type === "photo") {
+    return "image";
   }
-  if (type === 'video') {
-    return 'video';
+  if (type === "video") {
+    return "video";
   }
-  if (type === 'audio' || type === 'voice') {
-    return 'audio';
+  if (type === "audio" || type === "voice") {
+    return "audio";
   }
-  return 'file';
+  return "file";
 }
 
 /**
@@ -67,10 +67,10 @@ export function describeInput(input: ModalityInput): string {
  * Provides a configuration hint for resolving unsupported input modalities.
  */
 export function modelConfigHint(agentId: string, input: ModalityInput): string {
-  if (input === 'image') {
+  if (input === "image") {
     return `agents.${agentId}.imageModel (or agents.defaults.imageModel)`;
   }
-  return 'media understanding pipeline (transcription/description)';
+  return "media understanding pipeline (transcription/description)";
 }
 
 /**
@@ -95,16 +95,14 @@ export async function checkInputCapability(params: {
   const restoreModelRef = currentBeforeRouting.modelRef;
   let switched = false;
 
-  const requiredInputs = Array.from(
-    new Set(media.map((item) => mediaTypeToInput(item.type)))
-  );
+  const requiredInputs = Array.from(new Set(media.map((item) => mediaTypeToInput(item.type))));
 
   for (const input of requiredInputs) {
     // 1. Skip audio degradation if a transcript already exists
-    if (input === 'audio' && hasAudioTranscript) {
+    if (input === "audio" && hasAudioTranscript) {
       deps.logger.info(
         { sessionKey, agentId, mediaCount: media.length, input },
-        'Skipping audio capability degradation because transcript is available'
+        "Skipping audio capability degradation because transcript is available",
       );
       continue;
     }
@@ -121,29 +119,37 @@ export async function checkInputCapability(params: {
         switched = true;
         deps.logger.info(
           { sessionKey, agentId, modelRef: routed.modelRef, mediaCount: media.length, input },
-          'Input capability auto-switched model'
+          "Input capability auto-switched model",
         );
       }
       continue;
     }
 
     // 3. Handle degradation if no capable model found
-    const suggestText = routed.candidates.length > 0
-      ? `\nAvailable ${describeInput(input)} models:\n${routed.candidates.map((ref) => `- ${ref}`).join('\n')}`
-      : '';
+    const suggestText =
+      routed.candidates.length > 0
+        ? `\nAvailable ${describeInput(input)} models:\n${routed.candidates.map((ref) => `- ${ref}`).join("\n")}`
+        : "";
 
     await deps.channel.send(peerId, {
       text: `Current model ${routed.modelRef} does not support ${describeInput(input)} input. Continuing with text degradation. Configure ${modelConfigHint(agentId, input)} or manually /switch to a model that supports ${input}. ${suggestText}`,
     });
 
     deps.logger.warn(
-      { sessionKey, agentId, modelRef: routed.modelRef, mediaCount: media.length, candidates: routed.candidates, input },
-      'Input capability degraded to text'
+      {
+        sessionKey,
+        agentId,
+        modelRef: routed.modelRef,
+        mediaCount: media.length,
+        candidates: routed.candidates,
+        input,
+      },
+      "Input capability degraded to text",
     );
   }
 
-  return { 
-    ok: true, 
-    restoreModelRef: switched ? restoreModelRef : undefined 
+  return {
+    ok: true,
+    restoreModelRef: switched ? restoreModelRef : undefined,
   };
 }

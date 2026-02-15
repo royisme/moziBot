@@ -279,15 +279,13 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
 
     const key = this.makeAudioStreamKey(client.peerId, streamId);
     const existing = this.audioStreams.get(key);
-    const stream: AudioInboundStream =
-      existing ??
-      {
-        streamId,
-        chunks: [],
-        sampleRate,
-        channels,
-        encoding,
-      };
+    const stream: AudioInboundStream = existing ?? {
+      streamId,
+      chunks: [],
+      sampleRate,
+      channels,
+      encoding,
+    };
 
     try {
       const chunk = Buffer.from(chunkBase64, "base64");

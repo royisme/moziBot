@@ -1,6 +1,6 @@
 /**
  * Error Classification and Reply Service
- * 
+ *
  * This module manages error classification and generates user-facing error messages.
  */
 
@@ -88,7 +88,7 @@ export function buildMissingAuthGuidance(message: string): string {
  */
 export function createErrorReplyText(error: unknown): string {
   const err = toError(error);
-  
+
   if (isMissingAuthError(err.message)) {
     return buildMissingAuthGuidance(err.message);
   }

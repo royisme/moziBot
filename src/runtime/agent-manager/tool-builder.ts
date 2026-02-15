@@ -1,24 +1,25 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { MoziConfig } from "../../config";
-import type { MemorySearchManager } from "../../memory/types";
-import type { SubagentRegistry } from "../subagent-registry";
-import type { SandboxConfig } from "../sandbox/types";
-import type { SandboxExecutor } from "../sandbox/executor";
-import type { ModelSpec } from "../types";
 import type { SkillLoader } from "../../agents/skills/loader";
+import type { MoziConfig } from "../../config";
 import type { ExtensionRegistry } from "../../extensions";
+import type { MemorySearchManager } from "../../memory/types";
+import type { SandboxExecutor } from "../sandbox/executor";
+import type { SandboxConfig } from "../sandbox/types";
+import type { SubagentRegistry } from "../subagent-registry";
+import type { ModelSpec } from "../types";
 import type { AgentEntry } from "./config-resolver";
-import { resolveToolAllowList, resolveExecAllowlist, resolveExecAllowedSecrets } from "./config-resolver";
+import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
 import { createRuntimeSecretBroker } from "../auth/broker";
 import { createExecTool } from "../sandbox/tool";
 import { sanitizeTools } from "../schema-sanitizer";
+import { createSkillsNoteTool } from "../skills-note";
 import { filterTools } from "../tool-selection";
 import { createMemoryTools, createPiCodingTools, createSubagentTool } from "../tools";
-import { createSkillsNoteTool } from "../skills-note";
 import {
-  getMemoryManager,
-  getMemoryLifecycleOrchestrator,
-} from "../../memory";
+  resolveToolAllowList,
+  resolveExecAllowlist,
+  resolveExecAllowedSecrets,
+} from "./config-resolver";
 
 export interface BuildToolsParams {
   sessionKey: string;
@@ -125,8 +126,7 @@ export async function buildTools(
       probeVectorAvailability: () => manager.probeVectorAvailability(),
     };
     if (manager.warmSession) {
-      lifecycleAwareManager.warmSession = (sessionKey?: string) =>
-        manager.warmSession!(sessionKey);
+      lifecycleAwareManager.warmSession = (sessionKey?: string) => manager.warmSession!(sessionKey);
     }
     if (manager.markDirty) {
       lifecycleAwareManager.markDirty = () => manager.markDirty!();

@@ -75,10 +75,20 @@ export function resolveLocalDesktopDecision(
   const envMode = normalizeMode(env.MOZI_WIDGET_MODE);
   if (envMode) {
     if (envMode === "off") {
-      return { mode: envMode, source: "env", enabled: false, reason: "Disabled by MOZI_WIDGET_MODE" };
+      return {
+        mode: envMode,
+        source: "env",
+        enabled: false,
+        reason: "Disabled by MOZI_WIDGET_MODE",
+      };
     }
     if (envMode === "on") {
-      return { mode: envMode, source: "env", enabled: true, reason: "Forced on by MOZI_WIDGET_MODE" };
+      return {
+        mode: envMode,
+        source: "env",
+        enabled: true,
+        reason: "Forced on by MOZI_WIDGET_MODE",
+      };
     }
     const probe = probeDesktopEnvironment(params);
     return {

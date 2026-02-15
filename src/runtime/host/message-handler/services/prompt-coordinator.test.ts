@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runPromptWithCoordinator } from "./prompt-coordinator";
 
 describe("runPromptWithCoordinator logging", () => {
@@ -42,7 +42,7 @@ describe("runPromptWithCoordinator logging", () => {
     await runPromptWithCoordinator({
       sessionKey: "s1",
       agentId: "mozi",
-      text: 'token bot12345:ABCDEF1234567890 and key sk-abcdefghijklmnopqrstuvwxyz',
+      text: "token bot12345:ABCDEF1234567890 and key sk-abcdefghijklmnopqrstuvwxyz",
       traceId: "turn:m1",
       config: {} as never,
       logger,
@@ -52,7 +52,9 @@ describe("runPromptWithCoordinator logging", () => {
       flushMemory: async () => true,
     });
 
-    const dispatchCall = logger.debug.mock.calls.find((call) => call[1] === "Prompt dispatch summary");
+    const dispatchCall = logger.debug.mock.calls.find(
+      (call) => call[1] === "Prompt dispatch summary",
+    );
     expect(dispatchCall).toBeDefined();
     const dispatchPayload = dispatchCall?.[0] as Record<string, unknown>;
     expect(dispatchPayload.traceId).toBe("turn:m1");

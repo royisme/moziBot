@@ -47,7 +47,11 @@ export async function ensureSessionModelForInput(params: {
   config: MoziConfig;
   modelRegistry: ModelRegistry;
   getAgent: (sessionKey: string, agentId: string) => Promise<{ modelRef: string }>;
-  setSessionModel: (sessionKey: string, modelRef: string, options?: { persist?: boolean }) => Promise<void>;
+  setSessionModel: (
+    sessionKey: string,
+    modelRef: string,
+    options?: { persist?: boolean },
+  ) => Promise<void>;
 }): Promise<
   | { ok: true; modelRef: string; switched: boolean }
   | { ok: false; modelRef: string; candidates: string[] }

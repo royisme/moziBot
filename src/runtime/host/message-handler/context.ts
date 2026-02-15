@@ -1,5 +1,5 @@
-import type { MessageTurnContext } from './contract';
-import type { MessageTurnInput } from './types';
+import type { MessageTurnContext } from "./contract";
+import type { MessageTurnInput } from "./types";
 
 export function createMessageTurnContext(message: MessageTurnInput): MessageTurnContext {
   const traceId = `turn:${message.id}`;

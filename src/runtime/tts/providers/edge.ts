@@ -1,8 +1,8 @@
+import { EdgeTTS } from "node-edge-tts";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { EdgeTTS } from "node-edge-tts";
 import type { MoziConfig } from "../../../config";
 import type { TtsResult } from "../types";
 

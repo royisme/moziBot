@@ -1,7 +1,10 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../../../config";
 import { getMemoryLifecycleOrchestrator } from "../../../../memory";
-import { resolveHomeDir, type ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
+import {
+  resolveHomeDir,
+  type ResolvedMemoryPersistenceConfig,
+} from "../../../../memory/backend-config";
 import { FlushManager } from "../../../../memory/flush-manager";
 
 interface MemoryFlushLogger {

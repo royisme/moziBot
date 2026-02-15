@@ -1,8 +1,8 @@
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { SessionManager } from "../../host/sessions/manager";
+import type { RuntimeEnqueueResult, RuntimeInboundEnvelope, RuntimeQueueMode } from "../contracts";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
-import type { RuntimeEnqueueResult, RuntimeInboundEnvelope, RuntimeQueueMode } from "../contracts";
 import { CommandToken, PeerType, SessionStatus } from "../constants";
 
 export function extractCommandToken(text: string): string {
@@ -32,8 +32,8 @@ export function mergeInbound(
   incoming: InboundMessage,
   receivedAt: Date,
 ): InboundMessage {
-  const chunks = [previous.text?.trim(), incoming.text?.trim()].filter(
-    (value): value is string => Boolean(value),
+  const chunks = [previous.text?.trim(), incoming.text?.trim()].filter((value): value is string =>
+    Boolean(value),
   );
   const mergedText = chunks.join("\n");
   return {
@@ -52,7 +52,8 @@ export async function tryCollectIntoQueued(params: {
   sessionManager: SessionManager;
   trimSessionBacklog: (sessionKey: string) => void;
 }): Promise<RuntimeEnqueueResult | null> {
-  const { envelope, sessionKey, queueMode, collectWindowMs, sessionManager, trimSessionBacklog } = params;
+  const { envelope, sessionKey, queueMode, collectWindowMs, sessionManager, trimSessionBacklog } =
+    params;
   if (collectWindowMs <= 0) {
     return null;
   }

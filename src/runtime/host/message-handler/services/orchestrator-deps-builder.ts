@@ -1,32 +1,40 @@
-import type { DeliveryPlan } from "../../../../multimodal/capabilities";
-import { ingestInboundMessage } from "../../../../multimodal/ingest";
+import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
 import type { MoziConfig } from "../../../../config";
+import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
-import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
+import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
 import type { OrchestratorDeps } from "../contract";
 import type { InteractionPhase, PhasePayload } from "./interaction-lifecycle";
+import { ingestInboundMessage } from "../../../../multimodal/ingest";
+import { parseInlineOverrides } from "../../commands/reasoning";
+import { resolveReplyRenderOptionsFromConfig } from "../render/reasoning";
+import { checkInputCapability as checkInputCapabilityService } from "./capability";
+import { createErrorReplyText as createErrorReplyTextService } from "./error-reply";
+import { toError as toErrorService, isAbortError as isAbortErrorService } from "./error-utils";
 import {
   emitPhaseSafely as emitPhaseSafelyService,
   startTypingIndicator as startTypingIndicatorService,
   stopTypingIndicator as stopTypingIndicatorService,
 } from "./interaction-lifecycle";
+import {
+  resolveSessionMessages,
+  resolveSessionMetadata,
+  resolveSessionTimestamps,
+} from "./orchestrator-session";
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
-import { resolveSessionMessages, resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator-session";
-import { checkInputCapability as checkInputCapabilityService } from "./capability";
-import { finalizeStreamingReply, buildNegotiatedOutbound, sendNegotiatedReply } from "./reply-dispatcher";
+import {
+  finalizeStreamingReply,
+  buildNegotiatedOutbound,
+  sendNegotiatedReply,
+} from "./reply-dispatcher";
 import {
   resolveLastAssistantReplyText,
   shouldSuppressHeartbeatReply,
   shouldSuppressSilentReply,
   type AssistantMessageShape,
 } from "./reply-finalizer";
-import { resolveReplyRenderOptionsFromConfig } from "../render/reasoning";
 import { StreamingBuffer } from "./streaming";
-import { parseInlineOverrides } from "../../commands/reasoning";
-import { toError as toErrorService, isAbortError as isAbortErrorService } from "./error-utils";
-import { createErrorReplyText as createErrorReplyTextService } from "./error-reply";
-import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
 
 interface BuilderLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -116,7 +124,8 @@ export function buildOrchestratorDeps(params: {
   };
 
   const streamingChannel = {
-    send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) => channel.send(peerId, message),
+    send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) =>
+      channel.send(peerId, message),
     editMessage: async (messageId: string, peerId: string, text: string) => {
       if (channel.editMessage) {
         await channel.editMessage(messageId, peerId, text);
@@ -176,7 +185,8 @@ export function buildOrchestratorDeps(params: {
     getCommandHandlerMap: () => createCommandHandlerMap(channel),
     getChannel: () => ({
       id: channel.id,
-      editMessage: (messageId, peerId, text) => channel.editMessage?.(messageId, peerId, text) ?? Promise.resolve(),
+      editMessage: (messageId, peerId, text) =>
+        channel.editMessage?.(messageId, peerId, text) ?? Promise.resolve(),
       send: (peerId, message) => channel.send(peerId, message),
     }),
     resetSession: (sessionKey, agentId) => {
@@ -221,7 +231,11 @@ export function buildOrchestratorDeps(params: {
               return { modelRef: current.modelRef };
             },
             ensureSessionModelForInput: async ({ sessionKey, agentId, input }) => {
-              const routed = await agentManager.ensureSessionModelForInput({ sessionKey, agentId, input });
+              const routed = await agentManager.ensureSessionModelForInput({
+                sessionKey,
+                agentId,
+                input,
+              });
               if (routed.ok) {
                 return {
                   ok: true,
@@ -261,7 +275,11 @@ export function buildOrchestratorDeps(params: {
       });
     },
     ensureChannelContext: async ({ sessionKey, agentId, message }) => {
-      await agentManager.ensureChannelContext({ sessionKey, agentId, message: message as InboundMessage });
+      await agentManager.ensureChannelContext({
+        sessionKey,
+        agentId,
+        message: message as InboundMessage,
+      });
     },
     startTypingIndicator: async ({ sessionKey, agentId, peerId }) =>
       await startTypingIndicatorService({
@@ -295,13 +313,17 @@ export function buildOrchestratorDeps(params: {
       await maybePreFlushBeforePrompt({ sessionKey, agentId });
     },
     resolveReplyRenderOptions: (agentId) =>
-      resolveReplyRenderOptionsFromConfig(agentId, (config.agents || {}) as Record<string, unknown>),
+      resolveReplyRenderOptionsFromConfig(
+        agentId,
+        (config.agents || {}) as Record<string, unknown>,
+      ),
     resolveLastAssistantReplyText: ({ messages, renderOptions }) =>
       resolveLastAssistantReplyText({ messages, renderOptions }),
     shouldSuppressSilentReply: (text) => shouldSuppressSilentReply(text),
     shouldSuppressHeartbeatReply: (raw, text) =>
       shouldSuppressHeartbeatReply(raw as { source?: string } | undefined, text),
-    finalizeStreamingReply: async ({ buffer, replyText }) => finalizeStreamingReply({ buffer, replyText }),
+    finalizeStreamingReply: async ({ buffer, replyText }) =>
+      finalizeStreamingReply({ buffer, replyText }),
     buildNegotiatedOutbound: ({ channelId, replyText, inboundPlan }) =>
       buildNegotiatedOutbound({ channelId, replyText, inboundPlan }),
     sendNegotiatedReply: async ({ peerId, outbound }) =>

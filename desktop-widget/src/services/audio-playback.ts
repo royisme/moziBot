@@ -5,20 +5,12 @@
  */
 export class AudioPlaybackService {
   private pendingChunks = new Map<string, string[]>();
-  private pendingMeta = new Map<
-    string,
-    { mimeType: string; durationMs: number; text: string }
-  >();
+  private pendingMeta = new Map<string, { mimeType: string; durationMs: number; text: string }>();
   private currentAudio: HTMLAudioElement | null = null;
 
   onAudioReady: ((streamId: string, blobUrl: string, mimeType: string) => void) | null = null;
 
-  handleAudioMeta(
-    streamId: string,
-    mimeType: string,
-    durationMs: number,
-    text: string,
-  ): void {
+  handleAudioMeta(streamId: string, mimeType: string, durationMs: number, text: string): void {
     this.pendingMeta.set(streamId, { mimeType, durationMs, text });
     if (!this.pendingChunks.has(streamId)) {
       this.pendingChunks.set(streamId, []);
