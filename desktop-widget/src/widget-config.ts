@@ -1,9 +1,18 @@
+export type AvatarMode = "live2d" | "orb";
+
+export type AvatarConfig = {
+  mode: AvatarMode;
+  modelPath?: string;
+  scale?: number;
+};
+
 export type WidgetRuntimeConfig = {
   enabled: boolean;
   host: string;
   port: number;
   authToken?: string;
   peerId: string;
+  avatar: AvatarConfig;
 };
 
 const DEFAULTS: WidgetRuntimeConfig = {
@@ -11,6 +20,7 @@ const DEFAULTS: WidgetRuntimeConfig = {
   host: "127.0.0.1",
   port: 3987,
   peerId: "desktop-default",
+  avatar: { mode: "orb" },
 };
 
 export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
@@ -44,6 +54,12 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
   const port = envPort ?? runtimePort ?? DEFAULTS.port;
   const authToken = envToken ?? runtimeToken;
   const peerId = envPeerId ?? runtimePeerId ?? DEFAULTS.peerId;
+  const avatar = resolveAvatarConfig(
+    import.meta.env.VITE_AVATAR_MODE,
+    import.meta.env.VITE_AVATAR_MODEL_PATH,
+    import.meta.env.VITE_AVATAR_SCALE,
+    runtimeConfig,
+  );
 
   return {
     enabled,
@@ -51,6 +67,7 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
     port,
     authToken,
     peerId,
+    avatar,
   };
 }
 
@@ -109,4 +126,37 @@ function normalizePeerId(input: unknown): string | undefined {
   }
   const trimmed = input.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveAvatarConfig(
+  envMode: unknown,
+  envModelPath: unknown,
+  envScale: unknown,
+  runtime: Partial<WidgetRuntimeConfig>,
+): AvatarConfig {
+  const runtimeAvatar = runtime.avatar;
+  const mode: AvatarMode =
+    normalizeAvatarMode(envMode) ??
+    (runtimeAvatar ? normalizeAvatarMode(runtimeAvatar.mode) : undefined) ??
+    DEFAULTS.avatar.mode;
+  const modelPath =
+    normalizeToken(envModelPath) ??
+    (runtimeAvatar ? normalizeToken(runtimeAvatar.modelPath) : undefined);
+  const scaleRaw =
+    normalizePort(envScale) ??
+    (runtimeAvatar && typeof runtimeAvatar.scale === "number"
+      ? runtimeAvatar.scale
+      : undefined);
+  return { mode, modelPath, scale: scaleRaw };
+}
+
+function normalizeAvatarMode(input: unknown): AvatarMode | undefined {
+  if (typeof input !== "string") {
+    return undefined;
+  }
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === "live2d" || trimmed === "orb") {
+    return trimmed;
+  }
+  return undefined;
 }

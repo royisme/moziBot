@@ -1,0 +1,101 @@
+/**
+ * Captures microphone audio, frames it as PCM s16le, and sends
+ * audio_chunk / audio_commit messages via the provided callbacks.
+ */
+export class AudioCaptureService {
+  private stream: MediaStream | null = null;
+  private audioContext: AudioContext | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private streamId = "";
+  private seq = 0;
+  private capturing = false;
+
+  onChunk: ((streamId: string, seq: number, sampleRate: number, chunkBase64: string) => void) | null = null;
+  onCommit: ((streamId: string, totalChunks: number, reason: string) => void) | null = null;
+
+  async start(): Promise<void> {
+    if (this.capturing) return;
+
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    this.audioContext = new AudioContext({ sampleRate: 16000 });
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
+
+    // ScriptProcessorNode (deprecated but widely supported in webviews)
+    // Buffer size of 4096 at 16kHz = ~256ms per frame
+    this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+
+    this.streamId = crypto.randomUUID();
+    this.seq = 0;
+    this.capturing = true;
+
+    this.processor.onaudioprocess = (e) => {
+      if (!this.capturing) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const pcm16 = float32ToPcm16(float32);
+      const base64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+      this.onChunk?.(this.streamId, this.seq, 16000, base64);
+      this.seq++;
+    };
+
+    this.source.connect(this.processor);
+    this.processor.connect(this.audioContext.destination);
+  }
+
+  stop(reason: "manual_stop" | "vad_silence" | "max_duration" = "manual_stop"): void {
+    if (!this.capturing) return;
+    this.capturing = false;
+
+    this.onCommit?.(this.streamId, this.seq, reason);
+
+    this.processor?.disconnect();
+    this.source?.disconnect();
+    this.processor = null;
+    this.source = null;
+
+    if (this.audioContext?.state !== "closed") {
+      void this.audioContext?.close();
+    }
+    this.audioContext = null;
+
+    for (const track of this.stream?.getTracks() ?? []) {
+      track.stop();
+    }
+    this.stream = null;
+  }
+
+  get isCapturing(): boolean {
+    return this.capturing;
+  }
+
+  destroy(): void {
+    this.stop();
+    this.onChunk = null;
+    this.onCommit = null;
+  }
+}
+
+function float32ToPcm16(float32: Float32Array): Int16Array {
+  const pcm16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, float32[i]));
+    pcm16[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  }
+  return pcm16;
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}

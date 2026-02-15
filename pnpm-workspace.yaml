@@ -1,2 +1,5 @@
+packages:
+  - '.'
+  - 'desktop-widget'
 onlyBuiltDependencies:
   - better-sqlite3

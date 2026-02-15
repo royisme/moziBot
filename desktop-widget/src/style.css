@@ -16,9 +16,17 @@ body,
   height: 100%;
 }
 
-.orb-canvas {
+.avatar-container {
   position: absolute;
   inset: 0;
+}
+
+.orb-canvas,
+.live2d-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .hud {
@@ -50,7 +58,7 @@ body,
 }
 
 .composer input {
-  width: 280px;
+  width: 220px;
   border: none;
   outline: none;
   color: #ecf4ff;
@@ -64,4 +72,8 @@ body,
   cursor: pointer;
   color: #fff;
   background: linear-gradient(120deg, #3a8dff, #5b6dff);
+}
+
+.mic-btn.active {
+  background: linear-gradient(120deg, #ff4f64, #ff6b6b);
 }
