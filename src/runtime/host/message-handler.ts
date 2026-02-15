@@ -10,24 +10,11 @@ import {
   type ResolvedMemoryPersistenceConfig,
 } from "../../memory/backend-config";
 import { SubagentRegistry } from "../subagent-registry";
-import { handleRemindersCommand as handleRemindersCommandService } from "./message-handler/services/reminders-command";
-import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./message-handler/services/heartbeat-command";
-import { handleAuthCommand as handleAuthCommandService } from "./message-handler/services/auth-command";
-import {
-  handleModelsCommand as handleModelsCommandService,
-  handleSwitchCommand as handleSwitchCommandService,
-} from "./message-handler/services/models-command";
-import {
-  handleCompactCommand as handleCompactCommandService,
-  handleNewSessionCommand as handleNewSessionCommandService,
-  handleRestartCommand as handleRestartCommandService,
-} from "./message-handler/services/session-control-command";
 import {
   waitForAgentIdle,
   type PromptAgent,
 } from "./message-handler/services/prompt-runner";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
-import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./message-handler/services/reasoning-level";
 import {
   toError as toErrorService,
 } from "./message-handler/services/error-utils";
@@ -46,12 +33,6 @@ import {
 import {
   parseInlineOverrides as _unusedParseInlineOverridesService,
 } from "./commands/reasoning";
-import type { ReasoningLevel } from "../model/thinking";
-import {
-  handleWhoamiCommand as handleWhoamiCommandService,
-  handleStatusCommand as handleStatusCommandService,
-  handleContextCommand as handleContextCommandService,
-} from "./commands/session";
 import type { OrchestratorDeps } from "./message-handler/contract";
 import { createMessageTurnContext } from "./message-handler/context";
 import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
@@ -353,101 +334,15 @@ export class MessageHandler {
     return buildCommandHandlerMapService({
       channel,
       agentManager: this.agentManager,
+      modelRegistry: this.modelRegistry,
+      config: this.config,
+      runtimeControl: this.runtimeControl,
+      logger,
+      getVersion: () => this.getVersion(),
+      flushMemory: async (sessionKey, agentId, messages, config) =>
+        await this.flushMemory(sessionKey, agentId, messages, config),
       interruptSession: async (sessionKey, reason) => await this.interruptSession(sessionKey, reason),
-      handleWhoamiCommand: async (params) => await handleWhoamiCommandService(params),
-      handleStatusCommand: async ({ sessionKey, agentId, message, channel, peerId }) =>
-        await handleStatusCommandService({
-          sessionKey,
-          agentId,
-          message,
-          channel,
-          peerId,
-          agentManager: this.agentManager,
-          runtimeControl: this.runtimeControl,
-          resolveCurrentReasoningLevel: (targetSessionKey, targetAgentId) =>
-            resolveCurrentReasoningLevelService({
-              sessionMetadata: this.agentManager.getSessionMetadata(targetSessionKey) as
-                | { reasoningLevel?: ReasoningLevel }
-                | undefined,
-              agentsConfig: (this.config.agents || {}) as Record<string, unknown>,
-              agentId: targetAgentId,
-            }),
-          version: this.getVersion(),
-        }),
-      handleNewSessionCommand: async (sessionKey, agentId, targetChannel, peerId) =>
-        await handleNewSessionCommandService({
-          sessionKey,
-          agentId,
-          channel: targetChannel,
-          peerId,
-          config: this.config,
-          agentManager: this.agentManager,
-          flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
-            await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
-        }),
-      handleModelsCommand: async (sessionKey, agentId, targetChannel, peerId) =>
-        await handleModelsCommandService({
-          sessionKey,
-          agentId,
-          channel: targetChannel,
-          peerId,
-          agentManager: this.agentManager,
-          modelRegistry: this.modelRegistry,
-        }),
-      handleSwitchCommand: async (sessionKey, agentId, args, targetChannel, peerId) =>
-        await handleSwitchCommandService({
-          sessionKey,
-          agentId,
-          args,
-          channel: targetChannel,
-          peerId,
-          agentManager: this.agentManager,
-          modelRegistry: this.modelRegistry,
-        }),
-      handleRestartCommand: async (targetChannel, peerId) =>
-        await handleRestartCommandService({
-          channel: targetChannel,
-          peerId,
-          runtimeControl: this.runtimeControl,
-        }),
-      handleCompactCommand: async ({ sessionKey, agentId, channel, peerId }) =>
-        await handleCompactCommandService({
-          sessionKey,
-          agentId,
-          channel,
-          peerId,
-          agentManager: this.agentManager,
-        }),
-      handleContextCommand: async ({ sessionKey, agentId, channel, peerId }) =>
-        await handleContextCommandService({
-          sessionKey,
-          agentId,
-          channel,
-          peerId,
-          config: this.config,
-          agentManager: this.agentManager,
-        }),
-      handleAuthCommand: async ({ args, agentId, senderId, channel, peerId }) =>
-        await handleAuthCommandService({
-          args,
-          agentId,
-          senderId,
-          channel,
-          peerId,
-          config: this.config,
-          toError: (error) => toErrorService(error),
-        }),
-      handleRemindersCommand: async (params) => await handleRemindersCommandService(params),
-      handleHeartbeatCommand: async ({ agentId, channel, peerId, args }) =>
-        await handleHeartbeatCommandService({
-          agentId,
-          channel,
-          peerId,
-          args,
-          resolveWorkspaceDir: (targetAgentId) => this.agentManager.getWorkspaceDir(targetAgentId) ?? null,
-          logger,
-          toError: (error) => toErrorService(error),
-        }),
+      resolveWorkspaceDir: (agentId) => this.agentManager.getWorkspaceDir(agentId) ?? null,
     });
   }
 

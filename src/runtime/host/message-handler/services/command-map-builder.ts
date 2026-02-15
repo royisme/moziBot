@@ -1,113 +1,122 @@
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
-import type { InboundMessage } from "../../../adapters/channels/types";
 import { handleReasoningCommand, handleThinkCommand } from "../../commands/reasoning";
+import {
+  handleWhoamiCommand as handleWhoamiCommandService,
+  handleStatusCommand as handleStatusCommandService,
+  handleContextCommand as handleContextCommandService,
+} from "../../commands/session";
 import type { AgentManager } from "../../..";
 import type { CommandHandlerMap } from "./command-handlers";
 import { createMessageCommandHandlerMap } from "./command-map";
+import {
+  handleModelsCommand as handleModelsCommandService,
+  handleSwitchCommand as handleSwitchCommandService,
+} from "./models-command";
+import {
+  handleCompactCommand as handleCompactCommandService,
+  handleNewSessionCommand as handleNewSessionCommandService,
+  handleRestartCommand as handleRestartCommandService,
+} from "./session-control-command";
+import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
+import { handleRemindersCommand as handleRemindersCommandService } from "./reminders-command";
+import { handleHeartbeatCommand as handleHeartbeatCommandService } from "./heartbeat-command";
+import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./reasoning-level";
+import { toError as toErrorService } from "./error-utils";
+import type { MoziConfig } from "../../../../config";
+import type { ModelRegistry } from "../../..";
+import type { ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
 export function buildCommandHandlerMap(params: {
   channel: ChannelPlugin;
   agentManager: AgentManager;
+  modelRegistry: ModelRegistry;
+  config: MoziConfig;
+  runtimeControl?: {
+    getStatus?: () => { running: boolean; pid: number | null; uptime: number };
+    restart?: () => Promise<void> | void;
+  };
+  logger: { warn(obj: Record<string, unknown>, msg: string): void };
+  getVersion: () => string;
+  flushMemory: (
+    sessionKey: string,
+    agentId: string,
+    messages: AgentMessage[],
+    config: ResolvedMemoryPersistenceConfig,
+  ) => Promise<boolean>;
   interruptSession: (sessionKey: string, reason?: string) => Promise<boolean>;
-  handleWhoamiCommand: (params: {
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-  }) => Promise<void>;
-  handleStatusCommand: (params: {
-    sessionKey: string;
-    agentId: string;
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-  }) => Promise<void>;
-  handleNewSessionCommand: (
-    sessionKey: string,
-    agentId: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ) => Promise<void>;
-  handleModelsCommand: (
-    sessionKey: string,
-    agentId: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ) => Promise<void>;
-  handleSwitchCommand: (
-    sessionKey: string,
-    agentId: string,
-    args: string,
-    channel: ChannelPlugin,
-    peerId: string,
-  ) => Promise<void>;
-  handleRestartCommand: (channel: ChannelPlugin, peerId: string) => Promise<void>;
-  handleCompactCommand: (params: {
-    sessionKey: string;
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }) => Promise<void>;
-  handleContextCommand: (params: {
-    sessionKey: string;
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }) => Promise<void>;
-  handleAuthCommand: (params: {
-    args: string;
-    agentId: string;
-    senderId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-  }) => Promise<void>;
-  handleRemindersCommand: (params: {
-    sessionKey: string;
-    message: InboundMessage;
-    channel: ChannelPlugin;
-    peerId: string;
-    args: string;
-  }) => Promise<void>;
-  handleHeartbeatCommand: (params: {
-    agentId: string;
-    channel: ChannelPlugin;
-    peerId: string;
-    args: string;
-  }) => Promise<void>;
+  resolveWorkspaceDir: (agentId: string) => string | null;
 }): CommandHandlerMap {
   const {
     channel,
     agentManager,
+    modelRegistry,
+    config,
+    runtimeControl,
+    logger,
+    getVersion,
+    flushMemory,
     interruptSession,
-    handleWhoamiCommand,
-    handleStatusCommand,
-    handleNewSessionCommand,
-    handleModelsCommand,
-    handleSwitchCommand,
-    handleRestartCommand,
-    handleCompactCommand,
-    handleContextCommand,
-    handleAuthCommand,
-    handleRemindersCommand,
-    handleHeartbeatCommand,
+    resolveWorkspaceDir,
   } = params;
 
   return createMessageCommandHandlerMap({
     channel,
     deps: {
       onWhoami: async ({ message, channel, peerId }) => {
-        await handleWhoamiCommand({ message, channel, peerId });
+        await handleWhoamiCommandService({ message, channel, peerId });
       },
       onStatus: async ({ sessionKey, agentId, message, channel, peerId }) => {
-        await handleStatusCommand({ sessionKey, agentId, message, channel, peerId });
+        await handleStatusCommandService({
+          sessionKey,
+          agentId,
+          message,
+          channel,
+          peerId,
+          agentManager,
+          runtimeControl,
+          resolveCurrentReasoningLevel: (targetSessionKey, targetAgentId) =>
+            resolveCurrentReasoningLevelService({
+              sessionMetadata: agentManager.getSessionMetadata(targetSessionKey) as
+                | { reasoningLevel?: "off" | "on" | "stream" }
+                | undefined,
+              agentsConfig: (config.agents || {}) as Record<string, unknown>,
+              agentId: targetAgentId,
+            }),
+          version: getVersion(),
+        });
       },
       onNew: async ({ sessionKey, agentId, channel, peerId }) => {
-        await handleNewSessionCommand(sessionKey, agentId, channel, peerId);
+        await handleNewSessionCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          config,
+          agentManager,
+          flushMemory,
+        });
       },
       onModels: async ({ sessionKey, agentId, channel, peerId }) => {
-        await handleModelsCommand(sessionKey, agentId, channel, peerId);
+        await handleModelsCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          agentManager,
+          modelRegistry,
+        });
       },
       onSwitch: async ({ sessionKey, agentId, args, channel, peerId }) => {
-        await handleSwitchCommand(sessionKey, agentId, args, channel, peerId);
+        await handleSwitchCommandService({
+          sessionKey,
+          agentId,
+          args,
+          channel,
+          peerId,
+          agentManager,
+          modelRegistry,
+        });
       },
       onStop: async ({ sessionKey, channel, peerId }) => {
         const interrupted = await interruptSession(sessionKey, "Stopped by /stop command");
@@ -118,13 +127,26 @@ export function buildCommandHandlerMap(params: {
         });
       },
       onRestart: async ({ channel, peerId }) => {
-        await handleRestartCommand(channel, peerId);
+        await handleRestartCommandService({ channel, peerId, runtimeControl });
       },
       onCompact: async ({ sessionKey, agentId, channel, peerId }) => {
-        await handleCompactCommand({ sessionKey, agentId, channel, peerId });
+        await handleCompactCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          agentManager,
+        });
       },
       onContext: async ({ sessionKey, agentId, channel, peerId }) => {
-        await handleContextCommand({ sessionKey, agentId, channel, peerId });
+        await handleContextCommandService({
+          sessionKey,
+          agentId,
+          channel,
+          peerId,
+          config,
+          agentManager,
+        });
       },
       onThink: async ({ sessionKey, agentId, channel, peerId, args }) => {
         await handleThinkCommand({
@@ -146,19 +168,29 @@ export function buildCommandHandlerMap(params: {
         });
       },
       onAuth: async ({ action, agentId, message, channel, peerId, args }) => {
-        await handleAuthCommand({
+        await handleAuthCommandService({
           args: `${action} ${args}`.trim(),
           agentId,
           senderId: message.senderId,
           channel,
           peerId,
+          config,
+          toError: (error) => toErrorService(error),
         });
       },
       onReminders: async ({ sessionKey, message, channel, peerId, args }) => {
-        await handleRemindersCommand({ sessionKey, message, channel, peerId, args });
+        await handleRemindersCommandService({ sessionKey, message, channel, peerId, args });
       },
       onHeartbeat: async ({ agentId, channel, peerId, args }) => {
-        await handleHeartbeatCommand({ agentId, channel, peerId, args });
+        await handleHeartbeatCommandService({
+          agentId,
+          channel,
+          peerId,
+          args,
+          resolveWorkspaceDir,
+          logger,
+          toError: (error) => toErrorService(error),
+        });
       },
     },
   });
