@@ -16,6 +16,25 @@
 
 Used by CLI and RuntimeHost startup/reload. Invalid config is a startup blocker.
 
+## Local Desktop Widget Mode
+
+`channels.localDesktop.widget.mode` controls whether the desktop widget transport is started:
+
+- `"auto"` (recommended default): start only when desktop environment is detected
+- `"on"`: force start
+- `"off"`: disable local desktop widget transport
+
+Current precedence at runtime:
+
+1. `MOZI_WIDGET_MODE` env override (`auto|on|off`)
+2. `channels.localDesktop.widget.mode`
+3. legacy `channels.localDesktop.enabled` (backward compatibility)
+4. default fallback to `auto`
+
+Headless override:
+
+- `MOZI_WIDGET_HEADLESS=1` forces `auto` mode to resolve as disabled.
+
 ## Session Lifecycle Config (agents)
 
 ## Agent Model Config (current)

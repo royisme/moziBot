@@ -13,6 +13,7 @@ import { ChannelRegistry } from "../adapters/channels/registry";
 import { TelegramPlugin } from "../adapters/channels/telegram/plugin";
 import { RuntimeKernel } from "../core/kernel";
 import { bootstrapSandboxes } from "../sandbox/bootstrap";
+import { resolveLocalDesktopDecision } from "./local-desktop-mode";
 import { ConfigManager } from "./config-manager";
 import { CronScheduler } from "./cron/scheduler";
 import { HealthCheck } from "./health";
@@ -393,14 +394,26 @@ export class RuntimeHost {
       }
     }
 
-    if (config.channels?.localDesktop?.enabled) {
+    const localDesktopDecision = resolveLocalDesktopDecision(config);
+    logger.info(
+      {
+        mode: localDesktopDecision.mode,
+        source: localDesktopDecision.source,
+        enabled: localDesktopDecision.enabled,
+        reason: localDesktopDecision.reason,
+      },
+      "Local desktop widget startup decision",
+    );
+
+    if (localDesktopDecision.enabled) {
       try {
+        const localDesktopConfig = config.channels?.localDesktop;
         const localDesktop = new LocalDesktopPlugin({
-          enabled: config.channels.localDesktop.enabled,
-          host: config.channels.localDesktop.host,
-          port: config.channels.localDesktop.port,
-          authToken: config.channels.localDesktop.authToken,
-          allowOrigins: config.channels.localDesktop.allowOrigins,
+          enabled: true,
+          host: localDesktopConfig?.host,
+          port: localDesktopConfig?.port,
+          authToken: localDesktopConfig?.authToken,
+          allowOrigins: localDesktopConfig?.allowOrigins,
           voice: config.voice,
         });
 
@@ -417,9 +430,23 @@ export class RuntimeHost {
         logger.info("Local desktop channel connected");
       } catch (error) {
         logger.error(
-          `Failed to initialize local desktop: ${error instanceof Error ? error.message : String(error)}`,
+          {
+            err: error,
+            mode: localDesktopDecision.mode,
+            source: localDesktopDecision.source,
+          },
+          "Failed to initialize local desktop. Set channels.localDesktop.widget.mode='off' to disable or fix desktop environment.",
         );
       }
+    } else {
+      logger.info(
+        {
+          mode: localDesktopDecision.mode,
+          source: localDesktopDecision.source,
+          reason: localDesktopDecision.reason,
+        },
+        "Local desktop widget disabled",
+      );
     }
   }
 

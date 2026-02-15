@@ -85,6 +85,9 @@ describe("Channels schema", () => {
       channels: {
         localDesktop: {
           enabled: true,
+          widget: {
+            mode: "auto",
+          },
           host: "127.0.0.1",
           port: 3987,
           authToken: "local-dev-token",
@@ -118,6 +121,20 @@ describe("Channels schema", () => {
       channels: {
         localDesktop: {
           port: 70000,
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid local desktop widget mode", () => {
+    const result = MoziConfigSchema.safeParse({
+      channels: {
+        localDesktop: {
+          widget: {
+            mode: "maybe",
+          },
         },
       },
     });
