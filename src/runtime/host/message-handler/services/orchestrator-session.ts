@@ -1,6 +1,5 @@
 import type { SessionStore } from "../../..";
 import type { AgentManager } from "../../..";
-import type { AssistantMessageShape } from "./reply-finalizer";
 
 export function resolveSessionTimestamps(params: {
   sessionKey: string;
@@ -37,23 +36,4 @@ export function resolveSessionMetadata(params: {
     agentManager.resolveDefaultAgentId(),
   ).metadata;
   return fromSessionStoreCreated || {};
-}
-
-export function resolveSessionMessages(params: {
-  sessionKey: string;
-  sessions: SessionStore;
-  agentManager: AgentManager;
-  latestPromptMessages: Map<string, AssistantMessageShape[]>;
-}): AssistantMessageShape[] {
-  const { sessionKey, sessions, agentManager, latestPromptMessages } = params;
-  const latest = latestPromptMessages.get(sessionKey);
-  if (latest && latest.length > 0) {
-    return latest;
-  }
-  const existing = sessions.get(sessionKey)?.context;
-  if (Array.isArray(existing) && existing.length > 0) {
-    return existing as AssistantMessageShape[];
-  }
-  const created = sessions.getOrCreate(sessionKey, agentManager.resolveDefaultAgentId()).context;
-  return (created || []) as AssistantMessageShape[];
 }

@@ -1,54 +1,14 @@
-import type { ReplyRenderOptions } from "../render/reasoning";
-import { renderAssistantReply, isSilentReplyText } from "../../reply-utils";
+import { isSilentReplyText } from "../../reply-utils";
 
 /**
- * Reply Finalization Policy Service
+ * Reply suppression policy service.
  *
- * Manages the transformation of agent messages into final reply text and
- * implements suppression rules for silent/heartbeat responses.
+ * Delivery text ownership is handled in execution-flow (in-turn stream/final events).
+ * This service only decides whether an already-resolved reply should be suppressed.
  */
-
-export interface AssistantMessageShape {
-  readonly role: string;
-  readonly content?: unknown;
-  readonly stopReason?: unknown;
-}
 
 export interface MessageRawShape {
   readonly source?: string;
-}
-
-/**
- * Resolves the final reply text from a list of session messages.
- * Preserves monolith logic for finding and rendering the last assistant turn.
- */
-export function resolveLastAssistantReplyText(params: {
-  messages: readonly AssistantMessageShape[];
-  renderOptions: ReplyRenderOptions;
-}): string | undefined {
-  const { messages, renderOptions } = params;
-
-  // Parity: locate last assistant message
-  const lastAssistant = [...messages].toReversed().find((m) => m.role === "assistant");
-
-  if (!lastAssistant) {
-    return undefined;
-  }
-
-  const stopReason =
-    typeof lastAssistant.stopReason === "string" ? lastAssistant.stopReason.toLowerCase() : "";
-  const isToolUseTerminal =
-    stopReason === "tooluse" ||
-    stopReason === "tool_use" ||
-    stopReason === "tool_calls" ||
-    stopReason === "function_call";
-
-  if (isToolUseTerminal) {
-    return undefined;
-  }
-
-  // Parity: render using renderAssistantReply
-  return renderAssistantReply(lastAssistant.content, renderOptions);
 }
 
 /**

@@ -1,49 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { resolveLastAssistantReplyText } from "./reply-finalizer";
+import { shouldSuppressHeartbeatReply, shouldSuppressSilentReply } from "./reply-finalizer";
 
-describe("resolveLastAssistantReplyText", () => {
-  const renderOptions = {
-    showThinking: false,
-    showToolCalls: "off" as const,
-  };
-
-  it("returns undefined for tool-use terminal assistant message", () => {
-    const reply = resolveLastAssistantReplyText({
-      messages: [
-        {
-          role: "assistant",
-          stopReason: "toolUse",
-          content: [
-            {
-              type: "text",
-              text: "在当前工作目录 `/` 下让我先查一下。",
-            },
-            {
-              type: "toolCall",
-              name: "find",
-              arguments: { path: "/", pattern: "**/openclaw*" },
-            },
-          ],
-        },
-      ],
-      renderOptions,
-    });
-
-    expect(reply).toBeUndefined();
+describe("reply-finalizer suppression policy", () => {
+  it("suppresses silent token replies", () => {
+    expect(shouldSuppressSilentReply("NO_REPLY")).toBe(true);
+    expect(shouldSuppressSilentReply(" NO_REPLY ")).toBe(true);
+    expect(shouldSuppressSilentReply("normal answer")).toBe(false);
   });
 
-  it("returns rendered text for normal terminal assistant message", () => {
-    const reply = resolveLastAssistantReplyText({
-      messages: [
-        {
-          role: "assistant",
-          stopReason: "stop",
-          content: [{ type: "text", text: "我可以看到 `.extLibs/openclaw`。" }],
-        },
-      ],
-      renderOptions,
-    });
-
-    expect(reply).toBe("我可以看到 `.extLibs/openclaw`。");
+  it("suppresses heartbeat HEARTBEAT_OK replies only for heartbeat source", () => {
+    expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, "HEARTBEAT_OK")).toBe(true);
+    expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, " HEARTBEAT_OK ")).toBe(true);
+    expect(shouldSuppressHeartbeatReply({ source: "message" }, "HEARTBEAT_OK")).toBe(false);
+    expect(shouldSuppressHeartbeatReply(undefined, "HEARTBEAT_OK")).toBe(false);
+    expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, "all good")).toBe(false);
   });
 });

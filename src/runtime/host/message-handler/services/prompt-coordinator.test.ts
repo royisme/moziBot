@@ -66,11 +66,11 @@ describe("runPromptWithCoordinator logging", () => {
     expect(resultCall).toBeDefined();
     const resultPayload = resultCall?.[0] as Record<string, unknown>;
     expect(resultPayload.traceId).toBe("turn:m1");
-    expect(resultPayload.assistantRenderedChars).toBe(9);
-    expect(resultPayload.stopReason).toBe("stop");
+    expect(resultPayload.modelRef).toBe("quotio/gemini-3-flash-preview");
+    expect(resultPayload.assistantMessageFound).toBe(true);
   });
 
-  it("logs empty assistant rendered output diagnostics", async () => {
+  it("does not fail when assistant message is missing", async () => {
     const logger = {
       warn: vi.fn(),
       info: vi.fn(),
@@ -82,13 +82,7 @@ describe("runPromptWithCoordinator logging", () => {
         modelRef: "quotio/gemini-3-flash-preview",
         agent: {
           prompt: vi.fn(async () => {}),
-          messages: [
-            {
-              role: "assistant",
-              content: [{ type: "thinking", thinking: "internal only" }],
-              stopReason: "stop",
-            },
-          ] as unknown as AgentMessage[],
+          messages: [] as unknown as AgentMessage[],
         },
       })),
       getAgentFallbacks: vi.fn(() => []),
@@ -116,15 +110,59 @@ describe("runPromptWithCoordinator logging", () => {
     });
 
     const resultCall = logger.debug.mock.calls.find((call) => call[1] === "Prompt result summary");
-    expect(resultCall).toBeDefined();
     const resultPayload = resultCall?.[0] as Record<string, unknown>;
-    expect(resultPayload.assistantRenderedChars).toBe(0);
-
-    const warnCall = logger.warn.mock.calls.find(
-      (call) => call[1] === "Assistant produced empty rendered output",
+    expect(resultPayload.assistantMessageFound).toBe(false);
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Assistant produced empty rendered output",
     );
-    expect(warnCall).toBeDefined();
-    const warnPayload = warnCall?.[0] as Record<string, unknown>;
-    expect(warnPayload.traceId).toBe("turn:m2");
+  });
+
+  it("throws when assistant message is flagged as failed", async () => {
+    const logger = {
+      warn: vi.fn(),
+      info: vi.fn(),
+      debug: vi.fn(),
+    };
+
+    const agentManager = {
+      getAgent: vi.fn(async () => ({
+        modelRef: "quotio/gemini-3-flash-preview",
+        agent: {
+          prompt: vi.fn(async () => {}),
+          messages: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "failed" }],
+              errorMessage: "model error",
+            },
+          ] as unknown as AgentMessage[],
+        },
+      })),
+      getAgentFallbacks: vi.fn(() => []),
+      setSessionModel: vi.fn(async () => {}),
+      clearRuntimeModelOverride: vi.fn(() => {}),
+      resolvePromptTimeoutMs: vi.fn(() => 30000),
+      getSessionMetadata: vi.fn(() => undefined),
+      updateSessionMetadata: vi.fn(() => {}),
+      compactSession: vi.fn(async () => ({ success: true, tokensReclaimed: 0 })),
+      updateSessionContext: vi.fn(() => {}),
+      getContextUsage: vi.fn(() => ({ usedTokens: 100, totalTokens: 1000, percentage: 10 })),
+    };
+
+    await expect(
+      runPromptWithCoordinator({
+        sessionKey: "s3",
+        agentId: "mozi",
+        text: "hello",
+        traceId: "turn:m3",
+        config: {} as never,
+        logger,
+        agentManager,
+        activeMap: new Map(),
+        interruptedSet: new Set(),
+        flushMemory: async () => true,
+      }),
+    ).rejects.toThrow("model error");
   });
 });

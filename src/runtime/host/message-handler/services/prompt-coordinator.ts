@@ -9,7 +9,7 @@ import {
 import { estimateMessagesTokens } from "../../../context-management";
 import { isCompactionFailureError, isContextOverflowError } from "../../../context-management";
 import { isTransientError } from "../../../core/error-policy";
-import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
+import { getAssistantFailureReason } from "../../reply-utils";
 import {
   isAbortError as isAbortErrorService,
   isAgentBusyError as isAgentBusyErrorService,
@@ -54,6 +54,12 @@ interface PromptCoordinatorLogger {
 }
 
 const LOG_PREVIEW_MAX_CHARS = 400;
+
+function findLatestAssistantMessage(messages: AgentMessage[]): AgentMessage | undefined {
+  return [...messages]
+    .toReversed()
+    .find((m) => m && typeof m === "object" && (m as { role?: string }).role === "assistant");
+}
 
 function redactLogPreview(text: string): string {
   return text
@@ -207,14 +213,7 @@ export async function runPromptWithCoordinator(params: {
   });
 
   const current = await agentManager.getAgent(sessionKey, agentId);
-  const latestAssistant = [...(current.agent.messages as Array<{ role?: string }>)]
-    .toReversed()
-    .find((m) => m && m.role === "assistant");
-  const assistantRenderedText = latestAssistant ? extractAssistantText(latestAssistant) : "";
-  const assistantStopReason =
-    latestAssistant && typeof (latestAssistant as Record<string, unknown>).stopReason === "string"
-      ? ((latestAssistant as Record<string, unknown>).stopReason as string)
-      : undefined;
+  const latestAssistant = findLatestAssistantMessage(current.agent.messages);
 
   logger.debug(
     {
@@ -223,9 +222,6 @@ export async function runPromptWithCoordinator(params: {
       traceId,
       modelRef: current.modelRef,
       assistantMessageFound: Boolean(latestAssistant),
-      assistantRenderedChars: assistantRenderedText.length,
-      assistantRenderedPreview: buildLogPreview(assistantRenderedText),
-      stopReason: assistantStopReason,
     },
     "Prompt result summary",
   );
@@ -246,19 +242,6 @@ export async function runPromptWithCoordinator(params: {
     throw new Error(failureReason);
   }
 
-  if (latestAssistant && assistantRenderedText.length === 0) {
-    logger.warn(
-      {
-        traceId,
-        sessionKey,
-        agentId,
-        modelRef: current.modelRef,
-        stopReason: assistantStopReason,
-      },
-      "Assistant produced empty rendered output",
-    );
-  }
-
   agentManager.updateSessionContext(sessionKey, current.agent.messages);
   const usage = agentManager.getContextUsage(sessionKey);
   if (usage) {
@@ -267,9 +250,7 @@ export async function runPromptWithCoordinator(params: {
         traceId,
         sessionKey,
         agentId,
-        responseTokens: latestAssistant
-          ? estimateMessagesTokens([latestAssistant as AgentMessage])
-          : 0,
+        responseTokens: latestAssistant ? estimateMessagesTokens([latestAssistant]) : 0,
         totalContextTokens: usage.usedTokens,
         contextWindow: usage.totalTokens,
         fillPercentage: usage.percentage,

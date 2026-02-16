@@ -173,6 +173,7 @@ describe("MessageHandler commands", () => {
   let updateSessionMetadata: ReturnType<typeof vi.fn>;
   let ensureSessionModelForInput: ReturnType<typeof vi.fn>;
   let runPromptWithFallback: ReturnType<typeof vi.fn>;
+  let editMessageMock: ReturnType<typeof vi.fn>;
   let beginTyping: ReturnType<typeof vi.fn>;
   let stopTyping: ReturnType<typeof vi.fn>;
   let emitPhase: ReturnType<typeof vi.fn>;
@@ -191,6 +192,7 @@ describe("MessageHandler commands", () => {
       switched: false,
     }));
     runPromptWithFallback = vi.fn(async () => {});
+    editMessageMock = vi.fn(async () => {});
     stopTyping = vi.fn(async () => {});
     beginTyping = vi.fn(async () => stopTyping);
     emitPhase = vi.fn(async () => {});
@@ -209,6 +211,11 @@ describe("MessageHandler commands", () => {
       connect: async () => {},
       disconnect: async () => {},
       send,
+      editMessage: editMessageMock as unknown as (
+        messageId: string,
+        peerId: string,
+        text: string,
+      ) => Promise<void>,
       beginTyping: beginTyping as unknown as (
         peerId: string,
       ) => Promise<(() => Promise<void> | void) | undefined>,
@@ -606,11 +613,16 @@ describe("MessageHandler commands", () => {
         sessionKey: string;
         agentId: string;
         text: string;
-        onStream?: (event: { type: "text_delta"; delta?: string }) => void;
+        onStream?: (event: {
+          type: "text_delta" | "agent_end";
+          delta?: string;
+          fullText?: string;
+        }) => void;
       }) => Promise<void>;
     };
     h.runPromptWithFallback = vi.fn(async (params) => {
       params.onStream?.({ type: "text_delta", delta: "partial" });
+      params.onStream?.({ type: "agent_end", fullText: "visible" });
     });
     h.agentManager.getAgent = async () => ({
       modelRef: "quotio/gemini-3-flash-preview",
@@ -621,11 +633,72 @@ describe("MessageHandler commands", () => {
 
     await handler.handle(createMessage("hello"), channel);
 
-    expect(editMessage).toHaveBeenCalled();
-    const finalCall = editMessage.mock.calls.at(-1) as unknown[] | undefined;
-    const finalText = typeof finalCall?.[2] === "string" ? finalCall[2] : "";
+    const deliveredTexts = [
+      ...send.mock.calls.map((call) => (call[1] as { text?: string }).text || ""),
+      ...editMessage.mock.calls.map((call) => {
+        const tuple = call as unknown[];
+        const text = tuple.length > 2 ? tuple[2] : undefined;
+        return typeof text === "string" ? text : "";
+      }),
+    ];
+    const finalText = deliveredTexts.at(-1) || "";
     expect(finalText).toContain("visible");
     expect(finalText).not.toContain("secret");
+  });
+
+  it("strips leaked reasoning preamble from final external reply", async () => {
+    getSessionMetadata.mockReturnValue({ reasoningLevel: "off" });
+
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: { type: "agent_end"; fullText?: string }) => void;
+      }) => Promise<void>;
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      params.onStream?.({
+        type: "agent_end",
+        fullText: "Reasoning:\n用户用中文说你好。\n\n你好！有什么我可以帮助你的吗？",
+      });
+    });
+
+    await handler.handle(createMessage("你好"), channel);
+
+    const deliveredTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const finalText = deliveredTexts.at(-1) || "";
+    expect(finalText).toBe("你好！有什么我可以帮助你的吗？");
+    expect(finalText).not.toContain("Reasoning:");
+  });
+
+  it("does not stream think-tag internals to external channel edits", async () => {
+    getSessionMetadata.mockReturnValue({ reasoningLevel: "off" });
+
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: {
+          type: "text_delta" | "agent_end";
+          delta?: string;
+          fullText?: string;
+        }) => Promise<void> | void;
+      }) => Promise<void>;
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      await params.onStream?.({ type: "text_delta", delta: "<th" });
+      await params.onStream?.({ type: "text_delta", delta: "ink>内部推理</think>" });
+      await params.onStream?.({ type: "text_delta", delta: "你好" });
+      await params.onStream?.({ type: "agent_end", fullText: "<think>内部推理</think>你好" });
+    });
+
+    await handler.handle(createMessage("你好"), channel);
+
+    const sentTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const editedTexts = editMessageMock.mock.calls.map((call) => (call[2] as string) || "");
+    const delivered = [...sentTexts, ...editedTexts].join("\n");
+
+    expect(delivered).toContain("你好");
+    expect(delivered).not.toContain("内部推理");
+    expect(delivered).not.toContain("<think>");
   });
 
   it("attempts pre-overflow memory flush when context usage is high", async () => {
@@ -826,6 +899,7 @@ describe("MessageHandler commands", () => {
         error: "400 model failure",
       });
       await params.onStream?.({ type: "text_delta", delta: "draft response" });
+      await params.onStream?.({ type: "agent_end", fullText: "final response" } as never);
     });
 
     h.agentManager.getAgent = async () => ({
@@ -838,14 +912,79 @@ describe("MessageHandler commands", () => {
     await handler.handle(createMessage("hello"), channel);
 
     const sentTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const editedTexts = editMessage.mock.calls.map((call) => {
+      const tuple = call as unknown[];
+      const text = tuple.length > 2 ? tuple[2] : undefined;
+      return typeof text === "string" ? text : "";
+    });
+    const allTexts = [...sentTexts, ...editedTexts];
     const fallbackNotice = sentTexts.find((line) =>
       line.includes("Primary model failed this turn"),
     );
-    const finalSent = sentTexts.find((line) => line === "final response");
+    const finalSent = allTexts.find((line) => line === "final response");
 
     expect(fallbackNotice).toContain("quotio/local/minimax-m2.1");
     expect(finalSent).toBe("final response");
-    expect(sentTexts.includes("(no response)")).toBe(false);
+    expect(allTexts.includes("(no response)")).toBe(false);
+  });
+
+  it("does not stream partial placeholder when channel has no editMessage capability", async () => {
+    const channelWithoutEdit = {
+      ...channel,
+    } as unknown as ChannelPlugin & { editMessage?: unknown };
+    delete channelWithoutEdit.editMessage;
+
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: {
+          type: "text_delta" | "agent_end";
+          delta?: string;
+          fullText?: string;
+        }) => Promise<void> | void;
+      }) => Promise<void>;
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{
+          agent: { messages: Array<{ role: string; content: string }> };
+          modelRef: string;
+        }>;
+      };
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      await params.onStream?.({
+        type: "text_delta",
+        delta: "我是 pi 的 AI 编程助手 🤖\n\n让我看看我的 home 目录有什么",
+      });
+      await params.onStream?.({
+        type: "agent_end",
+        fullText:
+          "我是 pi 的 AI 编程助手 🤖\n\n我的 home 目录是 `/Users/royzhu`，里面有很多文件和文件夹。",
+      });
+    });
+
+    h.agentManager.getAgent = async () => ({
+      modelRef: "minimax/MiniMax-M2.5",
+      agent: {
+        messages: [
+          {
+            role: "assistant",
+            content: "我的 home 目录是 `/Users/royzhu`，里面有很多文件和文件夹。",
+          },
+        ],
+      },
+    });
+
+    await handler.handle(
+      createMessage("你是谁？你的home目录里有什么"),
+      channelWithoutEdit as ChannelPlugin,
+    );
+
+    const sentTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    expect(sentTexts[0]).toContain("我的 home 目录是");
+    expect(sentTexts[0]).not.toContain("让我看看我的 home 目录有什么");
   });
 
   it("does not send audio degradation notice when transcript is available", async () => {

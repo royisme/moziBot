@@ -265,7 +265,7 @@ export async function runPromptWithFallback(params: {
         try {
           await abortable(Promise.resolve(agent.prompt(text)));
 
-          if (onStream && accumulatedText) {
+          if (onStream) {
             await onStream({ type: "agent_end", fullText: accumulatedText });
           }
           break; // Success
