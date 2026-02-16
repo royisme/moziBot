@@ -2,11 +2,9 @@ import type { MoziConfig } from "../../../config";
 import type { DeliveryPlan } from "../../../multimodal/capabilities";
 import type { OutboundMessage } from "../../adapters/channels/types";
 import type { SessionTimestamps } from "./lifecycle/temporal";
-import type { ReplyRenderOptions } from "./render/reasoning";
 import type { CommandHandlerMap } from "./services/command-handlers";
 import type { InteractionPhase, PhasePayload } from "./services/interaction-lifecycle";
 import type { FallbackInfo } from "./services/prompt-runner";
-import type { AssistantMessageShape } from "./services/reply-finalizer";
 import type { StreamingCallback, StreamingBuffer } from "./services/streaming";
 
 /**
@@ -76,7 +74,6 @@ export interface OrchestratorDeps {
   updateSessionMetadata(sessionKey: string, meta: Record<string, unknown>): void;
   revertToPreviousSegment(sessionKey: string, agentId: string): boolean;
   getConfigAgents(): Record<string, unknown>;
-  getSessionMessages(sessionKey: string): AssistantMessageShape[];
 
   // Prompt & Execution Helpers
   transcribeInboundMessage(payload: unknown): Promise<string | undefined>;
@@ -123,23 +120,15 @@ export interface OrchestratorDeps {
     onFallback?: (info: FallbackInfo) => Promise<void>;
   }): Promise<void>;
   maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
-  resolveReplyRenderOptions(agentId: string): ReplyRenderOptions;
-  resolveLastAssistantReplyText(params: {
-    messages: AssistantMessageShape[];
-    renderOptions: ReplyRenderOptions;
-  }): string | undefined;
   shouldSuppressSilentReply(text: string | undefined): boolean;
   shouldSuppressHeartbeatReply(raw: unknown, text: string): boolean;
-  finalizeStreamingReply(params: {
-    buffer: StreamingBuffer;
-    replyText?: string;
-  }): Promise<string | null>;
-  buildNegotiatedOutbound(params: {
+  dispatchReply(params: {
+    peerId: string;
     channelId: string;
     replyText?: string;
     inboundPlan: DeliveryPlan | null;
-  }): OutboundMessage;
-  sendNegotiatedReply(params: { peerId: string; outbound: OutboundMessage }): Promise<string>;
+    traceId?: string;
+  }): Promise<string>;
 
   // Error Helpers
   toError(err: unknown): Error;

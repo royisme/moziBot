@@ -2,36 +2,7 @@ import type { LifecycleFlow } from "../contract";
 import {
   resolveTemporalLifecyclePolicy,
   shouldRotateSessionForTemporalPolicy,
-  type SessionTimestamps,
 } from "../lifecycle/temporal";
-
-/**
- * Runtime-guarded helper to ensure a function exists on an unknown object.
- */
-type UnknownRecord = Record<string, unknown>;
-
-function requireFn<T>(deps: unknown, key: string): T {
-  if (!deps || typeof deps !== "object") {
-    throw new Error(`Missing dependency container for function: ${key}`);
-  }
-  const obj = deps as UnknownRecord;
-  const fn = obj[key];
-  if (typeof fn !== "function") {
-    throw new Error(`Missing required dependency function: ${key}`);
-  }
-  return fn as T;
-}
-
-function requireObj<T extends object>(deps: unknown, key: string): T {
-  if (!deps || typeof deps !== "object") {
-    throw new Error(`Missing dependency container for object: ${key}`);
-  }
-  const value = (deps as UnknownRecord)[key];
-  if (!value || typeof value !== "object") {
-    throw new Error(`Missing required dependency object: ${key}`);
-  }
-  return value as T;
-}
 
 /**
  * Lifecycle Flow Implementation
@@ -41,6 +12,11 @@ function requireObj<T extends object>(deps: unknown, key: string): T {
  */
 export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
   const { state } = ctx;
+  const resetSession = (sessionKey: string, agentId: string) =>
+    deps.resetSession(sessionKey, agentId);
+  const getSessionTimestamps = (sessionKey: string) => deps.getSessionTimestamps(sessionKey);
+  const getConfigAgents = () => deps.getConfigAgents();
+  const { logger } = deps;
 
   // 1. Skip lifecycle for commands (Monolith parity)
   if (state.parsedCommand) {
@@ -57,18 +33,6 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
       // Artifacts missing or malformed for lifecycle check
       return "abort";
     }
-
-    // Dependency extraction
-    const resetSession = requireFn<(sk: string, ai: string) => void>(deps, "resetSession");
-    const getSessionTimestamps = requireFn<(sk: string) => SessionTimestamps>(
-      deps,
-      "getSessionTimestamps",
-    );
-    const getConfigAgents = requireFn<() => Record<string, unknown>>(deps, "getConfigAgents");
-    const logger = requireObj<{ info: (o: Record<string, unknown>, m: string) => void }>(
-      deps,
-      "logger",
-    );
 
     const configAgents = getConfigAgents();
 

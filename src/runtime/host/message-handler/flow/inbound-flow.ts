@@ -1,36 +1,6 @@
 import type { InboundFlow } from "../contract";
 
 /**
- * Runtime-guarded helper to ensure a function exists on an unknown object.
- */
-type UnknownRecord = Record<string, unknown>;
-
-function requireFn<T>(obj: unknown, key: string): T {
-  if (!obj || typeof obj !== "object") {
-    throw new Error(`Missing required dependency object for function: ${key}`);
-  }
-  const fn = (obj as UnknownRecord)[key];
-  if (typeof fn !== "function") {
-    throw new Error(`Missing required dependency function: ${key}`);
-  }
-  return fn as T;
-}
-
-/**
- * Runtime-guarded helper to ensure an object exists on an unknown object.
- */
-function requireObj<T extends object>(obj: unknown, key: string): T {
-  if (!obj || typeof obj !== "object") {
-    throw new Error(`Missing required dependency object container for key: ${key}`);
-  }
-  const target = (obj as UnknownRecord)[key];
-  if (!target || typeof target !== "object") {
-    throw new Error(`Missing required dependency object: ${key}`);
-  }
-  return target as T;
-}
-
-/**
  * Inbound Flow Implementation
  *
  * Orchestrates pre-command setup: extraction, command parsing, session resolution,
@@ -39,29 +9,18 @@ function requireObj<T extends object>(obj: unknown, key: string): T {
  */
 export const runInboundFlow: InboundFlow = async (ctx, deps) => {
   const { payload, state } = ctx;
+  const getText = (p: unknown) => deps.getText(p);
+  const getMedia = (p: unknown) => deps.getMedia(p);
+  const normalizeControl = (t: string) => deps.normalizeImplicitControlCommand(t);
+  const parseCommand = (t: string) => deps.parseCommand(t);
+  const resolveContext = (p: unknown) => deps.resolveSessionContext(p);
+  const rememberRoute = (agentId: string, p: unknown) => deps.rememberLastRoute(agentId, p);
+  const sendDirect = (peerId: string, text: string) => deps.sendDirect(peerId, text);
+  const parseInlineOverrides = (parsed: { name: string; args: string } | null) =>
+    deps.parseInlineOverrides(parsed);
+  const { logger } = deps;
 
   try {
-    // Narrow dependency access
-    const getText = requireFn<(p: unknown) => string>(deps, "getText");
-    const getMedia = requireFn<(p: unknown) => unknown[]>(deps, "getMedia");
-    const normalizeControl = requireFn<(t: string) => string | null>(
-      deps,
-      "normalizeImplicitControlCommand",
-    );
-    const parseCommand = requireFn<(t: string) => { name: string; args: string } | null>(
-      deps,
-      "parseCommand",
-    );
-    const resolveContext = requireFn<
-      (p: unknown) => { agentId: string; sessionKey: string; peerId: string; dmScope?: string }
-    >(deps, "resolveSessionContext");
-    const rememberRoute = requireFn<(a: string, p: unknown) => void>(deps, "rememberLastRoute");
-    const sendDirect = requireFn<(p: string, t: string) => Promise<void>>(deps, "sendDirect");
-    const logger = requireObj<{ info: (o: Record<string, unknown>, m: string) => void }>(
-      deps,
-      "logger",
-    );
-
     // 1. Extraction & Empty Check
     const rawText = getText(payload);
     const media = getMedia(payload);
@@ -76,13 +35,6 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
 
     // Parity: parseCommand(normalizedControlCommand ?? text)
     const parsedCommand = parseCommand(normalizedText ?? rawText);
-    const parseInlineOverrides = requireFn<
-      (parsed: { name: string; args: string } | null) => {
-        thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-        reasoningLevel?: "off" | "on" | "stream";
-        promptText: string;
-      } | null
-    >(deps, "parseInlineOverrides");
     const inlineOverrides = parseInlineOverrides(parsedCommand);
 
     // Unsupported slash command check: must use original text.startsWith('/')
@@ -99,13 +51,13 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
     const isReminder =
       payload &&
       typeof payload === "object" &&
-      "raw" in (payload as UnknownRecord) &&
+      "raw" in (payload as Record<string, unknown>) &&
       (() => {
-        const raw = (payload as UnknownRecord).raw;
+        const raw = (payload as Record<string, unknown>).raw;
         if (!raw || typeof raw !== "object") {
           return false;
         }
-        return (raw as UnknownRecord).source === "reminder";
+        return (raw as Record<string, unknown>).source === "reminder";
       })();
     if (isReminder) {
       const replyText = rawText.trim() || "Reminder";

@@ -14,7 +14,6 @@ import { parseCommand, normalizeImplicitControlCommand } from "./commands/parser
 import { parseInlineOverrides as _unusedParseInlineOverridesService } from "./commands/reasoning";
 import { createMessageTurnContext } from "./message-handler/context";
 import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
-import { resolveReplyRenderOptionsFromConfig as _unusedResolveReplyRenderOptionsFromConfig } from "./message-handler/render/reasoning";
 import { checkInputCapability as _unusedCheckInputCapabilityService } from "./message-handler/services/capability";
 import { type CommandHandlerMap } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
@@ -37,13 +36,8 @@ import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from ".
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
+import { dispatchReply as _unusedDispatchReply } from "./message-handler/services/reply-dispatcher";
 import {
-  finalizeStreamingReply as _unusedFinalizeStreamingReply,
-  buildNegotiatedOutbound as _unusedBuildNegotiatedOutbound,
-  sendNegotiatedReply as _unusedSendNegotiatedReply,
-} from "./message-handler/services/reply-dispatcher";
-import {
-  resolveLastAssistantReplyText as _unusedResolveLastAssistantReplyText,
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
   shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
@@ -97,10 +91,7 @@ export class MessageHandler {
     }
   >();
   private interruptedPromptRuns = new Set<string>();
-  private latestPromptMessages = new Map<
-    string,
-    import("./message-handler/services/reply-finalizer").AssistantMessageShape[]
-  >();
+
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
   private mediaPreprocessor: InboundMediaPreprocessor;
@@ -340,7 +331,6 @@ export class MessageHandler {
       modelRegistry: this.modelRegistry,
       mediaPreprocessor: this.mediaPreprocessor,
       lastRoutes: this.lastRoutes,
-      latestPromptMessages: this.latestPromptMessages,
       resolveSessionContext: (message) =>
         resolveSessionContextService({
           message,

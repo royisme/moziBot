@@ -1,18 +1,6 @@
 import type { PromptFlow, PreparedPromptBundle } from "../contract";
 
 /**
- * Runtime-guarded helper to ensure a function exists on an unknown object.
- */
-function requireFn<T>(deps: unknown, key: string): T {
-  const obj = deps as Record<string, unknown>;
-  const fn = obj[key];
-  if (typeof fn !== "function") {
-    throw new Error(`Missing required dependency function: ${key}`);
-  }
-  return fn as T;
-}
-
-/**
  * Prompt Flow Implementation
  *
  * Orchestrates the preparation of a prompt for execution:
@@ -23,6 +11,26 @@ function requireFn<T>(deps: unknown, key: string): T {
  */
 export const runPromptFlow: PromptFlow = async (ctx, deps) => {
   const { state, payload } = ctx;
+  const transcribeMessage = (p: unknown) => deps.transcribeInboundMessage(p);
+  const checkCapability = (params: {
+    sessionKey: string;
+    agentId: string;
+    message: unknown;
+    peerId: string;
+    hasAudioTranscript: boolean;
+  }) => deps.checkInputCapability(params);
+  const buildIngestPlan = (params: { message: unknown; sessionKey: string; agentId: string }) =>
+    deps.ingestInboundMessage(params);
+  const buildFinalText = (params: {
+    message: unknown;
+    rawText: string;
+    transcript?: string;
+    ingestPlan: unknown;
+  }) => deps.buildPromptText(params);
+  const updateMetadata = (sessionKey: string, meta: Record<string, unknown>) =>
+    deps.updateSessionMetadata(sessionKey, meta);
+  const maybePreFlushBeforePrompt = (params: { sessionKey: string; agentId: string }) =>
+    deps.maybePreFlushBeforePrompt(params);
 
   try {
     // Narrow guard for required artifacts from state
@@ -48,34 +56,6 @@ export const runPromptFlow: PromptFlow = async (ctx, deps) => {
       // Critical preparation context missing
       return "abort";
     }
-
-    // Dependency extraction
-    const transcribeMessage = requireFn<(p: unknown) => Promise<string | undefined>>(
-      deps,
-      "transcribeInboundMessage",
-    );
-    const checkCapability = requireFn<
-      (p: {
-        sessionKey: string;
-        agentId: string;
-        message: unknown;
-        peerId: string;
-        hasAudioTranscript: boolean;
-      }) => Promise<{ ok: boolean; restoreModelRef?: string }>
-    >(deps, "checkInputCapability");
-    const buildIngestPlan = requireFn<
-      (p: { message: unknown; sessionKey: string; agentId: string }) => unknown
-    >(deps, "ingestInboundMessage");
-    const buildFinalText = requireFn<
-      (p: { message: unknown; rawText: string; transcript?: string; ingestPlan: unknown }) => string
-    >(deps, "buildPromptText");
-    const updateMetadata = requireFn<(sk: string, meta: Record<string, unknown>) => void>(
-      deps,
-      "updateSessionMetadata",
-    );
-    const maybePreFlushBeforePrompt = requireFn<
-      (params: { sessionKey: string; agentId: string }) => Promise<void>
-    >(deps, "maybePreFlushBeforePrompt");
 
     // 1. Media Preprocessing
     const transcript = await transcribeMessage(payload);

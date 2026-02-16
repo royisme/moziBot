@@ -1,26 +1,4 @@
 import type { CleanupFlow } from "../contract";
-import type { InteractionPhase, PhasePayload } from "../services/interaction-lifecycle";
-
-/**
- * Runtime-guarded helper to ensure a function exists on an unknown object.
- */
-function requireFn<T>(deps: unknown, key: string): T {
-  const obj = deps as Record<string, unknown>;
-  const fn = obj[key];
-  if (typeof fn !== "function") {
-    throw new Error(`Missing required dependency function: ${key}`);
-  }
-  return fn as unknown as T;
-}
-
-function requireObj<T extends object>(deps: unknown, key: string): T {
-  const obj = deps as Record<string, unknown>;
-  const target = obj[key];
-  if (!target || typeof target !== "object") {
-    throw new Error(`Missing required dependency object: ${key}`);
-  }
-  return target as T;
-}
 
 /**
  * Cleanup Flow Implementation
@@ -35,6 +13,13 @@ function requireObj<T extends object>(deps: unknown, key: string): T {
  */
 export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
   const { state } = ctx;
+  const setSessionModel = (sessionKey: string, modelRef: string) =>
+    deps.setSessionModel(sessionKey, modelRef);
+  const emitPhase = (params: Parameters<typeof deps.emitPhaseSafely>[0]) =>
+    deps.emitPhaseSafely(params);
+  const stopTypingIndicator = (params: Parameters<typeof deps.stopTypingIndicator>[0]) =>
+    deps.stopTypingIndicator(params);
+  const { logger } = deps;
 
   // Artifact Extraction
   const sessionKey = typeof state.sessionKey === "string" ? state.sessionKey : undefined;
@@ -48,27 +33,6 @@ export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
     typeof state.stopTyping === "function"
       ? (state.stopTyping as () => Promise<void> | void)
       : undefined;
-
-  // Dependency Extraction
-  const setSessionModel = requireFn<(sk: string, m: string) => Promise<void>>(
-    deps,
-    "setSessionModel",
-  );
-  const emitPhase = requireFn<
-    (p: { phase: InteractionPhase; payload: PhasePayload }) => Promise<void>
-  >(deps, "emitPhaseSafely");
-  const stopTypingIndicator = requireFn<
-    (p: {
-      stop?: () => Promise<void> | void;
-      sessionKey: string;
-      agentId: string;
-      peerId: string;
-    }) => Promise<void>
-  >(deps, "stopTypingIndicator");
-  const logger = requireObj<{ warn: (o: Record<string, unknown>, m: string) => void }>(
-    deps,
-    "logger",
-  );
 
   // 1. Model Restoration
   if (sessionKey && restoreModelRef) {

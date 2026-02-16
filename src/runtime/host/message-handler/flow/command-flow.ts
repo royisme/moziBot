@@ -1,25 +1,9 @@
 import type { CommandFlow } from "../contract";
 import {
   type ParsedCommand,
-  type CommandHandlerMap,
   type CommandDispatchContext,
   dispatchParsedCommand,
 } from "../services/command-handlers";
-
-/**
- * Runtime-guarded helper to ensure a function exists on an unknown object.
- */
-function requireFn<T extends (...args: unknown[]) => unknown>(deps: unknown, key: string): T {
-  if (!deps || typeof deps !== "object") {
-    throw new Error(`Missing dependency container for function: ${key}`);
-  }
-  const obj = deps as Record<string, unknown>;
-  const fn = obj[key];
-  if (typeof fn !== "function") {
-    throw new Error(`Missing required dependency function: ${key}`);
-  }
-  return fn as T;
-}
 
 /**
  * Type guard for ParsedCommand structure.
@@ -41,6 +25,8 @@ function isParsedCommand(obj: unknown): obj is ParsedCommand {
  */
 export const runCommandFlow: CommandFlow = async (ctx, deps) => {
   const { state, payload } = ctx;
+  const getHandlerMap = () => deps.getCommandHandlerMap();
+  const getChannel = (p: unknown) => deps.getChannel(p);
 
   // 1. Narrow guard for parsed command artifact from Inbound Flow
   const rawCommand = state.parsedCommand;
@@ -76,9 +62,6 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
     }
 
     // 3. Obtain injected command handler map and channel from deps
-    const getHandlerMap = requireFn<() => CommandHandlerMap>(deps, "getCommandHandlerMap");
-    const getChannel = requireFn<(p: unknown) => unknown>(deps, "getChannel");
-
     const handlerMap = getHandlerMap();
     const channel = getChannel(payload);
 
