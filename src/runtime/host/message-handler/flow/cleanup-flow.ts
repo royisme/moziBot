@@ -112,4 +112,5 @@ export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
   // Ensures state isn't polluted for subsequent (theoretical) re-runs or middleware
   delete state.stopTyping;
   delete state.capabilityRestoreModelRef;
+  delete state.streamingBuffer;
 };

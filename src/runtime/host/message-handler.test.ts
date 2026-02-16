@@ -791,6 +791,63 @@ describe("MessageHandler commands", () => {
     expect(notice).toContain("quotio/local/minimax-m2.1");
   });
 
+  it("delivers final content when stream edit fails after fallback switch", async () => {
+    const editMessage = vi.fn(async () => {
+      throw new Error("telegram edit failed");
+    });
+    (channel as unknown as { editMessage?: typeof editMessage }).editMessage = editMessage;
+
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{
+          agent: { messages: Array<{ role: string; content: string }> };
+          modelRef: string;
+        }>;
+      };
+      runPromptWithFallback: (params: {
+        onFallback?: (info: {
+          fromModel: string;
+          toModel: string;
+          attempt: number;
+          error: string;
+        }) => Promise<void> | void;
+        onStream?: (event: { type: "text_delta"; delta?: string }) => Promise<void> | void;
+      }) => Promise<void>;
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      await params.onFallback?.({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        attempt: 1,
+        error: "400 model failure",
+      });
+      await params.onStream?.({ type: "text_delta", delta: "draft response" });
+    });
+
+    h.agentManager.getAgent = async () => ({
+      modelRef: "quotio/local/minimax-m2.1",
+      agent: {
+        messages: [{ role: "assistant", content: "final response" }],
+      },
+    });
+
+    await handler.handle(createMessage("hello"), channel);
+
+    const sentTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const fallbackNotice = sentTexts.find((line) =>
+      line.includes("Primary model failed this turn"),
+    );
+    const finalSent = sentTexts.find((line) => line === "final response");
+
+    expect(fallbackNotice).toContain("quotio/local/minimax-m2.1");
+    expect(finalSent).toBe("final response");
+    expect(sentTexts.includes("(no response)")).toBe(false);
+  });
+
   it("does not send audio degradation notice when transcript is available", async () => {
     ensureSessionModelForInput.mockResolvedValue({
       ok: false,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chunkMessage,
+  isTelegramMessageNotModifiedError,
   isTelegramParseError,
   markdownToTelegramHtml,
   TELEGRAM_MAX_MESSAGE_LENGTH,
@@ -28,6 +29,15 @@ describe("telegram render", () => {
       }),
     ).toBe(true);
     expect(isTelegramParseError({ message: "network timeout" })).toBe(false);
+  });
+
+  it("detects telegram message-not-modified errors", () => {
+    expect(
+      isTelegramMessageNotModifiedError({
+        description: "Bad Request: message is not modified",
+      }),
+    ).toBe(true);
+    expect(isTelegramMessageNotModifiedError({ message: "network timeout" })).toBe(false);
   });
 });
 

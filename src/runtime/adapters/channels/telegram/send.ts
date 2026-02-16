@@ -4,6 +4,7 @@ import type { OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import {
   chunkMessage,
+  isTelegramMessageNotModifiedError,
   isTelegramParseError,
   markdownToTelegramHtml,
   TELEGRAM_MAX_MESSAGE_LENGTH,
@@ -156,6 +157,10 @@ export async function editMsg(
       parse_mode: "HTML",
     });
   } catch (error) {
+    if (isTelegramMessageNotModifiedError(error)) {
+      return;
+    }
+
     if (isTelegramParseError(error)) {
       logger.warn(
         { error, messageId },
@@ -164,13 +169,18 @@ export async function editMsg(
       try {
         await bot.api.editMessageText(peerId, parseInt(messageId), newText);
       } catch (fallbackError) {
+        if (isTelegramMessageNotModifiedError(fallbackError)) {
+          return;
+        }
         logger.warn(
           { error: fallbackError, messageId },
           "Failed to edit message (plain text fallback)",
         );
+        throw fallbackError;
       }
     } else {
       logger.warn({ error, messageId }, "Failed to edit message");
+      throw error;
     }
   }
 }

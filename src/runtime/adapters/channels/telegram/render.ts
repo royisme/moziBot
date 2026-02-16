@@ -8,6 +8,7 @@ const markdown = new MarkdownIt({
 });
 
 const PARSE_ERROR_RE = /can't parse entities|Bad Request: can't parse entities/i;
+const MESSAGE_NOT_MODIFIED_RE = /message is not modified/i;
 
 function normalizeAllowedTags(html: string): string {
   let result = html;
@@ -59,6 +60,21 @@ export function isTelegramParseError(error: unknown): boolean {
         ? (record as { error?: { description?: string } }).error?.description || ""
         : "";
   return PARSE_ERROR_RE.test(`${message} ${description}`);
+}
+
+export function isTelegramMessageNotModifiedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const record = error as Record<string, unknown>;
+  const message = typeof record.message === "string" ? record.message : "";
+  const description =
+    typeof record.description === "string"
+      ? record.description
+      : typeof (record as { error?: { description?: string } }).error?.description === "string"
+        ? (record as { error?: { description?: string } }).error?.description || ""
+        : "";
+  return MESSAGE_NOT_MODIFIED_RE.test(`${message} ${description}`);
 }
 
 export const TELEGRAM_MAX_MESSAGE_LENGTH = CHANNEL_TEXT_LIMITS.telegram;

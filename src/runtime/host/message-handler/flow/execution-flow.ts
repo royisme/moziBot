@@ -132,7 +132,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const channel = getChannel(payload);
   const supportsStreaming = typeof channel.editMessage === "function";
   let streamingBuffer: StreamingBuffer | undefined;
-  let streamStarted = false;
+  let streamTerminalText: string | undefined;
 
   // 3. Prompt Execution
   if (supportsStreaming) {
@@ -142,6 +142,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
         logger.warn({ traceId: ctx.traceId, err, sessionKey, agentId }, "Streaming buffer error"),
       traceId: ctx.traceId,
     });
+    state.streamingBuffer = streamingBuffer;
 
     await runPrompt({
       sessionKey,
@@ -159,11 +160,11 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       },
       onStream: async (event) => {
         if (event.type === "text_delta" && event.delta) {
-          if (!streamStarted) {
-            await streamingBuffer?.initialize();
-            streamStarted = true;
-          }
           streamingBuffer?.append(event.delta);
+        } else if (event.type === "agent_end") {
+          if (event.fullText) {
+            streamTerminalText = event.fullText;
+          }
         } else if (event.type === "tool_start") {
           void emitPhase({
             phase: "executing",
@@ -211,7 +212,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       { traceId: ctx.traceId, sessionKey, agentId },
       "Assistant replied with silent token. Suppression active.",
     );
-    if (streamingBuffer && streamStarted) {
+    if (streamingBuffer) {
       state.outboundId = await finalizeStreaming({ buffer: streamingBuffer });
     }
     return "handled";
@@ -222,7 +223,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       { traceId: ctx.traceId, sessionKey, agentId },
       "Heartbeat acknowledged. Suppressing redundant OK reply.",
     );
-    if (streamingBuffer && streamStarted) {
+    if (streamingBuffer) {
       state.outboundId = await finalizeStreaming({ buffer: streamingBuffer });
     }
     return "handled";
@@ -237,12 +238,22 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   });
 
   let outboundId: string | null = null;
-  if (streamingBuffer && streamStarted) {
-    outboundId = await finalizeStreaming({ buffer: streamingBuffer, replyText });
+  const terminalReplyText = replyText ?? streamTerminalText;
+  if (streamingBuffer) {
+    outboundId = await finalizeStreaming({ buffer: streamingBuffer, replyText: terminalReplyText });
+    if (!outboundId) {
+      const outbound = buildOutbound({
+        channelId: channel.id,
+        replyText: terminalReplyText,
+        inboundPlan: ingestPlanArtifact,
+      });
+      outbound.traceId = ctx.traceId;
+      outboundId = await sendReply({ peerId, outbound });
+    }
   } else {
     const outbound = buildOutbound({
       channelId: channel.id,
-      replyText,
+      replyText: terminalReplyText,
       inboundPlan: ingestPlanArtifact,
     });
     outbound.traceId = ctx.traceId;

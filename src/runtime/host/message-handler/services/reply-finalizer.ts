@@ -11,6 +11,7 @@ import { renderAssistantReply, isSilentReplyText } from "../../reply-utils";
 export interface AssistantMessageShape {
   readonly role: string;
   readonly content?: unknown;
+  readonly stopReason?: unknown;
 }
 
 export interface MessageRawShape {
@@ -31,6 +32,18 @@ export function resolveLastAssistantReplyText(params: {
   const lastAssistant = [...messages].toReversed().find((m) => m.role === "assistant");
 
   if (!lastAssistant) {
+    return undefined;
+  }
+
+  const stopReason =
+    typeof lastAssistant.stopReason === "string" ? lastAssistant.stopReason.toLowerCase() : "";
+  const isToolUseTerminal =
+    stopReason === "tooluse" ||
+    stopReason === "tool_use" ||
+    stopReason === "tool_calls" ||
+    stopReason === "function_call";
+
+  if (isToolUseTerminal) {
     return undefined;
   }
 

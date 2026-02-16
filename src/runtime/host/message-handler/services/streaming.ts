@@ -1,10 +1,3 @@
-/**
- * Streaming Service
- *
- * Manages character-and-time-based debounce for message updates and
- * handles mapping of agent session events to streaming callbacks.
- */
-
 export interface StreamEvent {
   readonly type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
   readonly delta?: string;
@@ -77,13 +70,17 @@ export async function handleAgentStreamEvent(
  * Preserves monolith behavior parity (500ms, 50 chars, check !this.buffer).
  */
 export class StreamingBuffer {
-  private static readonly FLUSH_INTERVAL_MS = 500;
+  private static readonly FLUSH_INTERVAL_MS = 1000;
   private static readonly MIN_CHARS_TO_FLUSH = 50;
 
   private buffer = "";
   private lastFlushTime = Date.now();
+  private lastSentText = "";
   private messageId: string | null = null;
   private flushTimer: NodeJS.Timeout | null = null;
+  private streamFailed = false;
+  private finalized = false;
+  private inFlight: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly channel: StreamingBufferChannel,
@@ -92,26 +89,31 @@ export class StreamingBuffer {
     private readonly traceId?: string,
   ) {}
 
-  /**
-   * Initializes the stream by sending a placeholder.
-   */
   async initialize(): Promise<void> {
-    try {
-      this.messageId = await this.channel.send(this.peerId, { text: "⏳", traceId: this.traceId });
-    } catch (error) {
-      this.handleError(error);
-    }
+    return;
   }
 
   /**
    * Appends text and schedules a potential flush.
    */
   append(text: string): void {
+    if (this.finalized || !text) {
+      return;
+    }
     this.buffer += text;
-    this.scheduleFlush();
+    this.scheduleFlush(this.messageId === null);
   }
 
-  private scheduleFlush(): void {
+  private scheduleFlush(forceImmediate = false): void {
+    if (this.finalized) {
+      return;
+    }
+
+    if (forceImmediate) {
+      void this.flush();
+      return;
+    }
+
     if (this.flushTimer) {
       return;
     }
@@ -133,45 +135,106 @@ export class StreamingBuffer {
   }
 
   private async flush(): Promise<void> {
+    if (this.finalized) {
+      return;
+    }
+
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
 
-    // Monolith parity: check !this.buffer (NOT trim)
-    if (!this.messageId || !this.buffer) {
+    if (!this.buffer) {
       return;
     }
 
-    try {
-      await this.channel.editMessage(this.messageId, this.peerId, this.buffer);
-      this.lastFlushTime = Date.now();
-    } catch (error) {
-      this.handleError(error);
-    }
+    const targetText = this.buffer;
+
+    this.inFlight = this.inFlight.then(async () => {
+      if (this.finalized || this.streamFailed) {
+        return;
+      }
+
+      try {
+        if (!this.messageId) {
+          this.messageId = await this.channel.send(this.peerId, {
+            text: targetText,
+            traceId: this.traceId,
+          });
+        } else if (targetText !== this.lastSentText) {
+          await this.channel.editMessage(this.messageId, this.peerId, targetText);
+        }
+
+        this.lastSentText = targetText;
+        this.lastFlushTime = Date.now();
+      } catch (error) {
+        this.streamFailed = true;
+        this.handleError(error);
+      }
+    });
+
+    await this.inFlight;
   }
 
   /**
    * Finalizes the stream with the full text.
    */
   async finalize(finalText?: string): Promise<string | null> {
+    this.finalized = true;
+
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
 
-    if (!this.messageId) {
-      return null;
+    try {
+      await this.inFlight;
+    } catch (error) {
+      this.handleError(error);
     }
 
-    const textToSend = finalText || this.buffer || "(no response)";
+    const textToSend = (finalText || this.buffer || "").trim();
+
+    if (!textToSend) {
+      return this.messageId;
+    }
+
+    if (!this.messageId) {
+      try {
+        this.messageId = await this.channel.send(this.peerId, {
+          text: textToSend,
+          traceId: this.traceId,
+        });
+        this.lastSentText = textToSend;
+        return this.messageId;
+      } catch (error) {
+        this.handleError(error);
+        return null;
+      }
+    }
+
+    if (this.lastSentText === textToSend && !this.streamFailed) {
+      return this.messageId;
+    }
 
     try {
       await this.channel.editMessage(this.messageId, this.peerId, textToSend);
+      this.lastSentText = textToSend;
       return this.messageId;
     } catch (error) {
       this.handleError(error);
-      return this.messageId;
+      try {
+        const fallbackId = await this.channel.send(this.peerId, {
+          text: textToSend,
+          traceId: this.traceId,
+        });
+        this.messageId = fallbackId;
+        this.lastSentText = textToSend;
+        return fallbackId;
+      } catch (sendError) {
+        this.handleError(sendError);
+        return this.messageId;
+      }
     }
   }
 

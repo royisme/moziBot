@@ -38,6 +38,12 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const sessionKey = typeof state.sessionKey === "string" ? state.sessionKey : undefined;
   const agentId = typeof state.agentId === "string" ? state.agentId : undefined;
   const peerId = typeof state.peerId === "string" ? state.peerId : undefined;
+  const streamingBuffer =
+    state.streamingBuffer &&
+    typeof state.streamingBuffer === "object" &&
+    typeof (state.streamingBuffer as { finalize?: unknown }).finalize === "function"
+      ? (state.streamingBuffer as { finalize: (text?: string) => Promise<string | null> })
+      : undefined;
 
   // Dependency Extraction
   const toError = requireFn<(e: unknown) => Error>(deps, "toError");
@@ -70,12 +76,24 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
         { traceId: ctx.traceId, sessionKey, agentId, error: err.message },
         "Message handling aborted",
       );
+      if (streamingBuffer) {
+        try {
+          await streamingBuffer.finalize();
+        } catch {}
+      }
       return "handled";
     }
 
     // 4. User-facing Error Reply
     if (peerId) {
       const errorText = createErrorReplyText(err);
+
+      if (streamingBuffer) {
+        try {
+          await streamingBuffer.finalize(errorText);
+          return "handled";
+        } catch {}
+      }
 
       try {
         const outbound = { text: errorText, traceId: ctx.traceId };
