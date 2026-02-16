@@ -4,10 +4,11 @@ import type { SandboxConfig } from "../sandbox/types";
 import {
   checkBootstrapState,
   loadHomeFiles,
-  buildContextWithBootstrap,
   type BootstrapState,
+  type HomeFile,
 } from "../../agents/home";
 import { loadWorkspaceFiles, buildWorkspaceContext } from "../../agents/workspace";
+import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
 
 export function buildChannelContext(message: InboundMessage): string {
   const lines: string[] = ["# Channel Context"];
@@ -79,6 +80,86 @@ export function buildSkillsSection(skillsPrompt: string, tools?: string[]): stri
   return lines.join("\n");
 }
 
+function buildWorkAssistantContract(): string {
+  const lines = [
+    "# Core Constraints",
+    "You are a work assistant, not a chatbot.",
+    "Be concise and useful. Avoid filler phrases and performative politeness.",
+    "Prefer tool execution and concrete actions over generic discussion.",
+    "If no outbound reply is needed, return the exact token NO_REPLY.",
+    `Silent token: ${SILENT_REPLY_TOKEN}`,
+    "When constraints conflict, prioritize safety and project/workspace rules over style.",
+  ];
+  return lines.join("\n");
+}
+
+function indexHomeFiles(files: HomeFile[]): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const file of files) {
+    if (file.missing) {
+      continue;
+    }
+    const content = file.content.trim();
+    if (!content) {
+      continue;
+    }
+    index.set(file.name, content);
+  }
+  return index;
+}
+
+function buildProjectWorkspaceRules(params: {
+  homeIndex: Map<string, string>;
+  workspaceContext: string;
+}): string | null {
+  const sections: string[] = ["# Project & Workspace Rules"];
+
+  const agents = params.homeIndex.get("AGENTS.md");
+  if (agents) {
+    sections.push("## AGENTS.md", agents);
+  }
+
+  if (params.workspaceContext.trim()) {
+    sections.push(params.workspaceContext);
+  }
+
+  const heartbeat = params.homeIndex.get("HEARTBEAT.md");
+  if (heartbeat) {
+    sections.push("## HEARTBEAT.md", heartbeat);
+  }
+
+  return sections.length > 1 ? sections.join("\n\n") : null;
+}
+
+function buildIdentityPersona(params: { homeIndex: Map<string, string> }): string | null {
+  const sections: string[] = ["# Identity & Persona"];
+
+  const orderedFiles = ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const;
+  for (const fileName of orderedFiles) {
+    const content = params.homeIndex.get(fileName);
+    if (!content) {
+      continue;
+    }
+    sections.push(`## ${fileName}`, content);
+  }
+
+  return sections.length > 1 ? sections.join("\n\n") : null;
+}
+
+function buildBootstrapSection(bootstrapState: BootstrapState): string | null {
+  if (!bootstrapState.isBootstrapping || !bootstrapState.bootstrapContent?.trim()) {
+    return null;
+  }
+
+  const lines = [
+    "# Bootstrap Mode",
+    bootstrapState.bootstrapContent.trim(),
+    "IMPORTANT: Complete bootstrap and then call complete_bootstrap.",
+  ];
+
+  return lines.join("\n\n");
+}
+
 export async function buildSystemPrompt(params: {
   homeDir: string;
   workspaceDir: string;
@@ -89,16 +170,10 @@ export async function buildSystemPrompt(params: {
   skillLoader?: SkillLoader;
   skillsIndexSynced: Set<string>;
 }): Promise<string> {
-  // Check bootstrap state from home directory
   const bootstrapState = await checkBootstrapState(params.homeDir);
-
-  // Load home files (agent identity)
   const homeFiles = await loadHomeFiles(params.homeDir);
+  const homeIndex = indexHomeFiles(homeFiles);
 
-  // Build home context with bootstrap instructions if needed
-  const homeContext = buildContextWithBootstrap(homeFiles, bootstrapState);
-
-  // Load workspace files (TOOLS.md)
   const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
   const workspaceContext = buildWorkspaceContext(workspaceFiles, params.workspaceDir);
 
@@ -114,31 +189,40 @@ export async function buildSystemPrompt(params: {
 
   const sections: string[] = [];
 
+  sections.push(buildWorkAssistantContract());
+
+  if (params.basePrompt?.trim()) {
+    sections.push("# Runtime Base Prompt\n" + params.basePrompt.trim());
+  }
+
+  const projectWorkspace = buildProjectWorkspaceRules({ homeIndex, workspaceContext });
+  if (projectWorkspace) {
+    sections.push(projectWorkspace);
+  }
+
+  const identityPersona = buildIdentityPersona({ homeIndex });
+  if (identityPersona) {
+    sections.push(identityPersona);
+  }
+
+  const runtimeContextParts: string[] = [];
+  const bootstrapNote = buildBootstrapSection(bootstrapState);
+  if (bootstrapNote) {
+    runtimeContextParts.push(bootstrapNote);
+  }
+  const toolsNote = buildToolsSection(params.tools);
+  if (toolsNote) {
+    runtimeContextParts.push(toolsNote);
+  }
   const sandboxNote = buildSandboxPrompt({
     workspaceDir: params.workspaceDir,
     sandboxConfig: params.sandboxConfig,
   });
-  const toolsNote = buildToolsSection(params.tools);
-  if (params.basePrompt) {
-    sections.push(params.basePrompt);
-  }
-
-  // Add home context (identity + bootstrap if applicable)
-  if (homeContext) {
-    sections.push(`# Agent Identity\n${homeContext}`);
-  }
-
-  // Add workspace context
-  if (workspaceContext) {
-    sections.push(workspaceContext);
-  }
-
-  if (toolsNote) {
-    sections.push(toolsNote);
-  }
-
   if (sandboxNote) {
-    sections.push(sandboxNote);
+    runtimeContextParts.push(sandboxNote);
+  }
+  if (runtimeContextParts.length > 0) {
+    sections.push("# Runtime Context\n\n" + runtimeContextParts.join("\n\n"));
   }
 
   if (skillsPrompt) {

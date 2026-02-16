@@ -171,6 +171,16 @@ export class HeartbeatRunner {
       return;
     }
 
+    const heartbeatPrompt = [
+      effectivePrompt,
+      "",
+      "HEARTBEAT_FILE_BEGIN",
+      content.trim(),
+      "HEARTBEAT_FILE_END",
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n");
+
     const inbound: InboundMessage = {
       id: `heartbeat-${Date.now()}`,
       channel: lastRoute.channelId,
@@ -180,7 +190,7 @@ export class HeartbeatRunner {
       threadId: lastRoute.threadId,
       senderId: "heartbeat",
       senderName: "Heartbeat",
-      text: effectivePrompt,
+      text: heartbeatPrompt,
       timestamp: new Date(),
       raw: { source: "heartbeat" },
     };

@@ -6,7 +6,6 @@ import type { ChannelPlugin } from "./runtime/adapters/channels/plugin";
 import { AgentExecutor } from "./agents/runner";
 import { SkillLoader } from "./agents/skills/loader";
 import { ChannelRegistry } from "./runtime/adapters/channels/registry";
-import { AgentBindings } from "./runtime/host/agents/bindings";
 import { ConfigManager } from "./runtime/host/config-manager";
 import { CronScheduler } from "./runtime/host/cron/scheduler";
 import { SessionManager } from "./runtime/host/sessions/manager";
@@ -43,7 +42,6 @@ describe("Mozi Integration", () => {
     const configPath = join(TEST_DIR, "mozi.config.json");
     const configManager = new ConfigManager(configPath);
     const sessionManager = new SessionManager();
-    const agentBindings = new AgentBindings();
     const channelRegistry = new ChannelRegistry();
     const agentExecutor = new AgentExecutor({
       containerImage: "mozi-agent:latest",
@@ -51,62 +49,27 @@ describe("Mozi Integration", () => {
       defaultModel: "quotio/gemini-3-flash-preview",
     });
     const cronScheduler = new CronScheduler();
-    const skillLoader = new SkillLoader(join(TEST_DIR, "skills"));
+    const skillLoader = new SkillLoader([join(TEST_DIR, "skills")]);
 
     expect(configManager).toBeDefined();
     expect(sessionManager).toBeDefined();
-    expect(agentBindings).toBeDefined();
     expect(channelRegistry).toBeDefined();
     expect(agentExecutor).toBeDefined();
     expect(cronScheduler).toBeDefined();
     expect(skillLoader).toBeDefined();
   });
 
-  // Test session + agent binding flow
-  test("session routes to correct agent via bindings", async () => {
-    const agentBindings = new AgentBindings();
-
-    agentBindings.load({
-      agents: [
-        { id: "main", name: "Main Agent", workspace: "/tmp" },
-        {
-          id: "coder",
-          name: "Coder Agent",
-          workspace: "/tmp",
-          model: "quotio/gemini-3-flash-preview",
-        },
-      ],
-      bindings: [
-        {
-          agentId: "coder",
-          match: { channel: "discord", peer: { id: "12345", kind: "group" } },
-        },
-      ],
-      defaultAgent: "main",
-    });
-
+  // Test session key routing compatibility with current runtime model
+  test("session manager key format remains stable for agent/channel/peer", async () => {
     const sessionManager = new SessionManager();
 
-    // Resolve for matched binding
-    const agent1 = agentBindings.resolve({
-      channel: "discord",
-      peerId: "12345",
-      peerKind: "group",
-    });
-    expect(agent1.id).toBe("coder");
-
-    // Resolve for default
-    const agent2 = agentBindings.resolve({
-      channel: "telegram",
-      peerId: "67890",
-      peerKind: "dm",
-    });
-    expect(agent2.id).toBe("main");
-
-    const key = SessionManager.buildKey(agent1.id, "discord", "group", "12345");
+    const key = SessionManager.buildKey("coder", "discord", "group", "12345");
     const session = await sessionManager.getOrCreate(key, { peerType: "group" });
+
     expect(session.agentId).toBe("coder");
     expect(session.channel).toBe("discord");
+    expect(session.peerType).toBe("group");
+    expect(session.peerId).toBe("12345");
   });
 
   // Test channel registry with mock plugin

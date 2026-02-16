@@ -1,0 +1,101 @@
+import { describe, expect, it, vi } from "vitest";
+import { buildSystemPrompt } from "./prompt-builder";
+
+vi.mock("../../agents/home", () => ({
+  checkBootstrapState: vi.fn(async () => ({
+    isBootstrapping: false,
+    bootstrapPath: "/tmp/home/BOOTSTRAP.md",
+  })),
+  loadHomeFiles: vi.fn(async () => [
+    {
+      name: "AGENTS.md",
+      path: "/tmp/home/AGENTS.md",
+      content: "Project rules first",
+      missing: false,
+    },
+    {
+      name: "SOUL.md",
+      path: "/tmp/home/SOUL.md",
+      content: "Be sharp and practical",
+      missing: false,
+    },
+    {
+      name: "IDENTITY.md",
+      path: "/tmp/home/IDENTITY.md",
+      content: "Name: Mozi",
+      missing: false,
+    },
+    {
+      name: "USER.md",
+      path: "/tmp/home/USER.md",
+      content: "User: Roy",
+      missing: false,
+    },
+    {
+      name: "MEMORY.md",
+      path: "/tmp/home/MEMORY.md",
+      content: "Remember delivery ownership",
+      missing: false,
+    },
+    {
+      name: "HEARTBEAT.md",
+      path: "/tmp/home/HEARTBEAT.md",
+      content: "@heartbeat enabled=on",
+      missing: false,
+    },
+  ]),
+}));
+
+vi.mock("../../agents/workspace", () => ({
+  loadWorkspaceFiles: vi.fn(async () => [
+    {
+      name: "TOOLS.md",
+      path: "/tmp/workspace/TOOLS.md",
+      content: "Use project tools",
+      missing: false,
+    },
+  ]),
+  buildWorkspaceContext: vi.fn(
+    () => "# Workspace\nPath: /tmp/workspace\n## TOOLS.md\nUse project tools",
+  ),
+}));
+
+describe("buildSystemPrompt", () => {
+  it("builds layered prompt with explicit precedence and skills last", async () => {
+    const skillLoader = {
+      loadAll: vi.fn(async () => {}),
+      syncHomeIndex: vi.fn(async () => {}),
+      formatForPrompt: vi.fn(() => "skill-a\nskill-b"),
+    };
+
+    const prompt = await buildSystemPrompt({
+      homeDir: "/tmp/home",
+      workspaceDir: "/tmp/workspace",
+      basePrompt: "Base runtime directives",
+      skills: ["skill-a"],
+      tools: ["bash", "read", "skills_note"],
+      skillLoader: skillLoader as never,
+      skillsIndexSynced: new Set<string>(),
+    });
+
+    const coreIdx = prompt.indexOf("# Core Constraints");
+    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
+    const identityIdx = prompt.indexOf("# Identity & Persona");
+    const runtimeIdx = prompt.indexOf("# Runtime Context");
+    const skillsIdx = prompt.indexOf("# Skills");
+
+    expect(coreIdx).toBeGreaterThanOrEqual(0);
+    expect(rulesIdx).toBeGreaterThan(coreIdx);
+    expect(identityIdx).toBeGreaterThan(rulesIdx);
+    expect(runtimeIdx).toBeGreaterThan(identityIdx);
+    expect(skillsIdx).toBeGreaterThan(runtimeIdx);
+
+    expect(prompt).toContain("Silent token: NO_REPLY");
+    expect(prompt).toContain("## AGENTS.md");
+    expect(prompt).toContain("## SOUL.md");
+    expect(prompt).toContain("# Workspace");
+    expect(prompt).toContain(
+      "After using a skill, record key learnings with the skills_note tool.",
+    );
+  });
+});

@@ -1,4 +1,3 @@
-import type { AgentConfig } from "../runtime/host/agents/types";
 import type { Session } from "../runtime/host/sessions/types";
 import { type ContainerConfig, ContainerRuntime } from "../container/runtime";
 import { agentEvents } from "../infra/agent-events";
@@ -10,6 +9,12 @@ export interface ExecutorConfig {
   defaultModel: string;
   apiBaseUrl?: string;
   apiKey?: string;
+}
+
+export interface AgentRuntimeConfig {
+  id: string;
+  workspace: string;
+  model?: string;
 }
 
 export interface AgentRun {
@@ -34,7 +39,7 @@ export class AgentExecutor {
   }
 
   // Start agent for a session
-  async start(session: Session, agent: AgentConfig, prompt: string): Promise<AgentRun> {
+  async start(session: Session, agent: AgentRuntimeConfig, prompt: string): Promise<AgentRun> {
     const runId = crypto.randomUUID();
     const containerName = `mozi-agent-${runId.slice(0, 8)}`;
 

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, vi, test } from "vitest";
-import type { AgentConfig } from "../../runtime/host/agents/types";
-import type { Session } from "../../runtime/host/sessions/types";
-import { AgentExecutor, type ExecutorConfig } from "./runner";
+import type { Session } from "../runtime/host/sessions/types";
+import { AgentExecutor, type AgentRuntimeConfig, type ExecutorConfig } from "./runner";
 
 describe("AgentExecutor", () => {
   let executor: AgentExecutor;
-  let mockRuntime: unknown;
+  let mockRuntime: {
+    create: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+    remove: ReturnType<typeof vi.fn>;
+  };
 
   const config: ExecutorConfig = {
     containerImage: "mozi-agent-base:latest",
@@ -26,26 +29,29 @@ describe("AgentExecutor", () => {
     lastActiveAt: new Date(),
   };
 
-  const agent: AgentConfig = {
+  const agent: AgentRuntimeConfig = {
     id: "agent-1",
-    name: "Test Agent",
     workspace: "/tmp/mozi/agent-1",
     model: "gpt-3.5-turbo",
   };
 
   beforeEach(() => {
     executor = new AgentExecutor(config);
-    mockRuntime = executor.runtime;
 
-    // Mock ContainerRuntime methods
-    mockRuntime.create = vi.fn(async () => ({
-      id: "id",
-      name: "name",
-      status: "running",
-      backend: "docker",
-    }));
-    mockRuntime.stop = vi.fn(async () => {});
-    mockRuntime.remove = vi.fn(async () => {});
+    mockRuntime = {
+      create: vi.fn(async () => ({
+        id: "id",
+        name: "name",
+        status: "running",
+        backend: "docker",
+      })),
+      stop: vi.fn(async () => {}),
+      remove: vi.fn(async () => {}),
+    };
+
+    (executor.runtime as unknown as typeof mockRuntime).create = mockRuntime.create as never;
+    (executor.runtime as unknown as typeof mockRuntime).stop = mockRuntime.stop as never;
+    (executor.runtime as unknown as typeof mockRuntime).remove = mockRuntime.remove as never;
   });
 
   test("start creates container with correct config", async () => {
@@ -57,8 +63,8 @@ describe("AgentExecutor", () => {
     expect(run.containerName).toMatch(/^mozi-agent-[a-f0-9]{8}$/);
 
     expect(mockRuntime.create).toHaveBeenCalled();
-    type MockRuntime = { create: { mock: { calls: unknown[][] } } };
-    const [name, containerConfig] = (mockRuntime as MockRuntime).create.mock.calls[0] as [
+
+    const [name, containerConfig] = mockRuntime.create.mock.calls[0] as [
       string,
       {
         image: string;
@@ -106,7 +112,7 @@ describe("AgentExecutor", () => {
 
     const session1Runs = executor.listRuns(session.key);
     expect(session1Runs.length).toBe(1);
-    expect(session1Runs[0].id).toBe(run1.id);
+    expect(session1Runs[0]?.id).toBe(run1.id);
   });
 
   test("cleanup removes finished runs", async () => {

@@ -52,6 +52,17 @@ type TranscriptMessage = {
   message: unknown;
 };
 
+/**
+ * SessionStore responsibilities (persistence boundary):
+ * - Persist/restore session metadata and transcript segments.
+ * - Provide historical context for future turns.
+ *
+ * Non-responsibilities:
+ * - Must NOT determine current-turn outbound reply ownership.
+ * - Must NOT arbitrate final delivery text versus stream output.
+ *
+ * Delivery ownership is resolved in-turn by runtime execution flow.
+ */
 export class SessionStore {
   private sessionsDir: string;
   private storePath: string;
