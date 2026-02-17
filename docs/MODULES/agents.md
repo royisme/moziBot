@@ -21,6 +21,14 @@ Agent bootstrap behavior is file-driven:
 
 This mirrors OpenClaw-style bootstrap conventions and enables self-bootstrap via repository files.
 
+Language guidance is now explicit in templates:
+
+- `IDENTITY.md` supports `Preferred Language` (for example `zh-CN`, `en`)
+- `USER.md` supports preferred reply language
+- bootstrap tool `update_identity` accepts optional `preferredLanguage`
+
+This is used by `/new` greeting fallback language selection.
+
 ## Runtime Integration Points
 
 Most runtime integration is in `src/runtime/agent-manager.ts`:
@@ -65,10 +73,18 @@ If you edit agent context behavior, inspect `AgentManager` in parallel.
 
 - `pnpm run test`
 - `pnpm run check`
+- `pnpm run test:integration`
 - Targeted tests:
   - `src/agents/runner.test.ts`
   - `src/agents/tools/*.test.ts`
   - `src/agents/skills/*.test.ts`
+  - `src/agents/workspace.integration.test.ts`
+  - `src/runtime/host/message-handler/services/session-control-command.integration.test.ts`
+
+Shared integration runtime harness:
+
+- `tests/harness/runtime-test-harness.ts`
+- `tests/runtime/` (generated per-suite test data, gitignored except `.gitkeep`)
 
 ## Constraints
 

@@ -39,8 +39,8 @@ Offer suggestions if they're stuck. Have fun with it.
 
 After the conversation, use the tools to save what you learned:
 
-1. `update_identity` — Save your name, creature type, vibe, and emoji
-2. `update_user` — Save their name, timezone, and preferences
+1. `update_identity` — Save your name, creature type, vibe, emoji, and preferred language (if known)
+2. `update_user` — Save their name, timezone, preferred language, and preferences
 3. `complete_bootstrap` — Finish setup and remove this file
 
 **Important**: Call `complete_bootstrap` when done. This removes BOOTSTRAP.md

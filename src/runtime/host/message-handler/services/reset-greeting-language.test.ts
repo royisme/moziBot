@@ -22,6 +22,31 @@ Language preference: zh-CN
     expect(extractIdentityLanguageHintFromSystemPrompt(prompt)).toBe("zh-CN");
   });
 
+  it("extracts language hint from markdown-formatted preferred language field", () => {
+    const prompt = `
+# Identity & Persona
+## IDENTITY.md
+- **Preferred Language:** zh-CN
+`;
+    expect(extractIdentityLanguageHintFromSystemPrompt(prompt)).toBe("zh-CN");
+  });
+
+  it("extracts language hint even when identity content includes nested markdown headings", () => {
+    const prompt = `
+# Core Constraints
+text
+
+# Identity & Persona
+## IDENTITY.md
+# IDENTITY.md - Who Am I?
+- **Preferred Language:** zh-CN
+
+# Project & Workspace Rules
+content
+`;
+    expect(extractIdentityLanguageHintFromSystemPrompt(prompt)).toBe("zh-CN");
+  });
+
   it("extracts language hint from chinese preference wording", () => {
     const prompt = `
 # Identity & Persona

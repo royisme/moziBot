@@ -2,7 +2,7 @@ const NEW_SESSION_FALLBACK_TEXT_EN = "New session started (rotated to a new sess
 const NEW_SESSION_FALLBACK_TEXT_ZH_CN = "新会话已开始（已切换到新的会话分段）。";
 
 const LANGUAGE_FIELD_PATTERN =
-  /(?:language\s*preference|preferred\s*language|language|locale|语言偏好|语言)\s*[:：]\s*([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?)/i;
+  /(?:language\s*preference|preferred\s*language|language|locale|语言偏好|语言)\s*[*`_]*\s*[:：]\s*[*`_]*\s*([A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?)/i;
 const LANGUAGE_CODE_PATTERN = /\b(zh(?:-[A-Za-z0-9]{2,8})?|en(?:-[A-Za-z0-9]{2,8})?)\b/i;
 
 function normalizeLanguageTag(raw: string): string {
@@ -37,7 +37,9 @@ export function extractIdentityLanguageHintFromSystemPrompt(
   if (!systemPrompt || !systemPrompt.trim()) {
     return null;
   }
-  const identitySliceMatch = systemPrompt.match(/# Identity & Persona([\s\S]*?)(?:\n# |\s*$)/i);
+  const identitySliceMatch = systemPrompt.match(
+    /# Identity & Persona([\s\S]*?)(?=\n# (?:Project & Workspace Rules|Runtime Context|Skills|Tools)\b|\s*$)/i,
+  );
   const identitySlice = identitySliceMatch?.[1] ?? systemPrompt;
 
   const languageFieldMatch = identitySlice.match(LANGUAGE_FIELD_PATTERN);

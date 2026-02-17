@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, test, describe, beforeAll } from "vitest";
+import { prepareRuntimeTestHarness } from "../../tests/harness/runtime-test-harness";
 import { ensureHome, loadHomeFiles, buildContextFromFiles, HOME_FILES } from "./home";
 import {
   ensureWorkspace,
@@ -9,16 +10,19 @@ import {
   WORKSPACE_FILES,
 } from "./workspace";
 
-const TEST_HOME = path.join(__dirname, "../../test-home");
-const TEST_WORKSPACE = path.join(__dirname, "../../test-workspace");
+let TEST_HOME = "";
+let TEST_WORKSPACE = "";
+
+beforeAll(async () => {
+  const harness = await prepareRuntimeTestHarness({
+    suiteId: "agents-workspace-integration",
+    ensureBootstrapFiles: false,
+  });
+  TEST_HOME = harness.homeDir;
+  TEST_WORKSPACE = harness.workspaceDir;
+});
 
 describe("Home", () => {
-  beforeAll(async () => {
-    try {
-      await fs.rm(TEST_HOME, { recursive: true, force: true });
-    } catch {}
-  });
-
   test("ensureHome should create directory and default files", async () => {
     await ensureHome(TEST_HOME);
 
@@ -66,12 +70,6 @@ describe("Home", () => {
 });
 
 describe("Workspace", () => {
-  beforeAll(async () => {
-    try {
-      await fs.rm(TEST_WORKSPACE, { recursive: true, force: true });
-    } catch {}
-  });
-
   test("ensureWorkspace should create directory and TOOLS.md", async () => {
     await ensureWorkspace(TEST_WORKSPACE);
 

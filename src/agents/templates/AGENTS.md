@@ -23,6 +23,12 @@ Before doing anything else:
 
 Don't ask permission. Just do it.
 
+## Language Priority
+
+- Keep `IDENTITY.md` and `USER.md` language fields explicit (for example `zh-CN`, `en`).
+- For `/new` greeting and reset turns, follow those files instead of defaulting to English.
+- If the user explicitly switches language in chat, follow the latest explicit user preference and then update `USER.md`.
+
 ## Memory
 
 You wake up fresh each session. These files are your continuity:

@@ -9,6 +9,7 @@ export const updateIdentitySchema = z.object({
   name: z.string().describe("The agent's chosen name"),
   creature: z.string().describe("What kind of creature/entity the agent is"),
   vibe: z.string().describe("The agent's personality/communication style"),
+  preferredLanguage: z.string().optional().describe("Preferred reply language (e.g. zh-CN, en)"),
   emoji: z.string().describe("The agent's signature emoji"),
 });
 
@@ -27,17 +28,22 @@ export const updateSoulSchema = z.object({
 });
 
 function formatIdentityContent(data: z.infer<typeof updateIdentitySchema>): string {
-  return `# IDENTITY.md - Who Am I?
+  const lines = [
+    "# IDENTITY.md - Who Am I?",
+    "",
+    `- **Name:** ${data.name}`,
+    `- **Creature:** ${data.creature}`,
+    `- **Vibe:** ${data.vibe}`,
+  ];
 
-- **Name:** ${data.name}
-- **Creature:** ${data.creature}
-- **Vibe:** ${data.vibe}
-- **Emoji:** ${data.emoji}
+  if (data.preferredLanguage) {
+    lines.push(`- **Preferred Language:** ${data.preferredLanguage}`);
+  }
 
----
+  lines.push(`- **Emoji:** ${data.emoji}`);
+  lines.push("", "---", "", "*Identity established during bootstrap ritual.*", "");
 
-*Identity established during bootstrap ritual.*
-`;
+  return lines.join("\n");
 }
 
 function formatUserContent(data: z.infer<typeof updateUserSchema>): string {
@@ -50,7 +56,7 @@ function formatUserContent(data: z.infer<typeof updateUserSchema>): string {
     lines.push(`- **Timezone:** ${data.timezone}`);
   }
   if (data.language) {
-    lines.push(`- **Language:** ${data.language}`);
+    lines.push(`- **Preferred Language:** ${data.language}`);
   }
 
   if (data.notes) {
@@ -75,7 +81,7 @@ export async function handleUpdateIdentity(
   await updateHomeFile(homeDir, HOME_FILES.IDENTITY, content);
   return {
     success: true,
-    message: `Updated IDENTITY.md with name: ${args.name}, creature: ${args.creature}, vibe: ${args.vibe}, emoji: ${args.emoji}`,
+    message: `Updated IDENTITY.md with name: ${args.name}, creature: ${args.creature}, vibe: ${args.vibe}, preferredLanguage: ${args.preferredLanguage ?? "not set"}, emoji: ${args.emoji}`,
   };
 }
 
