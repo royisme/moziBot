@@ -38,6 +38,9 @@
   },
   "extensions": {
     "enabled": true,
+    "policy": {
+      "capabilities": "warn",
+    },
     "load": {
       "paths": ["~/.mozi/extensions"],
     },

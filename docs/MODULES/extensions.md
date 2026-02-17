@@ -18,7 +18,7 @@ It supports three sources:
 - `mcp/client-manager.ts` - MCP transport/tool adaptation into extension records
 - `builtins/*` - bundled extension implementations
 
-## Extension Contract
+## Extension Contract v2
 
 An extension module exports a manifest object:
 
@@ -29,12 +29,16 @@ An extension module exports a manifest object:
   - `hooks[]`
   - `register(api)` for dynamic registration
   - `configSchema` (`safeParse`, `validate`, or `parse`)
+  - `capabilities` (`tools`, `commands`, `hooks`)
+  - lifecycle callbacks: `onStart(ctx)`, `onStop(ctx)`, `onReload(ctx)`
 
 `register(api)` can dynamically call:
 
 - `api.registerTool(...)`
 - `api.registerCommand(...)`
 - `api.registerHook(...)`
+
+`register(api)` is a synchronous load-path callback. Returning a `Promise` is rejected with deterministic diagnostics.
 
 Supported runtime hook names:
 
@@ -43,6 +47,26 @@ Supported runtime hook names:
 - `after_tool_call`
 - `before_reset`
 - `turn_completed`
+
+OpenClaw compatibility facade (minimal set):
+
+- `before_agent_start` -> `before_agent_start`
+- `before_tool_call` -> `before_tool_call`
+- `after_tool_call` -> `after_tool_call`
+- `before_reset` -> `before_reset`
+
+OpenClaw hooks currently diagnosed as unsupported:
+
+- `message_received`
+- `message_sending`
+- `before_message_write`
+- `tool_result_persist`
+
+Capability mismatch policy:
+
+- `extensions.policy.capabilities = "warn" | "enforce"`
+- `warn`: keep extension enabled and emit diagnostics
+- `enforce`: disable extension when declared capabilities mismatch actual registrations
 
 ## Load & Enable Rules
 
@@ -80,6 +104,11 @@ Key config fields (`extensions.entries.openclaw-memory-recall.config`):
 - `maxItems` (default `3`)
 - `maxInjectChars` (default `1200`)
 - `minPromptChars` / `minLineChars`
+
+Builtin style unification:
+
+- Builtins use `register(api)` as the canonical behavior path.
+- Deterministic startup is preserved via explicit imports in `src/extensions/builtins/index.ts`.
 
 ## Integration
 

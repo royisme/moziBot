@@ -158,4 +158,59 @@ describe("ExtensionRegistry", () => {
     expect(registry.list()).toHaveLength(0);
     expect(registry.getDiagnostics()).toHaveLength(0);
   });
+
+  it("invokes onStop lifecycle callbacks during shutdown", async () => {
+    const calls: string[] = [];
+    const registry = new ExtensionRegistry();
+
+    const ext = makeExtension("lifecycle", true);
+    ext.manifest.onStop = async () => {
+      calls.push("stopped");
+    };
+    ext.extensionConfig = { test: true };
+
+    registry.register(ext);
+    await registry.shutdown();
+
+    expect(calls).toEqual(["stopped"]);
+  });
+
+  it("invokes onReload lifecycle callbacks for extensions that existed before reload", async () => {
+    const calls: string[] = [];
+    const registry = new ExtensionRegistry();
+
+    const persisted = makeExtension("persisted", true);
+    persisted.manifest.onReload = async () => {
+      calls.push("persisted");
+    };
+
+    const fresh = makeExtension("fresh", true);
+    fresh.manifest.onReload = async () => {
+      calls.push("fresh");
+    };
+
+    registry.register(persisted);
+    registry.register(fresh);
+
+    await registry.notifyReload(["persisted"]);
+
+    expect(calls).toEqual(["persisted"]);
+  });
+
+  it("records diagnostics when onReload lifecycle callback fails", async () => {
+    const registry = new ExtensionRegistry();
+    const ext = makeExtension("reload-failure", true);
+    ext.manifest.onReload = async () => {
+      throw new Error("reload-failed");
+    };
+    registry.register(ext);
+
+    await registry.notifyReload(["reload-failure"]);
+
+    expect(
+      registry
+        .getDiagnostics()
+        .some((diag) => diag.message.includes("Extension onReload failed: reload-failed")),
+    ).toBe(true);
+  });
 });

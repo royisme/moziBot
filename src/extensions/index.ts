@@ -5,6 +5,7 @@ export { ExtensionRegistry } from "./registry";
 export { initExtensionsAsync, loadExtensions, registerBuiltinExtension } from "./loader";
 export type { BuiltinExtensionFactory } from "./loader";
 export type {
+  ExtensionCapabilities,
   ExtensionCommandContext,
   ExtensionCommandDefinition,
   ExtensionCommandResult,
@@ -12,6 +13,7 @@ export type {
   ExtensionConfigValidation,
   ExtensionDiagnostic,
   ExtensionHookDefinition,
+  ExtensionLifecycleContext,
   ExtensionManifest,
   ExtensionRegisterApi,
   ExtensionToolContext,

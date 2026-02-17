@@ -89,4 +89,51 @@ describe("validateManifest", () => {
     );
     expect(manifest?.skillDirs).toEqual(["/path/to/skills"]);
   });
+
+  it("accepts capabilities and lifecycle callbacks", () => {
+    const { manifest, diagnostics } = validateManifest(
+      {
+        ...validManifest,
+        capabilities: { tools: true, hooks: false },
+        onStart: () => {},
+        onStop: () => {},
+        onReload: () => {},
+      },
+      "test",
+    );
+    expect(manifest).not.toBeNull();
+    expect(manifest?.capabilities).toEqual({ tools: true, hooks: false });
+    expect(typeof manifest?.onStart).toBe("function");
+    expect(typeof manifest?.onStop).toBe("function");
+    expect(typeof manifest?.onReload).toBe("function");
+    expect(diagnostics.some((diag) => diag.level === "error")).toBe(false);
+  });
+
+  it("warns for unknown capability keys", () => {
+    const { manifest, diagnostics } = validateManifest(
+      {
+        ...validManifest,
+        capabilities: { tools: true, unknownFlag: true },
+      },
+      "test",
+    );
+    expect(manifest).not.toBeNull();
+    expect(diagnostics.some((diag) => diag.message.includes("unknown capabilities key"))).toBe(
+      true,
+    );
+  });
+
+  it("warns for non-function lifecycle fields", () => {
+    const { manifest, diagnostics } = validateManifest(
+      {
+        ...validManifest,
+        onStart: "bad",
+      },
+      "test",
+    );
+    expect(manifest).not.toBeNull();
+    expect(diagnostics.some((diag) => diag.message.includes("onStart should be a function"))).toBe(
+      true,
+    );
+  });
 });

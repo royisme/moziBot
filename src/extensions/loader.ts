@@ -5,6 +5,7 @@ import path from "node:path";
 import type { ExtensionsConfig } from "../config/schema/extensions";
 import type { RuntimeHookName } from "../runtime/hooks/types";
 import type {
+  ExtensionCapabilities,
   ExtensionCommandDefinition,
   ExtensionDiagnostic,
   ExtensionManifest,
@@ -37,6 +38,20 @@ const RUNTIME_HOOK_NAMES: Set<RuntimeHookName> = new Set([
   "after_tool_call",
   "before_reset",
   "turn_completed",
+]);
+
+const OPENCLAW_HOOK_COMPAT_MAP: Record<string, RuntimeHookName> = {
+  before_agent_start: "before_agent_start",
+  before_tool_call: "before_tool_call",
+  after_tool_call: "after_tool_call",
+  before_reset: "before_reset",
+};
+
+const OPENCLAW_UNSUPPORTED_HOOKS = new Set([
+  "message_received",
+  "message_sending",
+  "before_message_write",
+  "tool_result_persist",
 ]);
 
 const RESERVED_COMMANDS = new Set([
@@ -401,6 +416,123 @@ function releaseCommandOwnersForExtension(extensionId: string, owners: Map<strin
   }
 }
 
+function resolveRuntimeHookCompatibility(rawHookName: string): {
+  resolvedHookName?: RuntimeHookName;
+  diagnosticMessage?: string;
+} {
+  const normalized = rawHookName.trim();
+  if (!normalized) {
+    return {
+      diagnosticMessage: 'Unknown runtime hook "<empty>"; ignored',
+    };
+  }
+
+  if (normalized in OPENCLAW_HOOK_COMPAT_MAP) {
+    return {
+      resolvedHookName: OPENCLAW_HOOK_COMPAT_MAP[normalized],
+    };
+  }
+
+  if (RUNTIME_HOOK_NAMES.has(normalized as RuntimeHookName)) {
+    return {
+      resolvedHookName: normalized as RuntimeHookName,
+    };
+  }
+
+  if (OPENCLAW_UNSUPPORTED_HOOKS.has(normalized)) {
+    return {
+      diagnosticMessage: `OpenClaw hook "${normalized}" is not supported yet (supported: before_agent_start, before_tool_call, after_tool_call, before_reset)`,
+    };
+  }
+
+  return {
+    diagnosticMessage: `Unknown runtime hook "${normalized}"; ignored`,
+  };
+}
+
+/**
+ * Validate declared capabilities against actually registered resources.
+ * Returns diagnostics for any mismatches.
+ */
+function validateCapabilities(
+  extensionId: string,
+  source: string,
+  capabilities: ExtensionCapabilities,
+  actualTools: ExtensionToolDefinition[],
+  actualCommands: ExtensionCommandDefinition[],
+  actualHooks: ExtensionHookDefinition[],
+  policy: "warn" | "enforce",
+): { diagnostics: ExtensionDiagnostic[]; shouldDisable: boolean } {
+  const diagnostics: ExtensionDiagnostic[] = [];
+  let shouldDisable = false;
+  const level = policy === "enforce" ? "error" : "warn";
+
+  if (capabilities.tools && actualTools.length === 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) declares capability "tools" but registered none`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+  if (capabilities.tools === false && actualTools.length > 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) does not declare capability "tools" but registered ${actualTools.length}`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+
+  if (capabilities.commands && actualCommands.length === 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) declares capability "commands" but registered none`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+  if (capabilities.commands === false && actualCommands.length > 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) does not declare capability "commands" but registered ${actualCommands.length}`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+
+  if (capabilities.hooks && actualHooks.length === 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) declares capability "hooks" but registered none`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+  if (capabilities.hooks === false && actualHooks.length > 0) {
+    diagnostics.push({
+      extensionId,
+      level,
+      message: `Extension "${extensionId}" (${source}) does not declare capability "hooks" but registered ${actualHooks.length}`,
+    });
+    if (policy === "enforce") {
+      shouldDisable = true;
+    }
+  }
+
+  return { diagnostics, shouldDisable };
+}
+
 function loadSingleExtension(params: {
   source: string;
   rawDefinition: unknown;
@@ -474,12 +606,13 @@ function loadSingleExtension(params: {
     };
 
     try {
-      const maybePromise = manifest.register(api);
-      if (maybePromise && typeof (maybePromise as Promise<unknown>).then === "function") {
+      const registerResult = manifest.register(api);
+      if (registerResult && typeof (registerResult as Promise<unknown>).then === "function") {
         diagnostics.push({
           extensionId,
-          level: "warn",
-          message: "Extension register returned a Promise; async registration is ignored",
+          level: "error",
+          message:
+            "Extension register returned a Promise; async register is not supported in sync load path",
         });
       }
     } catch (error) {
@@ -493,12 +626,15 @@ function loadSingleExtension(params: {
 
   const hooks: ExtensionHookDefinition[] = [];
   for (const hook of rawHooks) {
-    const hookName = typeof hook.hookName === "string" ? hook.hookName.trim() : "";
-    if (!hookName || !RUNTIME_HOOK_NAMES.has(hookName as RuntimeHookName)) {
+    const hookName = typeof hook.hookName === "string" ? hook.hookName : "";
+    const hookResolution = resolveRuntimeHookCompatibility(hookName);
+    if (!hookResolution.resolvedHookName) {
       diagnostics.push({
         extensionId,
         level: "warn",
-        message: `Unknown runtime hook "${hookName || "<empty>"}"; ignored`,
+        message:
+          hookResolution.diagnosticMessage ||
+          `Unknown runtime hook "${hookName || "<empty>"}"; ignored`,
       });
       continue;
     }
@@ -506,12 +642,12 @@ function loadSingleExtension(params: {
       diagnostics.push({
         extensionId,
         level: "error",
-        message: `Runtime hook "${hookName}" has no valid handler`,
+        message: `Runtime hook "${hookResolution.resolvedHookName}" has no valid handler`,
       });
       continue;
     }
     hooks.push({
-      hookName: hookName as RuntimeHookName,
+      hookName: hookResolution.resolvedHookName,
       handler: hook.handler,
       priority: typeof hook.priority === "number" ? hook.priority : undefined,
       id: typeof hook.id === "string" && hook.id.trim() ? hook.id.trim() : undefined,
@@ -565,6 +701,53 @@ function loadSingleExtension(params: {
     enabled = false;
   }
 
+  // Capability validation (Contract v2)
+  if (manifest.capabilities && enabled) {
+    const capPolicy = params.config.policy?.capabilities ?? "warn";
+    const capResult = validateCapabilities(
+      extensionId,
+      params.source,
+      manifest.capabilities,
+      rawTools,
+      commands,
+      hooks,
+      capPolicy,
+    );
+    diagnostics.push(...capResult.diagnostics);
+    if (capResult.shouldDisable) {
+      enabled = false;
+    }
+  }
+
+  if (enabled && typeof manifest.onStart === "function") {
+    try {
+      const onStartResult = manifest.onStart({
+        extensionId,
+        extensionConfig: entryConfig,
+      });
+      if (onStartResult && typeof (onStartResult as Promise<unknown>).then === "function") {
+        diagnostics.push({
+          extensionId,
+          level: "error",
+          message:
+            "Extension onStart returned a Promise; async lifecycle start is not supported in sync load path",
+        });
+        enabled = false;
+      }
+    } catch (error) {
+      diagnostics.push({
+        extensionId,
+        level: "error",
+        message: `Extension onStart failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      enabled = false;
+    }
+  }
+
+  if (!enabled) {
+    releaseCommandOwnersForExtension(extensionId, params.commandOwners);
+  }
+
   const tools: AgentTool[] = enabled ? rawTools.map((def) => adaptTool(def, entryConfig)) : [];
   const resolvedHooks = enabled ? hooks : [];
   const resolvedCommands = enabled ? commands : [];
@@ -577,6 +760,7 @@ function loadSingleExtension(params: {
       commands,
     },
     source: params.source,
+    extensionConfig: entryConfig,
     tools,
     hooks: resolvedHooks,
     commands: resolvedCommands,

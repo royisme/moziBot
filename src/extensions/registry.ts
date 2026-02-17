@@ -179,8 +179,60 @@ export class ExtensionRegistry {
     return [...this.allDiagnostics, ...perExt];
   }
 
+  private async runStopLifecycle(ext: LoadedExtension): Promise<void> {
+    if (typeof ext.manifest.onStop !== "function") {
+      return;
+    }
+
+    try {
+      await ext.manifest.onStop({
+        extensionId: ext.manifest.id,
+        extensionConfig: ext.extensionConfig ?? {},
+      });
+    } catch (error) {
+      this.allDiagnostics.push({
+        extensionId: ext.manifest.id,
+        level: "error",
+        message: `Extension onStop failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  private async runReloadLifecycle(ext: LoadedExtension): Promise<void> {
+    if (typeof ext.manifest.onReload !== "function") {
+      return;
+    }
+
+    try {
+      await ext.manifest.onReload({
+        extensionId: ext.manifest.id,
+        extensionConfig: ext.extensionConfig ?? {},
+      });
+    } catch (error) {
+      this.allDiagnostics.push({
+        extensionId: ext.manifest.id,
+        level: "error",
+        message: `Extension onReload failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  async notifyReload(previousExtensionIds: Iterable<string>): Promise<void> {
+    const previousIds = new Set(previousExtensionIds);
+    for (const ext of this.listEnabled()) {
+      if (!previousIds.has(ext.manifest.id)) {
+        continue;
+      }
+      await this.runReloadLifecycle(ext);
+    }
+  }
+
   /** Close all MCP connections and clear state. */
   async shutdown(): Promise<void> {
+    for (const ext of this.listEnabled()) {
+      await this.runStopLifecycle(ext);
+    }
+
     if (this.mcpManager) {
       await this.mcpManager.closeAll();
     }

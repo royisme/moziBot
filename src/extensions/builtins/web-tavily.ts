@@ -263,7 +263,12 @@ function createWebTavilyExtension(_config: Record<string, unknown>): ExtensionMa
     description:
       "Provides web search capabilities via the Tavily API. Requires TAVILY_API_KEY environment variable.",
     configSchema: TavilyConfigSchema,
-    tools: [webSearchTool],
+    capabilities: {
+      tools: true,
+    },
+    register(api) {
+      api.registerTool(webSearchTool);
+    },
   };
 }
 

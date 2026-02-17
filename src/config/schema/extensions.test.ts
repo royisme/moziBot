@@ -117,4 +117,28 @@ describe("Extensions schema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts extension capability policy settings", () => {
+    const result = MoziConfigSchema.safeParse({
+      extensions: {
+        policy: {
+          capabilities: "enforce",
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid extension capability policy value", () => {
+    const result = MoziConfigSchema.safeParse({
+      extensions: {
+        policy: {
+          capabilities: "strict",
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

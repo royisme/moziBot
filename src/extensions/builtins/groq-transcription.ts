@@ -222,7 +222,12 @@ function createGroqTranscriptionExtension(_config: Record<string, unknown>): Ext
     description:
       "Provides Groq speech-to-text transcription for local audio files. Requires GROQ_API_KEY (or configured apiKeyEnv).",
     configSchema: GroqTranscriptionConfigSchema,
-    tools: [groqTranscriptionTool],
+    capabilities: {
+      tools: true,
+    },
+    register(api) {
+      api.registerTool(groqTranscriptionTool);
+    },
   };
 }
 

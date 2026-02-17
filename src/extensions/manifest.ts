@@ -1,4 +1,4 @@
-import type { ExtensionDiagnostic, ExtensionManifest } from "./types";
+import type { ExtensionCapabilities, ExtensionDiagnostic, ExtensionManifest } from "./types";
 
 /**
  * Validate an extension manifest object for required fields and structure.
@@ -158,6 +158,59 @@ export function validateManifest(
     });
   }
 
+  // Validate capabilities shape if present
+  let capabilities: ExtensionCapabilities | undefined;
+  if (obj.capabilities !== undefined) {
+    if (
+      !obj.capabilities ||
+      typeof obj.capabilities !== "object" ||
+      Array.isArray(obj.capabilities)
+    ) {
+      diagnostics.push({
+        extensionId: extId,
+        level: "warn",
+        message: `Extension "${extId}" has invalid capabilities declaration: not an object`,
+      });
+    } else {
+      const cap = obj.capabilities as Record<string, unknown>;
+      capabilities = {};
+      const allowedKeys = new Set(["tools", "commands", "hooks"]);
+      for (const key of Object.keys(cap)) {
+        if (!allowedKeys.has(key)) {
+          diagnostics.push({
+            extensionId: extId,
+            level: "warn",
+            message: `Extension "${extId}" has unknown capabilities key "${key}"`,
+          });
+        }
+      }
+      for (const key of ["tools", "commands", "hooks"] as const) {
+        if (key in cap) {
+          if (typeof cap[key] !== "boolean") {
+            diagnostics.push({
+              extensionId: extId,
+              level: "warn",
+              message: `Extension "${extId}" capabilities.${key} should be boolean, got ${typeof cap[key]}`,
+            });
+          } else {
+            capabilities[key] = cap[key];
+          }
+        }
+      }
+    }
+  }
+
+  // Validate lifecycle signatures if present
+  for (const lcName of ["onStart", "onStop", "onReload"] as const) {
+    if (obj[lcName] !== undefined && typeof obj[lcName] !== "function") {
+      diagnostics.push({
+        extensionId: extId,
+        level: "warn",
+        message: `Extension "${extId}" ${lcName} should be a function, got ${typeof obj[lcName]}`,
+      });
+    }
+  }
+
   const manifest: ExtensionManifest = {
     id: obj.id as string,
     version: obj.version,
@@ -171,6 +224,15 @@ export function validateManifest(
     skillDirs: Array.isArray(obj.skillDirs)
       ? (obj.skillDirs as string[]).filter((d) => typeof d === "string")
       : undefined,
+    capabilities,
+    onStart:
+      typeof obj.onStart === "function" ? (obj.onStart as ExtensionManifest["onStart"]) : undefined,
+    onStop:
+      typeof obj.onStop === "function" ? (obj.onStop as ExtensionManifest["onStop"]) : undefined,
+    onReload:
+      typeof obj.onReload === "function"
+        ? (obj.onReload as ExtensionManifest["onReload"])
+        : undefined,
   };
 
   return { manifest, diagnostics };

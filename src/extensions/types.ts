@@ -99,6 +99,24 @@ export type ExtensionToolContext = {
 };
 
 /**
+ * Extension Contract v2: capabilities declaration.
+ * Declares what resource types the extension intends to register.
+ */
+export type ExtensionCapabilities = {
+  tools?: boolean;
+  commands?: boolean;
+  hooks?: boolean;
+};
+
+/**
+ * Extension Contract v2: lifecycle context passed to onStart/onStop/onReload.
+ */
+export type ExtensionLifecycleContext = {
+  extensionId: string;
+  extensionConfig: Record<string, unknown>;
+};
+
+/**
  * Extension manifest: the static metadata + factory exported by an extension module.
  */
 export type ExtensionManifest = {
@@ -125,6 +143,17 @@ export type ExtensionManifest = {
   register?: (api: ExtensionRegisterApi) => void | Promise<void>;
   /** Directories of skills exported by this extension (absolute paths). */
   skillDirs?: string[];
+  /**
+   * Extension Contract v2: declares what resource types this extension provides.
+   * Used for capability validation against actual registrations.
+   */
+  capabilities?: ExtensionCapabilities;
+  /** Extension Contract v2: called after the extension is loaded and registered. */
+  onStart?: (ctx: ExtensionLifecycleContext) => void | Promise<void>;
+  /** Extension Contract v2: called when the extension is being unloaded. */
+  onStop?: (ctx: ExtensionLifecycleContext) => void | Promise<void>;
+  /** Extension Contract v2: called when extension config is reloaded. */
+  onReload?: (ctx: ExtensionLifecycleContext) => void | Promise<void>;
 };
 
 /**
@@ -142,6 +171,8 @@ export type ExtensionDiagnostic = {
 export type LoadedExtension = {
   manifest: ExtensionManifest;
   source: string;
+  /** Extension-specific config from entries.<id>.config. */
+  extensionConfig?: Record<string, unknown>;
   /** Resolved AgentTool instances for this extension. */
   tools: AgentTool[];
   /** Hook registrations exported by this extension. */

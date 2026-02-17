@@ -199,4 +199,239 @@ describe("loadExtensions", () => {
     expect(handled).toBe(true);
     expect(replies).toEqual(["pong from extension"]);
   });
+
+  it("disables extension when register callback is async", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const extFile = path.join(tempDir, "external-async-register.cjs");
+    fs.writeFileSync(
+      extFile,
+      [
+        "module.exports = {",
+        "  id: 'external-async-register',",
+        "  version: '1.0.0',",
+        "  name: 'External Async Register',",
+        "  async register(api) {",
+        "    api.registerCommand({",
+        "      name: 'ext_async',",
+        "      description: 'async register command',",
+        "      handler: async () => ({ text: 'ok' }),",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [extFile],
+      },
+      entries: {},
+    };
+
+    const registry = loadExtensions(config);
+    const ext = registry.get("external-async-register");
+    expect(ext).toBeDefined();
+    expect(ext?.enabled).toBe(false);
+    expect(
+      ext?.diagnostics.some((diag) =>
+        diag.message.includes("async register is not supported in sync load path"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps extension enabled on capability mismatch in warn mode", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const extFile = path.join(tempDir, "external-cap-warn.cjs");
+    fs.writeFileSync(
+      extFile,
+      [
+        "module.exports = {",
+        "  id: 'external-cap-warn',",
+        "  version: '1.0.0',",
+        "  name: 'External Capability Warn',",
+        "  capabilities: { tools: false },",
+        "  register(api) {",
+        "    api.registerTool({",
+        "      name: 'cap_warn_tool',",
+        "      label: 'Cap Warn Tool',",
+        "      description: 'cap warn test',",
+        "      parameters: {},",
+        "      execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: {} }),",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [extFile],
+      },
+      entries: {},
+      policy: {
+        capabilities: "warn",
+      },
+    };
+
+    const registry = loadExtensions(config);
+    const ext = registry.get("external-cap-warn");
+    expect(ext).toBeDefined();
+    expect(ext?.enabled).toBe(true);
+    expect(
+      ext?.diagnostics.some(
+        (diag) =>
+          diag.level === "warn" && diag.message.includes('does not declare capability "tools"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("disables extension on capability mismatch in enforce mode", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const extFile = path.join(tempDir, "external-cap-enforce.cjs");
+    fs.writeFileSync(
+      extFile,
+      [
+        "module.exports = {",
+        "  id: 'external-cap-enforce',",
+        "  version: '1.0.0',",
+        "  name: 'External Capability Enforce',",
+        "  capabilities: { commands: false },",
+        "  register(api) {",
+        "    api.registerCommand({",
+        "      name: 'cap_enforce',",
+        "      description: 'cap enforce test',",
+        "      handler: async () => ({ text: 'ok' }),",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [extFile],
+      },
+      entries: {},
+      policy: {
+        capabilities: "enforce",
+      },
+    };
+
+    const registry = loadExtensions(config);
+    const ext = registry.get("external-cap-enforce");
+    expect(ext).toBeDefined();
+    expect(ext?.enabled).toBe(false);
+    expect(
+      ext?.diagnostics.some(
+        (diag) =>
+          diag.level === "error" && diag.message.includes('does not declare capability "commands"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("emits compatibility diagnostic for unsupported OpenClaw hook names", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const extFile = path.join(tempDir, "external-openclaw-hook.cjs");
+    fs.writeFileSync(
+      extFile,
+      [
+        "module.exports = {",
+        "  id: 'external-openclaw-hook',",
+        "  version: '1.0.0',",
+        "  name: 'External OpenClaw Hook',",
+        "  register(api) {",
+        "    api.registerHook('message_sending', async () => {});",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [extFile],
+      },
+      entries: {},
+    };
+
+    const registry = loadExtensions(config);
+    const ext = registry.get("external-openclaw-hook");
+    expect(ext).toBeDefined();
+    expect(
+      ext?.diagnostics.some((diag) =>
+        diag.message.includes('OpenClaw hook "message_sending" is not supported yet'),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not reserve command ownership for disabled extensions", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const disabledExtFile = path.join(tempDir, "external-disabled-command.cjs");
+    const enabledExtFile = path.join(tempDir, "external-enabled-command.cjs");
+    fs.writeFileSync(
+      disabledExtFile,
+      [
+        "module.exports = {",
+        "  id: 'external-disabled-command',",
+        "  version: '1.0.0',",
+        "  name: 'External Disabled Command',",
+        "  register(api) {",
+        "    api.registerCommand({",
+        "      name: 'shared_cmd',",
+        "      description: 'shared command',",
+        "      handler: async () => ({ text: 'disabled' }),",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      enabledExtFile,
+      [
+        "module.exports = {",
+        "  id: 'external-enabled-command',",
+        "  version: '1.0.0',",
+        "  name: 'External Enabled Command',",
+        "  register(api) {",
+        "    api.registerCommand({",
+        "      name: 'shared_cmd',",
+        "      description: 'shared command',",
+        "      handler: async () => ({ text: 'enabled' }),",
+        "    });",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [disabledExtFile, enabledExtFile],
+      },
+      entries: {
+        "external-disabled-command": {
+          enabled: false,
+        },
+      },
+    };
+
+    const registry = loadExtensions(config);
+    const disabled = registry.get("external-disabled-command");
+    const enabled = registry.get("external-enabled-command");
+    expect(disabled?.enabled).toBe(false);
+    expect(enabled?.enabled).toBe(true);
+    expect(enabled?.commands.map((command) => command.name)).toContain("shared_cmd");
+    expect(
+      enabled?.diagnostics.some((diag) => diag.message.includes("already registered by extension")),
+    ).toBe(false);
+  });
 });

@@ -42,6 +42,16 @@ export const McpServerEntrySchema = z
   .strict();
 
 /**
+ * Extension policy configuration.
+ */
+export const ExtensionPolicySchema = z
+  .object({
+    /** How to handle capability mismatches: 'warn' emits diagnostics, 'enforce' disables the extension. */
+    capabilities: z.enum(["warn", "enforce"]).default("warn"),
+  })
+  .strict();
+
+/**
  * Top-level extensions configuration domain.
  */
 export const ExtensionsConfigSchema = z
@@ -65,10 +75,13 @@ export const ExtensionsConfigSchema = z
     installs: z.record(z.string(), ExtensionInstallRecordSchema).optional(),
     /** MCP servers keyed by server ID. Standard MCP config format. */
     mcpServers: z.record(z.string(), McpServerEntrySchema).optional(),
+    /** Policy settings for extension loading behavior. */
+    policy: ExtensionPolicySchema.optional(),
   })
   .strict();
 
 export type ExtensionsConfig = z.infer<typeof ExtensionsConfigSchema>;
+export type ExtensionPolicyConfig = z.infer<typeof ExtensionPolicySchema>;
 export type ExtensionEntryConfig = z.infer<typeof ExtensionEntrySchema>;
 export type ExtensionInstallRecord = z.infer<typeof ExtensionInstallRecordSchema>;
 export type McpServerEntry = z.infer<typeof McpServerEntrySchema>;

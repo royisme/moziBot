@@ -249,6 +249,9 @@ function createOpenClawMemoryRecallExtension(_config: Record<string, unknown>): 
     description:
       "Migrates OpenClaw memory-lancedb auto-recall pattern: inject relevant MEMORY.md snippets before agent start.",
     configSchema: OpenClawMemoryRecallConfigSchema,
+    capabilities: {
+      hooks: true,
+    },
     register(api) {
       const cfg = parseConfig(api.extensionConfig);
       api.registerHook("before_agent_start", createBeforeAgentStartHandler(cfg), {

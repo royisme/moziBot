@@ -198,7 +198,12 @@ function createBraveSearchExtension(_config: Record<string, unknown>): Extension
     description:
       "Provides web search capabilities via the Brave Search API. Requires BRAVE_API_KEY environment variable.",
     configSchema: BraveSearchConfigSchema,
-    tools: [braveSearchTool],
+    capabilities: {
+      tools: true,
+    },
+    register(api) {
+      api.registerTool(braveSearchTool);
+    },
   };
 }
 

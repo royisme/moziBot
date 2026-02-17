@@ -46,9 +46,13 @@ export async function rebuildLifecycle(params: {
   previousRegistry: ExtensionRegistry;
   config: MoziConfig;
 }): Promise<{ extensionRegistry: ExtensionRegistry; skillLoader: SkillLoader }> {
+  const previousEnabledExtensionIds = params.previousRegistry
+    .listEnabled()
+    .map((ext) => ext.manifest.id);
   await shutdownExtensions(params.previousRegistry);
   const extensionRegistry = createExtensionRegistry(params.config);
   await initExtensions(params.config, extensionRegistry);
+  await extensionRegistry.notifyReload(previousEnabledExtensionIds);
   const skillLoader = createSkillLoader(params.config, extensionRegistry);
   return { extensionRegistry, skillLoader };
 }
