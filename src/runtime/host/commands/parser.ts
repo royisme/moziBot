@@ -1,24 +1,5 @@
 export type ParsedCommand = {
-  name:
-    | "start"
-    | "help"
-    | "status"
-    | "whoami"
-    | "new"
-    | "models"
-    | "switch"
-    | "stop"
-    | "restart"
-    | "compact"
-    | "context"
-    | "setauth"
-    | "unsetauth"
-    | "listauth"
-    | "checkauth"
-    | "reminders"
-    | "heartbeat"
-    | "think"
-    | "reasoning";
+  name: string;
   args: string;
 };
 
@@ -30,35 +11,15 @@ export function parseCommand(text: string): ParsedCommand | null {
   const token = trimmed.split(/\s+/, 1)[0] || "";
   const normalized = token.split("@", 1)[0].toLowerCase();
   const args = trimmed.slice(token.length).trim();
-  if (
-    normalized !== "/start" &&
-    normalized !== "/help" &&
-    normalized !== "/status" &&
-    normalized !== "/whoami" &&
-    normalized !== "/id" &&
-    normalized !== "/new" &&
-    normalized !== "/models" &&
-    normalized !== "/switch" &&
-    normalized !== "/model" &&
-    normalized !== "/stop" &&
-    normalized !== "/restart" &&
-    normalized !== "/compact" &&
-    normalized !== "/context" &&
-    normalized !== "/setauth" &&
-    normalized !== "/unsetauth" &&
-    normalized !== "/listauth" &&
-    normalized !== "/checkauth" &&
-    normalized !== "/reminders" &&
-    normalized !== "/heartbeat" &&
-    normalized !== "/think" &&
-    normalized !== "/thinking" &&
-    normalized !== "/t" &&
-    normalized !== "/reasoning" &&
-    normalized !== "/reason"
-  ) {
+  if (!normalized.startsWith("/")) {
     return null;
   }
-  let commandName = normalized.slice(1);
+  let commandName = normalized.slice(1).trim();
+  if (!/^[a-z][a-z0-9_-]*$/.test(commandName)) {
+    return null;
+  }
+
+  // Built-in aliases
   if (commandName === "model") {
     commandName = "switch";
   }
@@ -72,7 +33,7 @@ export function parseCommand(text: string): ParsedCommand | null {
     commandName = "reasoning";
   }
   return {
-    name: commandName as ParsedCommand["name"],
+    name: commandName,
     args,
   };
 }

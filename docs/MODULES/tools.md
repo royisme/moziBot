@@ -43,7 +43,7 @@ Runtime behavior:
 
 ### Extensions
 
-- `src/extensions/loader.ts` - load builtin + async MCP sources
+- `src/extensions/loader.ts` - load builtin, external module, and MCP-backed extension sources
 - `src/extensions/registry.ts` - collect enabled tools + diagnostics
 - `src/extensions/mcp/client-manager.ts` - MCP transport and tool adaptation
 
@@ -65,7 +65,7 @@ Tool assembly is coordinated by `src/runtime/agent-manager.ts`:
 
 ### Add an extension tool source
 
-- Edit `src/extensions/builtins/*` or MCP config paths
+- Edit `src/extensions/builtins/*`, add external module under `extensions.load.paths`, or add MCP config
 - Ensure manifest validation passes
 - Check diagnostics path in registry
 

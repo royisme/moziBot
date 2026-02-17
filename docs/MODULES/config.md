@@ -35,6 +35,24 @@ Headless override:
 
 - `MOZI_WIDGET_HEADLESS=1` forces `auto` mode to resolve as disabled.
 
+## Extensions Configuration
+
+`src/config/schema/extensions.ts` defines extension runtime config:
+
+- `extensions.enabled` - global switch.
+- `extensions.allow[]` / `extensions.deny[]` - ID filtering (`deny` wins).
+- `extensions.load.paths[]` - file or directory paths for external extension module discovery.
+- `extensions.entries.<extensionId>` - per-extension `enabled` and extension-owned `config`.
+- `extensions.mcpServers.<serverId>` - MCP server process config (`command`, `args`, `env`, `enabled`, `timeout`).
+- `extensions.installs.<extensionId>` - installation provenance metadata (currently not an auto-installer).
+
+Recommended baseline for a new user config:
+
+1. Set `extensions.enabled: true`.
+2. Add `extensions.load.paths: ["~/.mozi/extensions"]`.
+3. Create entries for builtin extensions you want to enable (for example `web-tavily`, `brave-search`).
+4. Add `mcpServers` entries only for servers you actually use, keeping each one `enabled: false` until validated.
+
 ## Session Lifecycle Config (agents)
 
 ## Agent Model Config (current)

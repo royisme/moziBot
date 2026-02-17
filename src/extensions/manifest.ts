@@ -50,17 +50,8 @@ export function validateManifest(
     return { manifest: null, diagnostics };
   }
 
-  if (!Array.isArray(obj.tools)) {
-    diagnostics.push({
-      extensionId: extId,
-      level: "error",
-      message: `Extension "${extId}" is missing required field: tools (must be an array)`,
-    });
-    return { manifest: null, diagnostics };
-  }
-
-  // Validate each tool definition has required fields
-  for (const tool of obj.tools) {
+  const tools = Array.isArray(obj.tools) ? obj.tools : [];
+  for (const tool of tools) {
     if (!tool || typeof tool !== "object") {
       diagnostics.push({
         extensionId: extId,
@@ -88,13 +79,95 @@ export function validateManifest(
     }
   }
 
+  const commands = Array.isArray(obj.commands) ? obj.commands : [];
+  for (const command of commands) {
+    if (!command || typeof command !== "object") {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" has invalid command entry: not an object`,
+      });
+      return { manifest: null, diagnostics };
+    }
+    const c = command as Record<string, unknown>;
+    if (typeof c.name !== "string" || !c.name.trim()) {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" has a command missing required field: name`,
+      });
+      return { manifest: null, diagnostics };
+    }
+    if (typeof c.description !== "string" || !c.description.trim()) {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" command "${c.name}" is missing required field: description`,
+      });
+      return { manifest: null, diagnostics };
+    }
+    if (typeof c.handler !== "function") {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" command "${c.name}" is missing handler function`,
+      });
+      return { manifest: null, diagnostics };
+    }
+  }
+
+  const hooks = Array.isArray(obj.hooks) ? obj.hooks : [];
+  for (const hook of hooks) {
+    if (!hook || typeof hook !== "object") {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" has invalid hook entry: not an object`,
+      });
+      return { manifest: null, diagnostics };
+    }
+    const h = hook as Record<string, unknown>;
+    if (typeof h.hookName !== "string" || !h.hookName.trim()) {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" has a hook missing required field: hookName`,
+      });
+      return { manifest: null, diagnostics };
+    }
+    if (typeof h.handler !== "function") {
+      diagnostics.push({
+        extensionId: extId,
+        level: "error",
+        message: `Extension "${extId}" hook "${h.hookName}" is missing handler function`,
+      });
+      return { manifest: null, diagnostics };
+    }
+  }
+
+  if (
+    tools.length === 0 &&
+    commands.length === 0 &&
+    hooks.length === 0 &&
+    typeof obj.register !== "function"
+  ) {
+    diagnostics.push({
+      extensionId: extId,
+      level: "warn",
+      message: `Extension "${extId}" exports no tools/commands/hooks/register callback`,
+    });
+  }
+
   const manifest: ExtensionManifest = {
     id: obj.id as string,
     version: obj.version,
     name: obj.name,
     description: typeof obj.description === "string" ? obj.description : undefined,
     configSchema: obj.configSchema as ExtensionManifest["configSchema"],
-    tools: obj.tools as ExtensionManifest["tools"],
+    tools: tools as ExtensionManifest["tools"],
+    commands: commands as ExtensionManifest["commands"],
+    hooks: hooks as ExtensionManifest["hooks"],
+    register: typeof obj.register === "function" ? obj.register : undefined,
     skillDirs: Array.isArray(obj.skillDirs)
       ? (obj.skillDirs as string[]).filter((d) => typeof d === "string")
       : undefined,

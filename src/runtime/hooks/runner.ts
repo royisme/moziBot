@@ -38,8 +38,27 @@ export class RuntimeHookRegistry {
     opts?: { id?: string; priority?: number },
   ): string {
     const id = opts?.id?.trim() || `${hookName}:${++hookSequence}`;
-    this.hooks.push({ id, hookName, handler, priority: opts?.priority });
+    const next: RuntimeHookRegistration = { id, hookName, handler, priority: opts?.priority };
+    const existingIndex = this.hooks.findIndex((entry) => entry.id === id);
+    if (existingIndex >= 0) {
+      this.hooks[existingIndex] = next;
+      return id;
+    }
+    this.hooks.push(next);
     return id;
+  }
+
+  unregister(id: string): boolean {
+    const needle = id.trim();
+    if (!needle) {
+      return false;
+    }
+    const index = this.hooks.findIndex((entry) => entry.id === needle);
+    if (index < 0) {
+      return false;
+    }
+    this.hooks.splice(index, 1);
+    return true;
   }
 
   clear(): void {

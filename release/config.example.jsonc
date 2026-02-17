@@ -38,6 +38,9 @@
   },
   "extensions": {
     "enabled": true,
+    "load": {
+      "paths": ["~/.mozi/extensions"],
+    },
     "entries": {
       "web-tavily": {
         "enabled": false,
@@ -50,6 +53,13 @@
         "config": {
           "apiKeyEnv": "BRAVE_API_KEY",
         },
+      },
+    },
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "~/.mozi"],
+        "enabled": false,
       },
     },
   },

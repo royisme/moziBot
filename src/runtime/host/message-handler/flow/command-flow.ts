@@ -27,6 +27,15 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
   const { state, payload } = ctx;
   const getHandlerMap = () => deps.getCommandHandlerMap();
   const getChannel = (p: unknown) => deps.getChannel(p);
+  const dispatchExtensionCommand = (params: {
+    commandName: string;
+    args: string;
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+    message: unknown;
+    channelId: string;
+  }) => deps.dispatchExtensionCommand(params);
 
   // 1. Narrow guard for parsed command artifact from Inbound Flow
   const rawCommand = state.parsedCommand;
@@ -77,8 +86,30 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
 
     // 5. Dispatch
     const handled = await dispatchParsedCommand(rawCommand, handlerMap, dispatchContext);
+    if (handled) {
+      return "handled";
+    }
 
-    return handled ? "handled" : "continue";
+    const extensionHandled = await dispatchExtensionCommand({
+      commandName: rawCommand.name,
+      args: rawCommand.args,
+      sessionKey,
+      agentId,
+      peerId,
+      message: payload,
+      channelId: channel.id,
+    });
+
+    if (extensionHandled) {
+      return "handled";
+    }
+
+    const rawText = typeof state.text === "string" ? state.text : "";
+    if (rawText.trim().startsWith("/")) {
+      return "handled";
+    }
+
+    return "continue";
   } catch {
     // TODO: Connect to centralized error flow
     return "abort";

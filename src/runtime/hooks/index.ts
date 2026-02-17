@@ -20,6 +20,10 @@ export function registerRuntimeHook<K extends RuntimeHookName>(
   return globalRegistry.register(hookName, handler, opts);
 }
 
+export function unregisterRuntimeHook(id: string): boolean {
+  return globalRegistry.unregister(id);
+}
+
 export function clearRuntimeHooks(): void {
   globalRegistry.clear();
 }

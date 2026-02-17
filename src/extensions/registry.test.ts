@@ -25,6 +25,7 @@ function makeExtension(
       })),
       skillDirs: skillDirs.length > 0 ? skillDirs : undefined,
     },
+    source: `test:${id}`,
     tools: toolNames.map((name) => ({
       name,
       label: name,
@@ -35,6 +36,8 @@ function makeExtension(
         details: {},
       }),
     })),
+    hooks: [],
+    commands: [],
     enabled,
     diagnostics: [],
   };
@@ -80,6 +83,56 @@ describe("ExtensionRegistry", () => {
     const dirs = registry.collectSkillDirs();
     expect(dirs).toContain("/skills/a");
     expect(dirs).not.toContain("/skills/b");
+  });
+
+  it("collects hooks only from enabled extensions", () => {
+    const registry = new ExtensionRegistry();
+    const enabled = makeExtension("enabled", true);
+    enabled.hooks.push({
+      hookName: "turn_completed",
+      handler: () => {},
+      priority: 1,
+    });
+    const disabled = makeExtension("disabled", false);
+    disabled.hooks.push({
+      hookName: "turn_completed",
+      handler: () => {},
+    });
+    registry.register(enabled);
+    registry.register(disabled);
+
+    const hooks = registry.collectHooks();
+    expect(hooks).toHaveLength(1);
+    expect(hooks[0]?.extensionId).toBe("enabled");
+    expect(hooks[0]?.hook.hookName).toBe("turn_completed");
+  });
+
+  it("finds and executes extension command", async () => {
+    const registry = new ExtensionRegistry();
+    const ext = makeExtension("commands", true);
+    ext.commands.push({
+      name: "ping",
+      description: "ping command",
+      handler: async () => ({ text: "pong" }),
+    });
+    registry.register(ext);
+
+    const sent: string[] = [];
+    const handled = await registry.executeCommand({
+      commandName: "ping",
+      args: "",
+      sessionKey: "s1",
+      agentId: "a1",
+      peerId: "p1",
+      channelId: "telegram",
+      message: { text: "/ping" },
+      sendReply: async (text) => {
+        sent.push(text);
+      },
+    });
+
+    expect(handled).toBe(true);
+    expect(sent).toEqual(["pong"]);
   });
 
   it("accumulates diagnostics from all sources", () => {

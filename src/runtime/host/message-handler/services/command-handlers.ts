@@ -5,26 +5,7 @@
  * Decouples the branching logic from the main orchestrator.
  */
 
-export type ParsedCommandName =
-  | "start"
-  | "help"
-  | "status"
-  | "whoami"
-  | "new"
-  | "models"
-  | "switch"
-  | "stop"
-  | "restart"
-  | "compact"
-  | "context"
-  | "setauth"
-  | "unsetauth"
-  | "listauth"
-  | "checkauth"
-  | "reminders"
-  | "heartbeat"
-  | "think"
-  | "reasoning";
+export type ParsedCommandName = string;
 
 export interface ParsedCommand {
   readonly name: ParsedCommandName;

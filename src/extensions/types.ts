@@ -1,5 +1,6 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { z } from "zod";
+import type { RuntimeHookHandlerMap, RuntimeHookName } from "../runtime/hooks/types";
 
 /**
  * Tool definition exported by an extension.
@@ -25,6 +26,70 @@ export type ExtensionToolDefinition = {
   }>;
 };
 
+export type ExtensionConfigValidation =
+  | { ok: true; value?: unknown }
+  | { ok: false; errors: string[] };
+
+export type ExtensionConfigSchema =
+  | z.ZodType
+  | {
+      safeParse?: (value: unknown) => {
+        success: boolean;
+        data?: unknown;
+        error?: {
+          issues?: Array<{ path: Array<string | number>; message: string }>;
+        };
+      };
+      parse?: (value: unknown) => unknown;
+      validate?: (value: unknown) => ExtensionConfigValidation;
+      jsonSchema?: Record<string, unknown>;
+    };
+
+export type ExtensionCommandContext = {
+  sessionKey: string;
+  agentId: string;
+  peerId: string;
+  channelId: string;
+  args: string;
+  message: unknown;
+  sendReply: (text: string) => Promise<void>;
+};
+
+export type ExtensionCommandResult = {
+  text: string;
+};
+
+export type ExtensionCommandDefinition = {
+  name: string;
+  description: string;
+  acceptsArgs?: boolean;
+  handler: (
+    ctx: ExtensionCommandContext,
+  ) => Promise<ExtensionCommandResult | void> | ExtensionCommandResult | void;
+};
+
+export type ExtensionHookDefinition<K extends RuntimeHookName = RuntimeHookName> = {
+  hookName: K;
+  handler: RuntimeHookHandlerMap[K];
+  priority?: number;
+  id?: string;
+};
+
+export type ExtensionRegisterApi = {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  extensionConfig: Record<string, unknown>;
+  registerTool: (tool: ExtensionToolDefinition) => void;
+  registerCommand: (command: ExtensionCommandDefinition) => void;
+  registerHook: <K extends RuntimeHookName>(
+    hookName: K,
+    handler: RuntimeHookHandlerMap[K],
+    opts?: { priority?: number; id?: string },
+  ) => void;
+};
+
 /**
  * Context provided to extension tools at execution time.
  */
@@ -45,10 +110,19 @@ export type ExtensionManifest = {
   name: string;
   /** Short description. */
   description?: string;
-  /** Zod schema for extension-specific config validation. Optional. */
-  configSchema?: z.ZodType;
+  /** Extension-specific config validation schema. Optional. */
+  configSchema?: ExtensionConfigSchema;
   /** Tool definitions exported by this extension. */
-  tools: ExtensionToolDefinition[];
+  tools?: ExtensionToolDefinition[];
+  /** Command definitions exported by this extension. */
+  commands?: ExtensionCommandDefinition[];
+  /** Runtime hook definitions exported by this extension. */
+  hooks?: ExtensionHookDefinition[];
+  /**
+   * Optional plugin-style registration callback.
+   * Allows dynamic registration of tools/commands/hooks through a stable API.
+   */
+  register?: (api: ExtensionRegisterApi) => void | Promise<void>;
   /** Directories of skills exported by this extension (absolute paths). */
   skillDirs?: string[];
 };
@@ -67,8 +141,13 @@ export type ExtensionDiagnostic = {
  */
 export type LoadedExtension = {
   manifest: ExtensionManifest;
+  source: string;
   /** Resolved AgentTool instances for this extension. */
   tools: AgentTool[];
+  /** Hook registrations exported by this extension. */
+  hooks: ExtensionHookDefinition[];
+  /** Command registrations exported by this extension. */
+  commands: ExtensionCommandDefinition[];
   /** Whether this extension is enabled. */
   enabled: boolean;
   /** Diagnostics encountered during loading. */

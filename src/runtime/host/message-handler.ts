@@ -343,6 +343,27 @@ export class MessageHandler {
       parseCommand: (text) => parseCommand(text),
       normalizeImplicitControlCommand: (text) => normalizeImplicitControlCommand(text),
       createCommandHandlerMap: (targetChannel) => this.createCommandHandlerMap(targetChannel),
+      dispatchExtensionCommand: async ({
+        commandName,
+        args,
+        sessionKey,
+        agentId,
+        peerId,
+        message,
+        channelId,
+      }) =>
+        await this.agentManager.dispatchExtensionCommand({
+          commandName,
+          args,
+          sessionKey,
+          agentId,
+          peerId,
+          channelId,
+          message,
+          sendReply: async (text) => {
+            await channel.send(peerId, { text });
+          },
+        }),
       runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
       maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) =>
         await maybePreFlushBeforePromptService({

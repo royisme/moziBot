@@ -66,6 +66,15 @@ export interface OrchestratorDeps {
   sendDirect(peerId: string, text: string): Promise<void>;
   getCommandHandlerMap(): CommandHandlerMap;
   getChannel(payload: unknown): ChannelDispatcherBridge;
+  dispatchExtensionCommand(params: {
+    commandName: string;
+    args: string;
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+    message: unknown;
+    channelId: string;
+  }): Promise<boolean>;
 
   // Lifecycle Helpers
   resetSession(sessionKey: string, agentId: string): void;

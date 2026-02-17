@@ -67,6 +67,7 @@ import {
   resetSession as resetSessionState,
 } from "./agent-manager/runtime-state";
 import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
+import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import {
@@ -117,6 +118,7 @@ export class AgentManager {
   private skillLoader?: SkillLoader;
   private skillsIndexSynced = new Set<string>();
   private extensionRegistry: ExtensionRegistry;
+  private extensionHookIds = new Set<string>();
   private piModelRegistry: PiCodingModelRegistry;
   private toolProvider?: (params: {
     sessionKey: string;
@@ -137,8 +139,30 @@ export class AgentManager {
     this.providerRegistry = params.providerRegistry;
     this.sessions = params.sessions;
     this.extensionRegistry = createExtensionRegistry(this.config);
+    this.syncExtensionHooks();
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
+  }
+
+  private clearExtensionHooks() {
+    for (const hookId of this.extensionHookIds) {
+      unregisterRuntimeHook(hookId);
+    }
+    this.extensionHookIds.clear();
+  }
+
+  private syncExtensionHooks() {
+    this.clearExtensionHooks();
+    const hooks = this.extensionRegistry.collectHooks();
+    hooks.forEach((entry, index) => {
+      const rawId = entry.hook.id?.trim();
+      const id = rawId || `extension:${entry.extensionId}:${entry.hook.hookName}:${index + 1}`;
+      const registeredId = registerRuntimeHook(entry.hook.hookName, entry.hook.handler as never, {
+        id,
+        priority: entry.hook.priority,
+      });
+      this.extensionHookIds.add(registeredId);
+    });
   }
 
   private initSkillLoader() {
@@ -214,6 +238,7 @@ export class AgentManager {
     });
     this.extensionRegistry = lifecycle.extensionRegistry;
     this.skillLoader = lifecycle.skillLoader;
+    this.syncExtensionHooks();
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillsIndexSynced.clear();
     clearMemoryManagerCache();
@@ -234,12 +259,39 @@ export class AgentManager {
     return this.extensionRegistry;
   }
 
+  async dispatchExtensionCommand(params: {
+    commandName: string;
+    args: string;
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+    channelId: string;
+    message: unknown;
+    sendReply: (text: string) => Promise<void>;
+  }): Promise<boolean> {
+    return await this.extensionRegistry.executeCommand({
+      ...params,
+      onError: (error, meta) => {
+        logger.warn(
+          {
+            extensionId: meta.extensionId,
+            commandName: meta.commandName,
+            error,
+          },
+          "Extension command failed",
+        );
+      },
+    });
+  }
+
   async initExtensionsAsync(): Promise<void> {
     await initExtensions(this.config, this.extensionRegistry);
+    this.syncExtensionHooks();
     this.initSkillLoader();
   }
 
   async shutdownExtensions(): Promise<void> {
+    this.clearExtensionHooks();
     await shutdownExtensionsLifecycle(this.extensionRegistry);
   }
 

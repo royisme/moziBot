@@ -55,13 +55,19 @@ describe("validateManifest", () => {
     expect(diagnostics.some((d) => d.message.includes("name"))).toBe(true);
   });
 
-  it("rejects missing tools", () => {
+  it("accepts manifest without tools when register callback exists", () => {
     const { manifest, diagnostics } = validateManifest(
-      { id: "test", version: "1.0.0", name: "Test" },
+      {
+        id: "test",
+        version: "1.0.0",
+        name: "Test",
+        register: () => {},
+      },
       "test",
     );
-    expect(manifest).toBeNull();
-    expect(diagnostics.some((d) => d.message.includes("tools"))).toBe(true);
+    expect(manifest).not.toBeNull();
+    expect(manifest?.tools).toEqual([]);
+    expect(diagnostics.some((d) => d.level === "error")).toBe(false);
   });
 
   it("rejects tool without execute function", () => {

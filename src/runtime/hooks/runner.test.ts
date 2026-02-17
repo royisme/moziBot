@@ -2,6 +2,39 @@ import { describe, expect, it, vi } from "vitest";
 import { createRuntimeHookRunner, RuntimeHookRegistry } from "./runner";
 
 describe("RuntimeHookRunner", () => {
+  it("replaces existing hook when registering with the same id", async () => {
+    const registry = new RuntimeHookRegistry();
+    const first = vi.fn(async () => {});
+    const second = vi.fn(async () => {});
+    registry.register("turn_completed", first, { id: "test:hook" });
+    registry.register("turn_completed", second, { id: "test:hook" });
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runTurnCompleted(
+      { traceId: "t1", messageId: "m1", status: "success", durationMs: 10 },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports unregister by id", async () => {
+    const registry = new RuntimeHookRegistry();
+    const hook = vi.fn(async () => {});
+    registry.register("turn_completed", hook, { id: "remove:me" });
+    expect(registry.unregister("remove:me")).toBe(true);
+    expect(registry.unregister("remove:me")).toBe(false);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runTurnCompleted(
+      { traceId: "t1", messageId: "m1", status: "success", durationMs: 10 },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(hook).not.toHaveBeenCalled();
+  });
+
   it("runs observer hooks in parallel and isolates errors", async () => {
     const registry = new RuntimeHookRegistry();
     const errorSpy = vi.fn();

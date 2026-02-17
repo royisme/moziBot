@@ -58,6 +58,7 @@ export interface OrchestratorDepsBuilderParams {
   createCommandHandlerMap: (
     channel: ChannelPlugin,
   ) => ReturnType<OrchestratorDeps["getCommandHandlerMap"]>;
+  dispatchExtensionCommand: OrchestratorDeps["dispatchExtensionCommand"];
   runPromptWithFallback: (params: {
     sessionKey: string;
     agentId: string;
@@ -93,6 +94,7 @@ type InboundDeps = Pick<
   | "sendDirect"
   | "getCommandHandlerMap"
   | "getChannel"
+  | "dispatchExtensionCommand"
 >;
 
 type SessionDeps = Pick<
@@ -143,34 +145,7 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
     getMedia: (payload) => (payload as InboundMessage).media || [],
     normalizeImplicitControlCommand: (text) => normalizeImplicitControlCommand(text) ?? text,
     parseCommand: (text) => parseCommand(text),
-    parseInlineOverrides: (parsedCommand) =>
-      parseInlineOverrides(
-        parsedCommand
-          ? {
-              name: parsedCommand.name as
-                | "start"
-                | "help"
-                | "status"
-                | "whoami"
-                | "new"
-                | "models"
-                | "switch"
-                | "stop"
-                | "restart"
-                | "compact"
-                | "context"
-                | "setauth"
-                | "unsetauth"
-                | "listauth"
-                | "checkauth"
-                | "reminders"
-                | "heartbeat"
-                | "think"
-                | "reasoning",
-              args: parsedCommand.args,
-            }
-          : null,
-      ),
+    parseInlineOverrides: (parsedCommand) => parseInlineOverrides(parsedCommand),
     resolveSessionContext: (payload) => resolveSessionContext(payload as InboundMessage),
     rememberLastRoute: (agentId, payload) => {
       const message = payload as InboundMessage;
@@ -204,6 +179,7 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
 
       return channelLike;
     },
+    dispatchExtensionCommand: async (args) => await params.dispatchExtensionCommand(args),
   };
 }
 

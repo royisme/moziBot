@@ -272,11 +272,6 @@ function collectDoctorReport(config: MoziConfig): DoctorReport {
     warnings.push("Config contains redaction sentinel values.");
   }
 
-  if ((config.extensions?.load?.paths?.length ?? 0) > 0) {
-    warnings.push(
-      "extensions.load.paths is currently metadata only and does not auto-load external extension code.",
-    );
-  }
   if (config.extensions?.installs && Object.keys(config.extensions.installs).length > 0) {
     warnings.push(
       "extensions.installs is currently metadata only and does not auto-install extension packages.",

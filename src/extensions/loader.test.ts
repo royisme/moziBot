@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ExtensionsConfig } from "../config/schema/extensions";
 import { initExtensionsAsync, loadExtensions } from "./loader";
@@ -138,5 +141,62 @@ describe("loadExtensions", () => {
     expect(ext).toBeDefined();
     expect(ext?.enabled).toBe(false);
     expect(ext?.tools.length).toBe(0);
+  });
+
+  it("loads external extension from load.paths and enables it by default", async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-ext-"));
+    const extFile = path.join(tempDir, "external-test.cjs");
+    fs.writeFileSync(
+      extFile,
+      [
+        "module.exports = {",
+        "  id: 'external-test',",
+        "  version: '1.0.0',",
+        "  name: 'External Test',",
+        "  register(api) {",
+        "    api.registerCommand({",
+        "      name: 'ext_ping',",
+        "      description: 'extension ping',",
+        "      handler: async () => ({ text: 'pong from extension' }),",
+        "    });",
+        "    api.registerHook('turn_completed', async () => {});",
+        "  },",
+        "};",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const config: ExtensionsConfig = {
+      enabled: true,
+      load: {
+        paths: [extFile],
+      },
+      entries: {},
+    };
+
+    const registry = loadExtensions(config);
+    await initExtensionsAsync(config, registry);
+
+    const ext = registry.get("external-test");
+    expect(ext, JSON.stringify(registry.getDiagnostics())).toBeDefined();
+    expect(ext?.enabled).toBe(true);
+    expect(ext?.commands.map((cmd) => cmd.name)).toContain("ext_ping");
+    expect(ext?.hooks.map((hook) => hook.hookName)).toContain("turn_completed");
+
+    const replies: string[] = [];
+    const handled = await registry.executeCommand({
+      commandName: "ext_ping",
+      args: "",
+      sessionKey: "s1",
+      agentId: "a1",
+      peerId: "p1",
+      channelId: "telegram",
+      message: { text: "/ext_ping" },
+      sendReply: async (text) => {
+        replies.push(text);
+      },
+    });
+    expect(handled).toBe(true);
+    expect(replies).toEqual(["pong from extension"]);
   });
 });
