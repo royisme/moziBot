@@ -41,9 +41,12 @@ const AgentModelListSchema = z
 
 export const AgentModelSchema = z.union([z.string().min(1), AgentModelListSchema]);
 
+const SubagentPromptModeSchema = z.enum(["minimal", "full"]);
+
 export const SubagentPolicySchema = z
   .object({
     allow: z.array(z.string()).optional(),
+    promptMode: SubagentPromptModeSchema.optional(),
   })
   .strict();
 
@@ -124,6 +127,7 @@ export const AgentsSchema = z
         model: AgentModelSchema.optional(),
         imageModel: AgentModelSchema.optional(),
         tools: z.array(z.string()).optional(),
+        subagents: SubagentPolicySchema.optional(),
         sandbox: SandboxSchema.optional(),
         exec: ExecPolicySchema.optional(),
         heartbeat: HeartbeatSchema.optional(),

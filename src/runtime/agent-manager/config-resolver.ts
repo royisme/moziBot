@@ -16,7 +16,7 @@ export type AgentEntry = {
   imageModel?: unknown;
   skills?: string[];
   tools?: string[];
-  subagents?: { allow?: string[] };
+  subagents?: { allow?: string[]; promptMode?: "minimal" | "full" };
   sandbox?: unknown;
   exec?: { allowlist?: string[]; allowedSecrets?: string[] };
   heartbeat?: { enabled?: boolean; every?: string; prompt?: string };
@@ -125,6 +125,16 @@ export function resolveToolAllowList(config: MoziConfig, entry?: AgentEntry): st
     fallbackTools: DEFAULT_TOOL_NAMES,
     requiredTools: ["exec"],
   });
+}
+
+export function resolveSubagentPromptMode(
+  config: MoziConfig,
+  parentEntry?: AgentEntry,
+): "minimal" | "full" {
+  const defaults = (
+    config.agents?.defaults as { subagents?: { promptMode?: "minimal" | "full" } } | undefined
+  )?.subagents?.promptMode;
+  return parentEntry?.subagents?.promptMode ?? defaults ?? "minimal";
 }
 
 export function resolveContextPruningConfig(

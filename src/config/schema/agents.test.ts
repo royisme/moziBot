@@ -2,6 +2,41 @@ import { describe, expect, it } from "vitest";
 import { MoziConfigSchema } from "./index";
 
 describe("Agents schema", () => {
+  it("accepts defaults subagents promptMode", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          subagents: {
+            promptMode: "minimal",
+          },
+        },
+        mozi: { main: true },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts per-agent subagents promptMode override", () => {
+    const result = MoziConfigSchema.safeParse({
+      agents: {
+        defaults: {
+          subagents: {
+            promptMode: "minimal",
+          },
+        },
+        mozi: {
+          main: true,
+          subagents: {
+            allow: ["worker"],
+            promptMode: "full",
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
   it("accepts a single explicit main agent", () => {
     const result = MoziConfigSchema.safeParse({
       agents: {

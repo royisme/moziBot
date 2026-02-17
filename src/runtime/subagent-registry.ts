@@ -1,4 +1,4 @@
-import type { Model } from "@mariozechner/pi-ai";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { ModelSpec } from "./types";
 import { AgentManager } from "./agent-manager";
@@ -46,7 +46,7 @@ export class SubagentRegistry {
     return `${parentAgentId}-sub-${next}`;
   }
 
-  private buildPiModel(spec: ModelSpec): Model<unknown> {
+  private buildPiModel(spec: ModelSpec): Model<Api> {
     return {
       id: spec.id,
       name: spec.id,
@@ -59,7 +59,7 @@ export class SubagentRegistry {
       contextWindow: spec.contextWindow ?? 128000,
       maxTokens: spec.maxTokens ?? 8192,
       headers: spec.headers,
-    } as unknown as Model<unknown>;
+    } as unknown as Model<Api>;
   }
 
   private ensureAllowed(params: { parentAgentId: string; targetAgentId: string }) {
@@ -82,7 +82,12 @@ export class SubagentRegistry {
           targetAgentId: params.agentId,
         });
         const subSessionKey = `${params.agentId}::${params.parentSessionKey}`;
-        const { agent } = await this.agentManager.getAgent(subSessionKey, params.agentId);
+        const subagentPromptMode = this.agentManager.resolveSubagentPromptMode(
+          params.parentAgentId,
+        );
+        const { agent } = await this.agentManager.getAgent(subSessionKey, params.agentId, {
+          promptMode: subagentPromptMode === "full" ? "main" : "subagent-minimal",
+        });
         await agent.prompt(params.prompt);
         const last = [...agent.state.messages]
           .toReversed()
