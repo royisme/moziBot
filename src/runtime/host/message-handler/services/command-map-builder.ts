@@ -11,6 +11,7 @@ import {
   handleStatusCommand as handleStatusCommandService,
   handleContextCommand as handleContextCommandService,
 } from "../../commands/session";
+import { renderAssistantReply } from "../../reply-utils";
 import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
 import { createMessageCommandHandlerMap } from "./command-map";
 import { toError as toErrorService } from "./error-utils";
@@ -36,7 +37,11 @@ export function buildCommandHandlerMap(params: {
     getStatus?: () => { running: boolean; pid: number | null; uptime: number };
     restart?: () => Promise<void> | void;
   };
-  logger: { warn(obj: Record<string, unknown>, msg: string): void };
+  logger: {
+    warn(obj: Record<string, unknown>, msg: string): void;
+    info?(obj: Record<string, unknown>, msg: string): void;
+    debug?(obj: Record<string, unknown>, msg: string): void;
+  };
   getVersion: () => string;
   flushMemory: (
     sessionKey: string,
@@ -95,6 +100,24 @@ export function buildCommandHandlerMap(params: {
           config,
           agentManager,
           flushMemory,
+          runResetGreetingTurn: async ({ sessionKey, agentId }) => {
+            const { agent } = await agentManager.getAgent(sessionKey, agentId, {
+              promptMode: "reset-greeting",
+            });
+            const resetPrompt =
+              "A new session was started via /new. Greet the user in your configured persona in 1-2 short sentences. Follow language and tone rules from SOUL.md / IDENTITY.md / USER.md (if they specify Chinese, reply in Chinese). Ask what they want to work on now.";
+            await agent.prompt(resetPrompt);
+            const latest = agent.messages.at(-1);
+            const reply = latest
+              ? renderAssistantReply((latest as { content?: unknown }).content)
+              : "";
+            const genericPi =
+              /(^|\n|\s)(i\s*am\s*pi|i\s*'m\s*pi|我是\s*pi|我是\s*Pi)(\b|\s|[，。,.!！?？])/i;
+            if (genericPi.test(reply.trim())) {
+              return "我会按照你在 IDENTITY.md / SOUL.md 中定义的身份工作。你现在想先做什么？";
+            }
+            return reply || null;
+          },
         });
       },
       onModels: async ({ sessionKey, agentId, channel, peerId }) => {
