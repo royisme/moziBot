@@ -141,7 +141,6 @@ function buildIdentityPersona(params: { homeIndex: Map<string, string> }): strin
     "# Identity & Persona",
     "These files are authoritative for your identity, tone, and language.",
     "You MUST follow language/style constraints defined here.",
-    "Do NOT claim to be a generic 'pi' assistant unless IDENTITY.md explicitly says so.",
   ];
 
   const orderedFiles = ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const;

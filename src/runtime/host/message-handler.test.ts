@@ -409,7 +409,7 @@ describe("MessageHandler commands", () => {
     expect(payload.text).toContain("what they want to work on now");
   });
 
-  it("replaces generic pi /new greeting with configured-identity fallback", async () => {
+  it("uses reset-greeting output as-is without regex fallback", async () => {
     const h = handler as unknown as {
       agentManager: {
         getAgent: (
@@ -450,8 +450,7 @@ describe("MessageHandler commands", () => {
     await handler.handle(createMessage("/new"), channel);
 
     const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("IDENTITY.md / SOUL.md");
-    expect(payload.text).not.toContain("I am pi");
+    expect(payload.text).toContain("I am pi. Nice to meet you.");
   });
 
   it("falls back to static /new reply when reset greeting turn returns empty", async () => {
@@ -811,7 +810,7 @@ describe("MessageHandler commands", () => {
     expect(delivered).not.toContain("<think>");
   });
 
-  it("enforces configured identity on plain 你是谁 query when model outputs generic pi", async () => {
+  it("does not rewrite identity replies with regex fallback", async () => {
     getSessionMetadata.mockReturnValue({ reasoningLevel: "off" });
 
     const h = handler as unknown as {
@@ -831,8 +830,7 @@ describe("MessageHandler commands", () => {
 
     const deliveredTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
     const finalText = deliveredTexts.at(-1) || "";
-    expect(finalText).toContain("IDENTITY.md / SOUL.md");
-    expect(finalText).not.toContain("我是 pi");
+    expect(finalText).toContain("我是 pi，一个 AI 编程助手。");
   });
 
   it("attempts pre-overflow memory flush when context usage is high", async () => {

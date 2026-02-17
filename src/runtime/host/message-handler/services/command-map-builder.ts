@@ -111,11 +111,6 @@ export function buildCommandHandlerMap(params: {
             const reply = latest
               ? renderAssistantReply((latest as { content?: unknown }).content)
               : "";
-            const genericPi =
-              /(^|\n|\s)(i\s*am\s*pi|i\s*'m\s*pi|我是\s*pi|我是\s*Pi)(\b|\s|[，。,.!！?？])/i;
-            if (genericPi.test(reply.trim())) {
-              return "我会按照你在 IDENTITY.md / SOUL.md 中定义的身份工作。你现在想先做什么？";
-            }
             return reply || null;
           },
         });

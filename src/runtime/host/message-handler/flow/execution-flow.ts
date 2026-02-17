@@ -14,24 +14,6 @@ function hashPreview(text: string | undefined): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
 }
 
-function sanitizeIdentityDrift(
-  text: string | undefined,
-  isIdentityQuery: boolean,
-): string | undefined {
-  if (!text || !isIdentityQuery) {
-    return text;
-  }
-
-  const normalized = text.trim();
-  const genericPiPattern =
-    /(^|\n|\s)(i\s*am\s*pi|i\s*'m\s*pi|我是\s*pi|我是\s*Pi)(\b|\s|[，。,.!！?？])/i;
-  if (!genericPiPattern.test(normalized)) {
-    return text;
-  }
-
-  return "我会按照你在 IDENTITY.md / SOUL.md 中定义的身份工作。你也可以使用 /whoami 查看当前身份信息。";
-}
-
 class StreamingReasoningFilter {
   private carry = "";
   private inThinking = false;
@@ -159,24 +141,13 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     agentId,
   });
   const shouldShowThinking = channel.id === "localDesktop" && reasoningLevel === "stream";
-  const hasIdentityIntent =
-    /(^|\s)(who\s+are\s+you|what\s+is\s+your\s+name|你是谁|你是誰|你叫什么|你叫什麼|自我介绍|自我介紹)($|\s|\?|？)/i.test(
-      promptText,
-    );
-  const hasWorkIntent =
-    /(目录|home|workspace|文件|代码|读取|列出|看看|分析|修复|实现|run|list|read|file|directory|code)/i.test(
-      promptText,
-    );
-  const isIdentityQuery = hasIdentityIntent && !hasWorkIntent;
   const streamingReasoningFilter = shouldShowThinking ? null : new StreamingReasoningFilter();
 
   let streamingBuffer: StreamingBuffer | undefined;
   let streamTerminalText: string | undefined;
   let streamedDeltaText = "";
 
-  const effectivePromptText = isIdentityQuery
-    ? `${promptText}\n\n[Identity enforcement]\nIf the user asks who you are, answer strictly according to IDENTITY.md/SOUL.md/USER.md and their language constraints. Do not claim to be a generic pi assistant unless explicitly configured.`
-    : promptText;
+  const effectivePromptText = promptText;
 
   // 3. Prompt Execution
   if (supportsStreaming) {
@@ -306,7 +277,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const renderedTerminalText = terminalReplyTextRaw
     ? renderAssistantReply(terminalReplyTextRaw, { showThinking: shouldShowThinking })
     : undefined;
-  const terminalReplyText = sanitizeIdentityDrift(renderedTerminalText, isIdentityQuery);
+  const terminalReplyText = renderedTerminalText;
 
   logger.info(
     {
