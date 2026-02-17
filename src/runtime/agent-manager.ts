@@ -20,6 +20,7 @@ import {
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
 import { type ExtensionRegistry } from "../extensions";
+import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
 import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
 import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
@@ -30,6 +31,7 @@ import {
   resolveSandboxConfig,
   resolveExecAllowlist,
   resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
+  resolveSubagentPromptMode,
 } from "./agent-manager/config-resolver";
 import {
   compactSession as compactSessionMetric,
@@ -55,6 +57,8 @@ import {
   buildChannelContext,
   buildSystemPrompt,
   checkBootstrap,
+  type PromptBuildMetadata,
+  type PromptMode,
 } from "./agent-manager/prompt-builder";
 import {
   clearRuntimeModelOverride as clearRuntimeModelOverrideState,
@@ -103,6 +107,7 @@ export class AgentManager {
   private runtimeModelOverrides = new Map<string, string>();
   private homeContext = new Map<string, string>();
   private channelContextSessions = new Set<string>();
+  private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
   private sandboxExecutors = new Map<string, SandboxExecutor>();
   private modelRegistry: ModelRegistry;
   private providerRegistry: ProviderRegistry;
@@ -272,6 +277,11 @@ export class AgentManager {
     return entry;
   }
 
+  resolveSubagentPromptMode(parentAgentId: string): "minimal" | "full" {
+    const parentEntry = this.getAgentEntry(parentAgentId);
+    return resolveSubagentPromptMode(this.config, parentEntry);
+  }
+
   async probeSandboxes(): Promise<AgentSandboxProbeReport[]> {
     const reports: AgentSandboxProbeReport[] = [];
     const entries = this.listAgentEntries();
@@ -424,7 +434,11 @@ export class AgentManager {
     } as Model<Api>;
   }
 
-  async getAgent(sessionKey: string, agentId?: string): Promise<ResolvedAgent> {
+  async getAgent(
+    sessionKey: string,
+    agentId?: string,
+    options?: { promptMode?: PromptMode },
+  ): Promise<ResolvedAgent> {
     const { agent, resolvedId, entry, modelRef } = await resolveOrCreateAgentSession({
       sessionKey,
       agentId,
@@ -454,6 +468,21 @@ export class AgentManager {
           toolProvider: this.toolProvider,
           getSandboxExecutor: (p) => this.getSandboxExecutor(p),
         }),
+      promptMode: options?.promptMode,
+      onPromptMetadata: (metadata) => {
+        this.promptMetadataBySession.set(sessionKey, metadata);
+        logger.debug(
+          {
+            sessionKey,
+            agentId: resolvedId,
+            promptMode: metadata.mode,
+            promptHash: metadata.promptHash,
+            loadedFiles: metadata.loadedFiles,
+            skippedFiles: metadata.skippedFiles,
+          },
+          "Prompt files resolved",
+        );
+      },
     });
 
     const thinkingLevel = resolveThinkingLevel({
@@ -543,6 +572,7 @@ export class AgentManager {
       runtimeModelOverrides: this.runtimeModelOverrides,
       channelContextSessions: this.channelContextSessions,
     });
+    this.promptMetadataBySession.delete(sessionKey);
   }
 
   updateSessionContext(sessionKey: string, messages: unknown): void {
@@ -557,6 +587,10 @@ export class AgentManager {
 
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined {
     return this.sessions.get(sessionKey)?.metadata;
+  }
+
+  getPromptMetadata(sessionKey: string): PromptBuildMetadata | undefined {
+    return this.promptMetadataBySession.get(sessionKey);
   }
 
   updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void {
