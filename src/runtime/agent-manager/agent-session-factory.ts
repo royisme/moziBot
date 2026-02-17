@@ -30,7 +30,7 @@ import {
   resolveContextPruningConfig,
   resolveHistoryLimit,
 } from "./config-resolver";
-import { buildSystemPrompt } from "./prompt-builder";
+import { buildSystemPrompt, type PromptMode } from "./prompt-builder";
 import { resolveThinkingLevel } from "./thinking-resolver";
 import { buildTools } from "./tool-builder";
 
@@ -41,6 +41,7 @@ export async function createAndInitializeAgentSession(params: {
   entry?: AgentEntry;
   workspaceDir: string;
   homeDir: string;
+  promptMode?: PromptMode;
   config: import("../../config").MoziConfig;
   sessions: SessionStore;
   modelRegistry: ModelRegistry;
@@ -63,6 +64,7 @@ export async function createAndInitializeAgentSession(params: {
     allowlist?: string[];
   }) => SandboxExecutor;
   sandboxConfig?: SandboxConfig;
+  onPromptMetadata?: (metadata: import("./prompt-builder").PromptBuildMetadata) => void;
 }): Promise<AgentSession> {
   const modelSpec = params.modelRegistry.get(params.modelRef);
   if (!modelSpec) {
@@ -118,6 +120,8 @@ export async function createAndInitializeAgentSession(params: {
     sandboxConfig: params.sandboxConfig,
     skillLoader: params.skillLoader,
     skillsIndexSynced: params.skillsIndexSynced,
+    mode: params.promptMode,
+    onMetadata: params.onPromptMetadata,
   });
 
   const piSessionManager = PiSessionManager.inMemory(params.workspaceDir);

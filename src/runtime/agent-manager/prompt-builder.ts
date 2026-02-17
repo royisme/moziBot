@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { SandboxConfig } from "../sandbox/types";
@@ -7,7 +8,11 @@ import {
   type BootstrapState,
   type HomeFile,
 } from "../../agents/home";
-import { loadWorkspaceFiles, buildWorkspaceContext } from "../../agents/workspace";
+import {
+  loadWorkspaceFiles,
+  buildWorkspaceContext,
+  type WorkspaceFile,
+} from "../../agents/workspace";
 import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
 
 export function buildChannelContext(message: InboundMessage): string {
@@ -132,7 +137,12 @@ function buildProjectWorkspaceRules(params: {
 }
 
 function buildIdentityPersona(params: { homeIndex: Map<string, string> }): string | null {
-  const sections: string[] = ["# Identity & Persona"];
+  const sections: string[] = [
+    "# Identity & Persona",
+    "These files are authoritative for your identity, tone, and language.",
+    "You MUST follow language/style constraints defined here.",
+    "Do NOT claim to be a generic 'pi' assistant unless IDENTITY.md explicitly says so.",
+  ];
 
   const orderedFiles = ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const;
   for (const fileName of orderedFiles) {
@@ -160,6 +170,53 @@ function buildBootstrapSection(bootstrapState: BootstrapState): string | null {
   return lines.join("\n\n");
 }
 
+export type PromptMode = "main" | "reset-greeting" | "subagent-minimal";
+
+export interface PromptBuildMetadata {
+  mode: PromptMode;
+  homeDir: string;
+  workspaceDir: string;
+  loadedFiles: Array<{ name: string; chars: number }>;
+  skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  promptHash: string;
+}
+
+function collectFileObservability(params: {
+  homeFiles: HomeFile[];
+  workspaceFiles: WorkspaceFile[];
+}): Pick<PromptBuildMetadata, "loadedFiles" | "skippedFiles"> {
+  const loadedFiles: Array<{ name: string; chars: number }> = [];
+  const skippedFiles: Array<{ name: string; reason: "missing" | "empty" }> = [];
+
+  for (const file of params.homeFiles) {
+    if (file.missing) {
+      skippedFiles.push({ name: file.name, reason: "missing" });
+      continue;
+    }
+    const content = file.content.trim();
+    if (!content) {
+      skippedFiles.push({ name: file.name, reason: "empty" });
+      continue;
+    }
+    loadedFiles.push({ name: file.name, chars: content.length });
+  }
+
+  for (const file of params.workspaceFiles) {
+    if (file.missing) {
+      skippedFiles.push({ name: file.name, reason: "missing" });
+      continue;
+    }
+    const content = file.content.trim();
+    if (!content) {
+      skippedFiles.push({ name: file.name, reason: "empty" });
+      continue;
+    }
+    loadedFiles.push({ name: file.name, chars: content.length });
+  }
+
+  return { loadedFiles, skippedFiles };
+}
+
 export async function buildSystemPrompt(params: {
   homeDir: string;
   workspaceDir: string;
@@ -169,13 +226,26 @@ export async function buildSystemPrompt(params: {
   sandboxConfig?: SandboxConfig;
   skillLoader?: SkillLoader;
   skillsIndexSynced: Set<string>;
+  mode?: PromptMode;
+  onMetadata?: (metadata: PromptBuildMetadata) => void;
 }): Promise<string> {
+  const mode = params.mode ?? "main";
   const bootstrapState = await checkBootstrapState(params.homeDir);
   const homeFiles = await loadHomeFiles(params.homeDir);
   const homeIndex = indexHomeFiles(homeFiles);
 
   const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
   const workspaceContext = buildWorkspaceContext(workspaceFiles, params.workspaceDir);
+
+  if (mode === "subagent-minimal") {
+    for (const key of ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"]) {
+      homeIndex.delete(key);
+    }
+  }
+
+  if (mode === "reset-greeting") {
+    homeIndex.delete("MEMORY.md");
+  }
 
   let skillsPrompt = "";
   if (params.skillLoader) {
@@ -229,7 +299,20 @@ export async function buildSystemPrompt(params: {
     sections.push(buildSkillsSection(skillsPrompt, params.tools));
   }
 
-  return sections.join("\n\n");
+  const promptText = sections.join("\n\n");
+  if (params.onMetadata) {
+    const filesMeta = collectFileObservability({ homeFiles, workspaceFiles });
+    params.onMetadata({
+      mode,
+      homeDir: params.homeDir,
+      workspaceDir: params.workspaceDir,
+      loadedFiles: filesMeta.loadedFiles,
+      skippedFiles: filesMeta.skippedFiles,
+      promptHash: createHash("sha256").update(promptText).digest("hex").slice(0, 12),
+    });
+  }
+
+  return promptText;
 }
 
 export async function checkBootstrap(homeDir: string): Promise<BootstrapState> {

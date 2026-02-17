@@ -98,4 +98,48 @@ describe("buildSystemPrompt", () => {
       "After using a skill, record key learnings with the skills_note tool.",
     );
   });
+
+  it("supports subagent-minimal mode by excluding identity and memory sections", async () => {
+    const prompt = await buildSystemPrompt({
+      homeDir: "/tmp/home",
+      workspaceDir: "/tmp/workspace",
+      skillsIndexSynced: new Set<string>(),
+      mode: "subagent-minimal",
+    });
+
+    expect(prompt).toContain("# Project & Workspace Rules");
+    expect(prompt).toContain("## AGENTS.md");
+    expect(prompt).not.toContain("## SOUL.md");
+    expect(prompt).not.toContain("## IDENTITY.md");
+    expect(prompt).not.toContain("## USER.md");
+    expect(prompt).not.toContain("## MEMORY.md");
+    expect(prompt).not.toContain("## HEARTBEAT.md");
+  });
+
+  it("emits prompt metadata with loaded/skipped files and hash", async () => {
+    let metadata: {
+      mode: "main" | "reset-greeting" | "subagent-minimal";
+      homeDir: string;
+      workspaceDir: string;
+      loadedFiles: Array<{ name: string; chars: number }>;
+      skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+      promptHash: string;
+    } | null = null;
+
+    await buildSystemPrompt({
+      homeDir: "/tmp/home",
+      workspaceDir: "/tmp/workspace",
+      skillsIndexSynced: new Set<string>(),
+      onMetadata: (value) => {
+        metadata = value;
+      },
+    });
+
+    expect(metadata).not.toBeNull();
+    expect(metadata!.mode).toBe("main");
+    expect(metadata!.homeDir).toBe("/tmp/home");
+    expect(metadata!.workspaceDir).toBe("/tmp/workspace");
+    expect(metadata!.loadedFiles.some((f) => f.name === "AGENTS.md")).toBe(true);
+    expect(metadata!.promptHash).toMatch(/^[a-f0-9]{12}$/);
+  });
 });

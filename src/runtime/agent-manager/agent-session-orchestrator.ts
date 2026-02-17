@@ -2,6 +2,7 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
+import type { PromptBuildMetadata, PromptMode } from "./prompt-builder";
 import {
   type AgentEntry,
   resolveHomeDir,
@@ -33,7 +34,11 @@ export async function resolveOrCreateAgentSession(params: {
     workspaceDir: string;
     homeDir: string;
     sandboxConfig?: SandboxConfig;
+    promptMode?: PromptMode;
+    onPromptMetadata?: (metadata: PromptBuildMetadata) => void;
   }) => Promise<AgentSession>;
+  promptMode?: PromptMode;
+  onPromptMetadata?: (metadata: PromptBuildMetadata) => void;
 }): Promise<{
   agent: AgentSession;
   resolvedId: string;
@@ -72,6 +77,8 @@ export async function resolveOrCreateAgentSession(params: {
       workspaceDir,
       homeDir,
       sandboxConfig,
+      promptMode: params.promptMode,
+      onPromptMetadata: params.onPromptMetadata,
     });
     params.agents.set(params.sessionKey, agent);
     params.agentModelRefs.set(params.sessionKey, modelRef);
