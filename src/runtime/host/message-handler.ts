@@ -8,6 +8,7 @@ import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
 import { logger } from "../../logger";
 import { type ResolvedMemoryPersistenceConfig } from "../../memory/backend-config";
+import { configureMemoryMaintainerHooks } from "../hooks/bundled/memory-maintainer";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { SubagentRegistry } from "../subagent-registry";
 import { parseCommand, normalizeImplicitControlCommand } from "./commands/parser";
@@ -117,6 +118,7 @@ export class MessageHandler {
     },
   ) {
     this.config = config;
+    configureMemoryMaintainerHooks(config);
     this.runtimeControl = deps?.runtimeControl;
     this.mediaPreprocessor = new InboundMediaPreprocessor(config);
     this.sessions = new SessionStore(config);
@@ -151,6 +153,7 @@ export class MessageHandler {
    */
   async reloadConfig(config: MoziConfig): Promise<void> {
     this.config = config;
+    configureMemoryMaintainerHooks(config);
     this.mediaPreprocessor.updateConfig(config);
     this.router = new RuntimeRouter(config);
     this.providerRegistry = new ProviderRegistry(config);

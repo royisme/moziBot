@@ -105,7 +105,7 @@ export function buildCommandHandlerMap(params: {
               promptMode: "reset-greeting",
             });
             const resetPrompt =
-              "A new session was started via /new. Greet the user in your configured persona in 1-2 short sentences. Follow language and tone rules from SOUL.md / IDENTITY.md / USER.md (if they specify Chinese, reply in Chinese). Ask what they want to work on now.";
+              "A new session was started via /new. Reply in 1-2 short sentences. Identity/persona are authoritative from SOUL.md + IDENTITY.md + USER.md. Use that identity directly (name/role/tone/language) instead of generic assistant phrasing. Then ask what the user wants to work on now.";
             await agent.prompt(resetPrompt);
             const latest = agent.messages.at(-1);
             const reply = latest

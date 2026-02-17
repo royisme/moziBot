@@ -474,7 +474,7 @@ export class AgentManager {
         logger.debug(
           {
             sessionKey,
-            agentId: resolvedId,
+            agentId: agentId ?? "auto",
             promptMode: metadata.mode,
             promptHash: metadata.promptHash,
             loadedFiles: metadata.loadedFiles,

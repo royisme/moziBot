@@ -4,6 +4,7 @@ import type {
   OrchestratorDeps,
   PreparedPromptBundle,
 } from "./contract";
+import { getRuntimeHookRunner } from "../../hooks";
 import { runCleanupFlow } from "./flow/cleanup-flow";
 import { runCommandFlow } from "./flow/command-flow";
 import { runErrorFlow } from "./flow/error-flow";
@@ -111,6 +112,40 @@ export class MessageTurnRuntime {
         finalStatus: result ? "success" : "interrupted",
       };
       await runCleanupFlow(ctx, this.deps, cleanupBundle);
+
+      const sessionKey =
+        ctx.state && typeof ctx.state.sessionKey === "string" ? ctx.state.sessionKey : undefined;
+      const agentId =
+        ctx.state && typeof ctx.state.agentId === "string" ? ctx.state.agentId : undefined;
+      const replyText =
+        ctx.state && typeof ctx.state.replyText === "string" ? ctx.state.replyText : undefined;
+      const userText = ctx.state && typeof ctx.state.text === "string" ? ctx.state.text : undefined;
+      const startedAtMs =
+        typeof ctx.startTime === "number"
+          ? ctx.startTime
+          : ctx.startTime instanceof Date
+            ? ctx.startTime.getTime()
+            : Date.now();
+
+      if (sessionKey && agentId) {
+        const hookRunner = getRuntimeHookRunner();
+        if (hookRunner.hasHooks("turn_completed")) {
+          await hookRunner.runTurnCompleted(
+            {
+              traceId: ctx.traceId,
+              messageId: ctx.messageId,
+              status: cleanupBundle.finalStatus,
+              durationMs: Math.max(0, Date.now() - startedAtMs),
+              userText,
+              replyText,
+            },
+            {
+              sessionKey,
+              agentId,
+            },
+          );
+        }
+      }
     }
 
     return result;

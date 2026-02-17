@@ -1,4 +1,5 @@
 import type { PromptFlow, PreparedPromptBundle } from "../contract";
+import { getRuntimeHookRunner } from "../../../hooks";
 
 /**
  * Prompt Flow Implementation
@@ -104,12 +105,34 @@ export const runPromptFlow: PromptFlow = async (ctx, deps) => {
     await maybePreFlushBeforePrompt({ sessionKey, agentId });
 
     // 4. Final Prompt Text Building
-    const promptText = buildFinalText({
+    let promptText = buildFinalText({
       message: payload,
       rawText: text,
       transcript: transcript || undefined,
       ingestPlan,
     });
+
+    const hookRunner = getRuntimeHookRunner();
+    if (hookRunner.hasHooks("before_agent_start")) {
+      const hookResult = await hookRunner.runBeforeAgentStart(
+        {
+          promptText,
+          ingestPlan,
+        },
+        {
+          sessionKey,
+          agentId,
+          traceId: ctx.traceId,
+          messageId: ctx.messageId,
+        },
+      );
+      if (hookResult?.block) {
+        return "abort";
+      }
+      if (typeof hookResult?.promptText === "string") {
+        promptText = hookResult.promptText;
+      }
+    }
 
     state.promptText = promptText;
 

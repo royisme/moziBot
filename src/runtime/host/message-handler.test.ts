@@ -410,6 +410,55 @@ describe("MessageHandler commands", () => {
   });
 
   it("uses reset-greeting output as-is without regex fallback", async () => {
+    let capturedResetPrompt = "";
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+        ) => Promise<{
+          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+          modelRef: string;
+        }>;
+      };
+    };
+
+    h.agentManager.getAgent = (async (
+      _sessionKey: string,
+      _agentId: string,
+      options?: {
+        promptMode?: "main" | "reset-greeting" | "subagent-minimal";
+      },
+    ) => ({
+      agent: {
+        prompt: async (text: string) => {
+          capturedResetPrompt = text;
+        },
+        messages:
+          options?.promptMode === "reset-greeting"
+            ? [{ role: "assistant", content: "I am pi. Nice to meet you." }]
+            : [],
+      },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+    ) => Promise<{
+      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+      modelRef: string;
+    }>;
+
+    await handler.handle(createMessage("/new"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("I am pi. Nice to meet you.");
+    expect(capturedResetPrompt).toContain("Identity/persona are authoritative");
+    expect(capturedResetPrompt).toContain("SOUL.md + IDENTITY.md + USER.md");
+  });
+
+  it("preserves zh identity greeting output from reset mode without rewriting", async () => {
     const h = handler as unknown as {
       agentManager: {
         getAgent: (
@@ -434,7 +483,12 @@ describe("MessageHandler commands", () => {
         prompt: async () => {},
         messages:
           options?.promptMode === "reset-greeting"
-            ? [{ role: "assistant", content: "I am pi. Nice to meet you." }]
+            ? [
+                {
+                  role: "assistant",
+                  content: "你好，我是 Luka。我们继续推进你现在最重要的任务。",
+                },
+              ]
             : [],
       },
       modelRef: "quotio/gemini-3-flash-preview",
@@ -450,7 +504,7 @@ describe("MessageHandler commands", () => {
     await handler.handle(createMessage("/new"), channel);
 
     const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("I am pi. Nice to meet you.");
+    expect(payload.text).toBe("你好，我是 Luka。我们继续推进你现在最重要的任务。");
   });
 
   it("falls back to static /new reply when reset greeting turn returns empty", async () => {

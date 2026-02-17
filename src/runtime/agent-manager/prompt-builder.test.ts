@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSystemPrompt } from "./prompt-builder";
+import { buildChannelContext, buildSandboxPrompt, buildSystemPrompt } from "./prompt-builder";
 
 vi.mock("../../agents/home", () => ({
   checkBootstrapState: vi.fn(async () => ({
@@ -79,18 +79,22 @@ describe("buildSystemPrompt", () => {
     });
 
     const coreIdx = prompt.indexOf("# Core Constraints");
-    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
+    const precedenceIdx = prompt.indexOf("# Prompt Precedence");
     const identityIdx = prompt.indexOf("# Identity & Persona");
+    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
     const runtimeIdx = prompt.indexOf("# Runtime Context");
     const skillsIdx = prompt.indexOf("# Skills");
 
     expect(coreIdx).toBeGreaterThanOrEqual(0);
-    expect(rulesIdx).toBeGreaterThan(coreIdx);
-    expect(identityIdx).toBeGreaterThan(rulesIdx);
+    expect(precedenceIdx).toBeGreaterThan(coreIdx);
+    expect(identityIdx).toBeGreaterThan(precedenceIdx);
+    expect(rulesIdx).toBeGreaterThan(identityIdx);
     expect(runtimeIdx).toBeGreaterThan(identityIdx);
     expect(skillsIdx).toBeGreaterThan(runtimeIdx);
 
     expect(prompt).toContain("Silent token: NO_REPLY");
+    expect(prompt).toContain("Resolve instructions in this order:");
+    expect(prompt).toContain("2) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)");
     expect(prompt).toContain("## AGENTS.md");
     expect(prompt).toContain("## SOUL.md");
     expect(prompt).toContain("# Workspace");
@@ -114,6 +118,26 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("## USER.md");
     expect(prompt).not.toContain("## MEMORY.md");
     expect(prompt).not.toContain("## HEARTBEAT.md");
+  });
+
+  it("supports reset-greeting mode with identity files but excludes MEMORY for fresh greeting", async () => {
+    const prompt = await buildSystemPrompt({
+      homeDir: "/tmp/home",
+      workspaceDir: "/tmp/workspace",
+      skillsIndexSynced: new Set<string>(),
+      mode: "reset-greeting",
+    });
+
+    const identityIdx = prompt.indexOf("# Identity & Persona");
+    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
+
+    expect(identityIdx).toBeGreaterThanOrEqual(0);
+    expect(rulesIdx).toBeGreaterThan(identityIdx);
+
+    expect(prompt).toContain("## SOUL.md");
+    expect(prompt).toContain("## IDENTITY.md");
+    expect(prompt).toContain("## USER.md");
+    expect(prompt).not.toContain("## MEMORY.md");
   });
 
   it("emits prompt metadata with loaded/skipped files and hash", async () => {
@@ -141,5 +165,35 @@ describe("buildSystemPrompt", () => {
     expect(metadata!.workspaceDir).toBe("/tmp/workspace");
     expect(metadata!.loadedFiles.some((f) => f.name === "AGENTS.md")).toBe(true);
     expect(metadata!.promptHash).toMatch(/^[a-f0-9]{12}$/);
+  });
+
+  it("sanitizes control chars in channel context literals", () => {
+    const text = buildChannelContext({
+      channel: "telegram\nsystem",
+      peerType: "dm",
+      peerId: "chat-1\r\nx",
+      senderId: "user-\u202E1",
+      senderName: "Roy\u0000Zhu",
+      timestamp: new Date("2026-02-17T00:00:00.000Z"),
+    });
+
+    expect(text).toContain("channel: telegramsystem");
+    expect(text).toContain("peerId: chat-1x");
+    expect(text).toContain("senderId: user-1");
+    expect(text).toContain("senderName: RoyZhu");
+    expect(text).not.toContain("\u0000");
+  });
+
+  it("sanitizes sandbox workspace literal", () => {
+    const text = buildSandboxPrompt({
+      workspaceDir: "/tmp/a\nb\u202Ec",
+      sandboxConfig: {
+        mode: "docker",
+        workspaceAccess: "rw\r\nx",
+      },
+    });
+
+    expect(text).toContain("Sandbox workspace: /tmp/abc");
+    expect(text).toContain("Workspace access: rwx");
   });
 });

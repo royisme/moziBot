@@ -10,6 +10,7 @@ import type { ModelSpec } from "../types";
 import type { AgentEntry } from "./config-resolver";
 import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
 import { createRuntimeSecretBroker } from "../auth/broker";
+import { getRuntimeHookRunner } from "../hooks";
 import { createExecTool } from "../sandbox/tool";
 import { sanitizeTools } from "../schema-sanitizer";
 import { createSkillsNoteTool } from "../skills-note";
@@ -54,6 +55,109 @@ export function shouldSanitizeTools(config: MoziConfig, modelSpec: ModelSpec): b
     return false;
   }
   return modelSpec.id.toLowerCase().includes("gemini");
+}
+
+function wrapToolWithRuntimeHooks(
+  tool: AgentTool,
+  params: {
+    sessionKey: string;
+    agentId: string;
+  },
+): AgentTool {
+  return {
+    ...tool,
+    execute: async (toolCallId: string, rawArgs: unknown) => {
+      const hookRunner = getRuntimeHookRunner();
+      const hasBefore = hookRunner.hasHooks("before_tool_call");
+      const hasAfter = hookRunner.hasHooks("after_tool_call");
+
+      if (!hasBefore && !hasAfter) {
+        return tool.execute(toolCallId, rawArgs);
+      }
+
+      let nextArgs = rawArgs;
+      const hookArgs =
+        rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+          ? (rawArgs as Record<string, unknown>)
+          : {};
+
+      if (hasBefore) {
+        const before = await hookRunner.runBeforeToolCall(
+          {
+            toolName: tool.name,
+            args: hookArgs,
+          },
+          {
+            sessionKey: params.sessionKey,
+            agentId: params.agentId,
+          },
+        );
+        if (before?.block) {
+          const reason = before.blockReason?.trim();
+          return {
+            content: [
+              {
+                type: "text",
+                text: reason
+                  ? `Tool call blocked by runtime hook: ${reason}`
+                  : "Tool call blocked by runtime hook.",
+              },
+            ],
+            details: {
+              blocked: true,
+              reason: reason || "blocked-by-runtime-hook",
+              toolName: tool.name,
+            },
+          };
+        }
+        if (before?.args) {
+          nextArgs = before.args;
+        }
+      }
+
+      const startedAt = Date.now();
+      try {
+        const result = await tool.execute(toolCallId, nextArgs);
+        if (hasAfter) {
+          await hookRunner.runAfterToolCall(
+            {
+              toolName: tool.name,
+              args:
+                nextArgs && typeof nextArgs === "object" && !Array.isArray(nextArgs)
+                  ? (nextArgs as Record<string, unknown>)
+                  : {},
+              result,
+              durationMs: Math.max(0, Date.now() - startedAt),
+            },
+            {
+              sessionKey: params.sessionKey,
+              agentId: params.agentId,
+            },
+          );
+        }
+        return result;
+      } catch (error) {
+        if (hasAfter) {
+          await hookRunner.runAfterToolCall(
+            {
+              toolName: tool.name,
+              args:
+                nextArgs && typeof nextArgs === "object" && !Array.isArray(nextArgs)
+                  ? (nextArgs as Record<string, unknown>)
+                  : {},
+              error: error instanceof Error ? error.message : String(error),
+              durationMs: Math.max(0, Date.now() - startedAt),
+            },
+            {
+              sessionKey: params.sessionKey,
+              agentId: params.agentId,
+            },
+          );
+        }
+        throw error;
+      }
+    },
+  };
 }
 
 export async function buildTools(
@@ -165,8 +269,15 @@ export async function buildTools(
     tools.push(...filtered);
   }
 
+  const toolsWithHooks = tools.map((tool) =>
+    wrapToolWithRuntimeHooks(tool, {
+      sessionKey: params.sessionKey,
+      agentId: params.agentId,
+    }),
+  );
+
   if (shouldSanitizeTools(deps.config, params.modelSpec)) {
-    return sanitizeTools(tools);
+    return sanitizeTools(toolsWithHooks);
   }
-  return tools;
+  return toolsWithHooks;
 }

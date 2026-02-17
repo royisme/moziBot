@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
+import { detectSuspiciousPatterns, wrapExternalContent } from "../../security/external-content";
 import { registerBuiltinExtension } from "../loader";
 
 // ---- Config schema ----
@@ -175,10 +176,29 @@ async function executeWebSearch(
       }
       lines.push("");
     }
+    const rawText = lines.join("\n").trimEnd();
+    const suspiciousPatterns = detectSuspiciousPatterns(rawText);
+    const wrappedText = wrapExternalContent(rawText, {
+      source: "web_search",
+      metadata: {
+        Query: normalized.query,
+      },
+    });
+    const safeDetails: Record<string, unknown> = {
+      ...normalized,
+      externalContent: {
+        untrusted: true,
+        source: "web_search",
+        wrapped: true,
+      },
+    };
+    if (suspiciousPatterns.length > 0) {
+      safeDetails.suspiciousPatterns = suspiciousPatterns;
+    }
 
     return {
-      content: [{ type: "text", text: lines.join("\n").trimEnd() }],
-      details: normalized as unknown as Record<string, unknown>,
+      content: [{ type: "text", text: wrappedText }],
+      details: safeDetails,
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

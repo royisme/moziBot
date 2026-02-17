@@ -13,33 +13,34 @@ import {
   buildWorkspaceContext,
   type WorkspaceFile,
 } from "../../agents/workspace";
+import { sanitizePromptLiteral } from "../../security/prompt-literal";
 import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
 
 export function buildChannelContext(message: InboundMessage): string {
   const lines: string[] = ["# Channel Context"];
-  lines.push(`channel: ${message.channel}`);
+  lines.push(`channel: ${sanitizePromptLiteral(message.channel)}`);
   if (message.peerType) {
-    lines.push(`peerType: ${message.peerType}`);
+    lines.push(`peerType: ${sanitizePromptLiteral(message.peerType)}`);
   } else {
     lines.push("peerType: dm");
   }
   if (message.peerId) {
-    lines.push(`peerId: ${message.peerId}`);
+    lines.push(`peerId: ${sanitizePromptLiteral(message.peerId)}`);
   }
   if (message.accountId) {
-    lines.push(`accountId: ${message.accountId}`);
+    lines.push(`accountId: ${sanitizePromptLiteral(message.accountId)}`);
   }
   if (message.threadId) {
-    lines.push(`threadId: ${message.threadId}`);
+    lines.push(`threadId: ${sanitizePromptLiteral(message.threadId)}`);
   }
   if (message.senderId) {
-    lines.push(`senderId: ${message.senderId}`);
+    lines.push(`senderId: ${sanitizePromptLiteral(message.senderId)}`);
   }
   if (message.senderName) {
-    lines.push(`senderName: ${message.senderName}`);
+    lines.push(`senderName: ${sanitizePromptLiteral(message.senderName)}`);
   }
   if (message.timestamp instanceof Date) {
-    lines.push(`timestamp: ${message.timestamp.toISOString()}`);
+    lines.push(`timestamp: ${sanitizePromptLiteral(message.timestamp.toISOString())}`);
   }
   return lines.join("\n");
 }
@@ -53,11 +54,15 @@ export function buildSandboxPrompt(params: {
     return null;
   }
   const modeLabel = cfg.mode === "apple-vm" ? "Apple VM" : "Docker";
+  const safeWorkspaceDir = sanitizePromptLiteral(params.workspaceDir);
+  const safeWorkspaceAccess = cfg.workspaceAccess
+    ? sanitizePromptLiteral(cfg.workspaceAccess)
+    : null;
   const lines = [
     "# Sandbox",
     `You are running in a sandboxed runtime (${modeLabel}).`,
-    `Sandbox workspace: ${params.workspaceDir}`,
-    cfg.workspaceAccess ? `Workspace access: ${cfg.workspaceAccess}` : "",
+    `Sandbox workspace: ${safeWorkspaceDir}`,
+    safeWorkspaceAccess ? `Workspace access: ${safeWorkspaceAccess}` : "",
     "Home is the agent's identity store and may be updated outside the sandbox.",
     "All task output must be written to the workspace. Do not write task files into home.",
     "If you need host filesystem access outside workspace, ask the user first.",
@@ -69,7 +74,8 @@ export function buildToolsSection(tools?: string[]): string | null {
   if (!tools || tools.length === 0) {
     return null;
   }
-  const lines = ["# Tools", `Enabled tools: ${tools.join(", ")}`];
+  const safeTools = tools.map((tool) => sanitizePromptLiteral(tool));
+  const lines = ["# Tools", `Enabled tools: ${safeTools.join(", ")}`];
   return lines.join("\n");
 }
 
@@ -94,6 +100,19 @@ function buildWorkAssistantContract(): string {
     "If no outbound reply is needed, return the exact token NO_REPLY.",
     `Silent token: ${SILENT_REPLY_TOKEN}`,
     "When constraints conflict, prioritize safety and project/workspace rules over style.",
+  ];
+  return lines.join("\n");
+}
+
+function buildPromptPrecedenceContract(): string {
+  const lines = [
+    "# Prompt Precedence",
+    "Resolve instructions in this order:",
+    "1) Core Constraints and Safety",
+    "2) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)",
+    "3) Project & Workspace Rules (AGENTS.md, workspace docs, HEARTBEAT.md)",
+    "4) Runtime Context and tooling notes",
+    "If two instructions conflict within the same layer, prefer the more specific one.",
   ];
   return lines.join("\n");
 }
@@ -139,8 +158,10 @@ function buildProjectWorkspaceRules(params: {
 function buildIdentityPersona(params: { homeIndex: Map<string, string> }): string | null {
   const sections: string[] = [
     "# Identity & Persona",
-    "These files are authoritative for your identity, tone, and language.",
-    "You MUST follow language/style constraints defined here.",
+    "These files are authoritative for your identity, tone, language, and user relationship.",
+    "Treat identity as behavioral operating state, not decoration.",
+    "When introducing yourself or speaking about role, derive it from these files.",
+    "Use USER.md preferences for language and communication style unless safety or project rules require otherwise.",
   ];
 
   const orderedFiles = ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const;
@@ -259,19 +280,20 @@ export async function buildSystemPrompt(params: {
   const sections: string[] = [];
 
   sections.push(buildWorkAssistantContract());
+  sections.push(buildPromptPrecedenceContract());
 
   if (params.basePrompt?.trim()) {
     sections.push("# Runtime Base Prompt\n" + params.basePrompt.trim());
   }
 
-  const projectWorkspace = buildProjectWorkspaceRules({ homeIndex, workspaceContext });
-  if (projectWorkspace) {
-    sections.push(projectWorkspace);
-  }
-
   const identityPersona = buildIdentityPersona({ homeIndex });
   if (identityPersona) {
     sections.push(identityPersona);
+  }
+
+  const projectWorkspace = buildProjectWorkspaceRules({ homeIndex, workspaceContext });
+  if (projectWorkspace) {
+    sections.push(projectWorkspace);
   }
 
   const runtimeContextParts: string[] = [];

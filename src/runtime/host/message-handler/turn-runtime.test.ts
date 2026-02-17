@@ -12,6 +12,13 @@ const flowMocks = vi.hoisted(() => ({
   runCleanupFlow: vi.fn(),
 }));
 
+const hookMocks = vi.hoisted(() => ({
+  runner: {
+    hasHooks: vi.fn(() => false),
+    runTurnCompleted: vi.fn(async () => {}),
+  },
+}));
+
 vi.mock("./flow/inbound-flow", () => ({ runInboundFlow: flowMocks.runInboundFlow }));
 vi.mock("./flow/command-flow", () => ({ runCommandFlow: flowMocks.runCommandFlow }));
 vi.mock("./flow/lifecycle-flow", () => ({ runLifecycleFlow: flowMocks.runLifecycleFlow }));
@@ -19,6 +26,9 @@ vi.mock("./flow/prompt-flow", () => ({ runPromptFlow: flowMocks.runPromptFlow })
 vi.mock("./flow/execution-flow", () => ({ runExecutionFlow: flowMocks.runExecutionFlow }));
 vi.mock("./flow/error-flow", () => ({ runErrorFlow: flowMocks.runErrorFlow }));
 vi.mock("./flow/cleanup-flow", () => ({ runCleanupFlow: flowMocks.runCleanupFlow }));
+vi.mock("../../hooks", () => ({
+  getRuntimeHookRunner: () => hookMocks.runner,
+}));
 
 function createDeps(): OrchestratorDeps {
   return {
@@ -89,6 +99,7 @@ function createContext(): MessageTurnContext {
 describe("MessageTurnRuntime stage registry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hookMocks.runner.hasHooks.mockReturnValue(false);
     flowMocks.runInboundFlow.mockResolvedValue("continue");
     flowMocks.runCommandFlow.mockResolvedValue("continue");
     flowMocks.runLifecycleFlow.mockResolvedValue("continue");
@@ -135,5 +146,27 @@ describe("MessageTurnRuntime stage registry", () => {
     expect(result).toBeNull();
     expect(flowMocks.runErrorFlow).toHaveBeenCalledTimes(1);
     expect(flowMocks.runCleanupFlow).toHaveBeenCalledTimes(1);
+  });
+
+  it("emits turn_completed hook when session context is available", async () => {
+    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "turn_completed");
+    const runtime = new MessageTurnRuntime(createDeps());
+    const ctx = createContext();
+    ctx.state = { sessionKey: "agent:mozi:telegram:dm:chat-1", agentId: "mozi" };
+
+    await runtime.run(ctx);
+
+    expect(hookMocks.runner.runTurnCompleted).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runTurnCompleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: "turn:m1",
+        messageId: "m1",
+        status: "success",
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:telegram:dm:chat-1",
+        agentId: "mozi",
+      }),
+    );
   });
 });

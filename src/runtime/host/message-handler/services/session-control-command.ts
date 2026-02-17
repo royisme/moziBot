@@ -4,6 +4,7 @@ import {
   resolveMemoryBackendConfig,
   type ResolvedMemoryPersistenceConfig,
 } from "../../../../memory/backend-config";
+import { getRuntimeHookRunner } from "../../../hooks";
 
 interface SendChannel {
   send(peerId: string, payload: { text: string }): Promise<unknown>;
@@ -53,8 +54,10 @@ export async function handleNewSessionCommand(params: {
     runResetGreetingTurn,
   } = params;
   const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
+  let snapshotMessages: AgentMessage[] | undefined;
   if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
     const { agent } = await agentManager.getAgent(sessionKey, agentId);
+    snapshotMessages = agent.messages;
     const success = await flushMemory(
       sessionKey,
       agentId,
@@ -69,6 +72,24 @@ export async function handleNewSessionCommand(params: {
         trigger: "new",
       },
     });
+  }
+
+  const hookRunner = getRuntimeHookRunner();
+  if (hookRunner.hasHooks("before_reset")) {
+    if (!snapshotMessages) {
+      const { agent } = await agentManager.getAgent(sessionKey, agentId);
+      snapshotMessages = agent.messages;
+    }
+    await hookRunner.runBeforeReset(
+      {
+        reason: "new",
+        messages: snapshotMessages ?? [],
+      },
+      {
+        sessionKey,
+        agentId,
+      },
+    );
   }
 
   agentManager.resetSession(sessionKey, agentId);
