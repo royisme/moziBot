@@ -3,7 +3,7 @@ import type { MoziConfig } from "../../../config";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { AgentManager } from "../../agent-manager";
-import type { ReasoningLevel } from "../message-handler/types";
+import type { ReasoningLevel } from "../../model/thinking";
 import { resolveMemoryBackendConfig } from "../../../memory/backend-config";
 
 export async function handleWhoamiCommand(params: {
@@ -91,6 +91,27 @@ export async function handleStatusCommand(params: {
     `👤 User: ${message.senderId} · ${message.channel}:${message.peerType ?? "dm"}:${message.peerId}`,
   );
 
+  const promptMetadata =
+    "getPromptMetadata" in agentManager ? agentManager.getPromptMetadata(sessionKey) : undefined;
+  if (promptMetadata) {
+    lines.push(`🧩 Prompt mode: ${promptMetadata.mode}`);
+    lines.push(`🏠 Home: ${promptMetadata.homeDir}`);
+    lines.push(`📁 Workspace: ${promptMetadata.workspaceDir}`);
+    lines.push(`🧾 Prompt hash: ${promptMetadata.promptHash}`);
+    if (promptMetadata.loadedFiles.length > 0) {
+      lines.push(
+        `📦 Loaded files: ${promptMetadata.loadedFiles.map((f) => `${f.name}(${f.chars})`).join(", ")}`,
+      );
+    }
+    if (promptMetadata.skippedFiles.length > 0) {
+      lines.push(
+        `⏭️ Skipped files: ${promptMetadata.skippedFiles
+          .map((f) => `${f.name}:${f.reason}`)
+          .join(", ")}`,
+      );
+    }
+  }
+
   await channel.send(peerId, { text: lines.join("\n") });
 }
 
@@ -114,8 +135,22 @@ export async function handleNewSessionCommand(params: {
       timeoutMs: number;
     };
   }) => Promise<boolean>;
+  runResetGreetingTurn?: (params: {
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+  }) => Promise<string | null>;
 }): Promise<void> {
-  const { sessionKey, agentId, channel, peerId, config, agentManager, flushMemory } = params;
+  const {
+    sessionKey,
+    agentId,
+    channel,
+    peerId,
+    config,
+    agentManager,
+    flushMemory,
+    runResetGreetingTurn,
+  } = params;
   const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
   if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
     const { agent } = await agentManager.getAgent(sessionKey, agentId);
@@ -136,6 +171,15 @@ export async function handleNewSessionCommand(params: {
   }
 
   agentManager.resetSession(sessionKey, agentId);
+
+  if (runResetGreetingTurn) {
+    const greeting = await runResetGreetingTurn({ sessionKey, agentId, peerId });
+    if (greeting && greeting.trim()) {
+      await channel.send(peerId, { text: greeting.trim() });
+      return;
+    }
+  }
+
   await channel.send(peerId, { text: "New session started (rotated to a new session segment)." });
 }
 

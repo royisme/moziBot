@@ -10,7 +10,11 @@ interface SendChannel {
 }
 
 interface AgentManagerLike {
-  getAgent(sessionKey: string, agentId: string): Promise<{ agent: { messages: AgentMessage[] } }>;
+  getAgent(
+    sessionKey: string,
+    agentId: string,
+    options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+  ): Promise<{ agent: { messages: AgentMessage[] } }>;
   updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void;
   resetSession(sessionKey: string, agentId: string): void;
   compactSession(
@@ -32,8 +36,22 @@ export async function handleNewSessionCommand(params: {
     messages: AgentMessage[],
     config: ResolvedMemoryPersistenceConfig,
   ) => Promise<boolean>;
+  runResetGreetingTurn?: (params: {
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+  }) => Promise<string | null>;
 }): Promise<void> {
-  const { sessionKey, agentId, channel, peerId, config, agentManager, flushMemory } = params;
+  const {
+    sessionKey,
+    agentId,
+    channel,
+    peerId,
+    config,
+    agentManager,
+    flushMemory,
+    runResetGreetingTurn,
+  } = params;
   const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
   if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
     const { agent } = await agentManager.getAgent(sessionKey, agentId);
@@ -54,6 +72,15 @@ export async function handleNewSessionCommand(params: {
   }
 
   agentManager.resetSession(sessionKey, agentId);
+
+  if (runResetGreetingTurn) {
+    const greeting = await runResetGreetingTurn({ sessionKey, agentId, peerId });
+    if (greeting && greeting.trim()) {
+      await channel.send(peerId, { text: greeting.trim() });
+      return;
+    }
+  }
+
   await channel.send(peerId, { text: "New session started (rotated to a new session segment)." });
 }
 
