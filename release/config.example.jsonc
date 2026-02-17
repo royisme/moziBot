@@ -54,6 +54,15 @@
           "apiKeyEnv": "BRAVE_API_KEY",
         },
       },
+      "openclaw-memory-recall": {
+        "enabled": false,
+        "config": {
+          "baseDir": "~/.mozi",
+          "memoryFile": "MEMORY.md",
+          "maxItems": 3,
+          "maxInjectChars": 1200,
+        },
+      },
     },
     "mcpServers": {
       "filesystem": {

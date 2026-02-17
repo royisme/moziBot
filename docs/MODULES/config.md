@@ -50,7 +50,7 @@ Recommended baseline for a new user config:
 
 1. Set `extensions.enabled: true`.
 2. Add `extensions.load.paths: ["~/.mozi/extensions"]`.
-3. Create entries for builtin extensions you want to enable (for example `web-tavily`, `brave-search`).
+3. Create entries for builtin extensions you want to enable (for example `web-tavily`, `brave-search`, `openclaw-memory-recall`).
 4. Add `mcpServers` entries only for servers you actually use, keeping each one `enabled: false` until validated.
 
 ## Session Lifecycle Config (agents)

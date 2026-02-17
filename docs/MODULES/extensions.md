@@ -65,6 +65,22 @@ Supported runtime hook names:
 - Extension hooks are registered into runtime hook registry and re-synced on config reload.
 - Host command flow dispatches unmatched slash commands to extension commands.
 
+## OpenClaw Migration Case
+
+`openclaw-memory-recall` is a builtin migration case from OpenClaw `extensions/memory-lancedb` (auto-recall path).
+
+- Uses `register(api)` + `api.registerHook("before_agent_start", ...)`.
+- Reads `MEMORY.md`, scores lines by prompt keyword overlap, and prepends a compact recall block to `promptText`.
+- Kept intentionally lightweight: no vector DB, no embeddings, no async service bootstrap.
+
+Key config fields (`extensions.entries.openclaw-memory-recall.config`):
+
+- `baseDir` (default `~/.mozi`)
+- `memoryFile` (default `MEMORY.md`)
+- `maxItems` (default `3`)
+- `maxInjectChars` (default `1200`)
+- `minPromptChars` / `minLineChars`
+
 ## Integration
 
 The extension registry is used by runtime host and agent manager, so extension capabilities are available without separate wiring per adapter.
