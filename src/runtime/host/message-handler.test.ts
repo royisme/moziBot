@@ -260,6 +260,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         setSessionModel: (
           sessionKey: string,
@@ -280,6 +281,16 @@ describe("MessageHandler commands", () => {
         updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         getSessionMetadata: (sessionKey: string) => Record<string, unknown> | undefined;
+        getPromptMetadata: (sessionKey: string) =>
+          | {
+              mode: "main" | "reset-greeting" | "subagent-minimal";
+              homeDir: string;
+              workspaceDir: string;
+              loadedFiles: Array<{ name: string; chars: number }>;
+              skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+              promptHash: string;
+            }
+          | undefined;
         resolveConfiguredThinkingLevel: (
           agentId: string,
         ) => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
@@ -304,13 +315,29 @@ describe("MessageHandler commands", () => {
     };
     h.agentManager = {
       resolveDefaultAgentId: () => "mozi",
-      getAgent: (async () => ({
-        agent: { messages: [] },
+      getAgent: (async (
+        _sessionKey: string,
+        _agentId: string,
+        options?: {
+          promptMode?: "main" | "reset-greeting" | "subagent-minimal";
+        },
+      ) => ({
+        agent: {
+          messages:
+            options?.promptMode === "reset-greeting"
+              ? [{ role: "assistant", content: "what they want to work on now" }]
+              : [],
+          prompt: async () => {},
+        },
         modelRef: "quotio/gemini-3-flash-preview",
       })) as unknown as (
         sessionKey: string,
         agentId: string,
-      ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>,
+        options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+      ) => Promise<{
+        agent: { messages: unknown[]; prompt?: (text: string) => Promise<void> };
+        modelRef: string;
+      }>,
       setSessionModel: setSessionModel as unknown as (
         sessionKey: string,
         modelRef: string,
@@ -338,6 +365,16 @@ describe("MessageHandler commands", () => {
       getSessionMetadata: getSessionMetadata as unknown as (
         sessionKey: string,
       ) => Record<string, unknown> | undefined,
+      getPromptMetadata: (() => undefined) as unknown as (sessionKey: string) =>
+        | {
+            mode: "main" | "reset-greeting" | "subagent-minimal";
+            homeDir: string;
+            workspaceDir: string;
+            loadedFiles: Array<{ name: string; chars: number }>;
+            skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+            promptHash: string;
+          }
+        | undefined,
       resolveConfiguredThinkingLevel: resolveConfiguredThinkingLevel as unknown as (
         agentId: string,
       ) => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
@@ -368,6 +405,79 @@ describe("MessageHandler commands", () => {
     await handler.handle(createMessage("/new"), channel);
     expect(resetSession).toHaveBeenCalledTimes(1);
     expect(resetSession.mock.calls[0]?.[1]).toBe("mozi");
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("what they want to work on now");
+  });
+
+  it("replaces generic pi /new greeting with configured-identity fallback", async () => {
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+        ) => Promise<{
+          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+          modelRef: string;
+        }>;
+      };
+    };
+
+    h.agentManager.getAgent = (async (
+      _sessionKey: string,
+      _agentId: string,
+      options?: {
+        promptMode?: "main" | "reset-greeting" | "subagent-minimal";
+      },
+    ) => ({
+      agent: {
+        prompt: async () => {},
+        messages:
+          options?.promptMode === "reset-greeting"
+            ? [{ role: "assistant", content: "I am pi. Nice to meet you." }]
+            : [],
+      },
+      modelRef: "quotio/gemini-3-flash-preview",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+    ) => Promise<{
+      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+      modelRef: string;
+    }>;
+
+    await handler.handle(createMessage("/new"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("IDENTITY.md / SOUL.md");
+    expect(payload.text).not.toContain("I am pi");
+  });
+
+  it("falls back to static /new reply when reset greeting turn returns empty", async () => {
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+        ) => Promise<{ agent: { prompt: (text: string) => Promise<void>; messages: unknown[] } }>;
+      };
+    };
+
+    h.agentManager.getAgent = (async () => ({
+      agent: {
+        prompt: async () => {},
+        messages: [],
+      },
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+    ) => Promise<{ agent: { prompt: (text: string) => Promise<void>; messages: unknown[] } }>;
+
+    await handler.handle(createMessage("/new"), channel);
+
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("rotated to a new session segment");
   });
@@ -701,6 +811,30 @@ describe("MessageHandler commands", () => {
     expect(delivered).not.toContain("<think>");
   });
 
+  it("enforces configured identity on plain 你是谁 query when model outputs generic pi", async () => {
+    getSessionMetadata.mockReturnValue({ reasoningLevel: "off" });
+
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: { type: "agent_end"; fullText?: string }) => void;
+      }) => Promise<void>;
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      params.onStream?.({
+        type: "agent_end",
+        fullText: "我是 pi，一个 AI 编程助手。",
+      });
+    });
+
+    await handler.handle(createMessage("你是谁"), channel);
+
+    const deliveredTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const finalText = deliveredTexts.at(-1) || "";
+    expect(finalText).toContain("IDENTITY.md / SOUL.md");
+    expect(finalText).not.toContain("我是 pi");
+  });
+
   it("attempts pre-overflow memory flush when context usage is high", async () => {
     const config = createConfig();
     config.memory = {
@@ -725,6 +859,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
@@ -775,6 +910,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
       };
     };
@@ -1091,6 +1227,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         resetSession: (sessionKey: string, agentId: string) => void;
         ensureSessionModelForInput: (params: {
@@ -1161,6 +1298,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         resetSession: (sessionKey: string, agentId: string) => void;
         ensureSessionModelForInput: (params: {
@@ -1235,6 +1373,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         resetSession: (sessionKey: string, agentId: string) => void;
         ensureSessionModelForInput: (params: {
@@ -1326,6 +1465,7 @@ describe("MessageHandler commands", () => {
         getAgent: (
           sessionKey: string,
           agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         resetSession: (sessionKey: string, agentId: string) => void;
         ensureSessionModelForInput: (params: {
