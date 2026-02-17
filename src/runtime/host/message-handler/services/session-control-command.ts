@@ -5,6 +5,10 @@ import {
   type ResolvedMemoryPersistenceConfig,
 } from "../../../../memory/backend-config";
 import { getRuntimeHookRunner } from "../../../hooks";
+import {
+  normalizeIdentityLanguageHint,
+  selectNewSessionFallbackText,
+} from "./reset-greeting-language";
 
 interface SendChannel {
   send(peerId: string, payload: { text: string }): Promise<unknown>;
@@ -24,6 +28,42 @@ interface AgentManagerLike {
   ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
 }
 
+interface LoggerLike {
+  warn?(obj: Record<string, unknown>, msg: string): void;
+  info?(obj: Record<string, unknown>, msg: string): void;
+}
+
+interface ResetGreetingTurnResult {
+  text?: string | null;
+  identityLanguageHint?: string | null;
+}
+
+function normalizeResetGreetingResult(
+  result: string | ResetGreetingTurnResult | null | undefined,
+): {
+  text: string | null;
+  identityLanguageHint: string | null;
+} {
+  if (!result) {
+    return { text: null, identityLanguageHint: null };
+  }
+  if (typeof result === "string") {
+    return { text: result, identityLanguageHint: null };
+  }
+  return {
+    text: typeof result.text === "string" ? result.text : null,
+    identityLanguageHint: normalizeIdentityLanguageHint(result.identityLanguageHint),
+  };
+}
+
+function buildGreetingPreview(text: string, maxChars = 80): string {
+  const singleLine = text.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= maxChars) {
+    return singleLine;
+  }
+  return `${singleLine.slice(0, maxChars - 3)}...`;
+}
+
 export async function handleNewSessionCommand(params: {
   sessionKey: string;
   agentId: string;
@@ -41,7 +81,9 @@ export async function handleNewSessionCommand(params: {
     sessionKey: string;
     agentId: string;
     peerId: string;
-  }) => Promise<string | null>;
+  }) => Promise<string | ResetGreetingTurnResult | null>;
+  identityLanguageHint?: string | null;
+  logger?: LoggerLike;
 }): Promise<void> {
   const {
     sessionKey,
@@ -52,7 +94,11 @@ export async function handleNewSessionCommand(params: {
     agentManager,
     flushMemory,
     runResetGreetingTurn,
+    identityLanguageHint,
+    logger,
   } = params;
+  const commandStartAt = Date.now();
+  let resolvedLanguageHint = normalizeIdentityLanguageHint(identityLanguageHint);
   const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
   let snapshotMessages: AgentMessage[] | undefined;
   if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
@@ -94,15 +140,59 @@ export async function handleNewSessionCommand(params: {
 
   agentManager.resetSession(sessionKey, agentId);
 
+  let greetingSource: "reset-greeting" | "fallback" = "fallback";
+  let fallbackReason:
+    | "empty-reset-greeting"
+    | "reset-greeting-error"
+    | "reset-greeting-unavailable" = "reset-greeting-unavailable";
+  let text = "";
+
   if (runResetGreetingTurn) {
-    const greeting = await runResetGreetingTurn({ sessionKey, agentId, peerId });
-    if (greeting && greeting.trim()) {
-      await channel.send(peerId, { text: greeting.trim() });
-      return;
+    try {
+      const result = normalizeResetGreetingResult(
+        await runResetGreetingTurn({ sessionKey, agentId, peerId }),
+      );
+      resolvedLanguageHint = result.identityLanguageHint ?? resolvedLanguageHint;
+      if (result.text && result.text.trim()) {
+        text = result.text.trim();
+        greetingSource = "reset-greeting";
+      } else {
+        fallbackReason = "empty-reset-greeting";
+      }
+    } catch (error) {
+      fallbackReason = "reset-greeting-error";
+      logger?.warn?.(
+        {
+          sessionKey,
+          agentId,
+          peerId,
+          error,
+        },
+        "/new reset greeting failed, falling back to static text",
+      );
     }
   }
 
-  await channel.send(peerId, { text: "New session started (rotated to a new session segment)." });
+  if (!text) {
+    text = selectNewSessionFallbackText(resolvedLanguageHint);
+  }
+
+  await channel.send(peerId, { text });
+
+  logger?.info?.(
+    {
+      sessionKey,
+      agentId,
+      peerId,
+      greetingSource,
+      identityLanguageHint: resolvedLanguageHint ?? null,
+      greetingChars: text.length,
+      durationMs: Date.now() - commandStartAt,
+      fallbackReason: greetingSource === "fallback" ? fallbackReason : null,
+      greetingPreview: buildGreetingPreview(text),
+    },
+    "/new greeting dispatched",
+  );
 }
 
 export async function handleRestartCommand(params: {

@@ -22,6 +22,7 @@ import {
 } from "./models-command";
 import { resolveCurrentReasoningLevel as resolveCurrentReasoningLevelService } from "./reasoning-level";
 import { handleRemindersCommand as handleRemindersCommandService } from "./reminders-command";
+import { extractIdentityLanguageHintFromSystemPrompt } from "./reset-greeting-language";
 import {
   handleCompactCommand as handleCompactCommandService,
   handleNewSessionCommand as handleNewSessionCommandService,
@@ -100,18 +101,23 @@ export function buildCommandHandlerMap(params: {
           config,
           agentManager,
           flushMemory,
+          logger,
           runResetGreetingTurn: async ({ sessionKey, agentId }) => {
-            const { agent } = await agentManager.getAgent(sessionKey, agentId, {
+            const { agent, systemPrompt } = await agentManager.getAgent(sessionKey, agentId, {
               promptMode: "reset-greeting",
             });
+            const identityLanguageHint = extractIdentityLanguageHintFromSystemPrompt(systemPrompt);
             const resetPrompt =
-              "A new session was started via /new. Reply in 1-2 short sentences. Identity/persona are authoritative from SOUL.md + IDENTITY.md + USER.md. Use that identity directly (name/role/tone/language) instead of generic assistant phrasing. Then ask what the user wants to work on now.";
+              "A new session was started via /new. Reply in 1-2 short sentences. Identity/persona are authoritative from SOUL.md + IDENTITY.md + USER.md. Use that identity directly (name/role/tone/language). Language rule: use the language specified by those files and do not default to English unless identity/user preference says English. Then ask what the user wants to work on now. Do not mention internal steps, files, tools, or reasoning.";
             await agent.prompt(resetPrompt);
             const latest = agent.messages.at(-1);
             const reply = latest
               ? renderAssistantReply((latest as { content?: unknown }).content)
               : "";
-            return reply || null;
+            return {
+              text: reply || null,
+              identityLanguageHint,
+            };
           },
         });
       },

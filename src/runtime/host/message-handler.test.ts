@@ -456,6 +456,9 @@ describe("MessageHandler commands", () => {
     expect(payload.text).toContain("I am pi. Nice to meet you.");
     expect(capturedResetPrompt).toContain("Identity/persona are authoritative");
     expect(capturedResetPrompt).toContain("SOUL.md + IDENTITY.md + USER.md");
+    expect(capturedResetPrompt).toContain(
+      "Language rule: use the language specified by those files",
+    );
   });
 
   it("preserves zh identity greeting output from reset mode without rewriting", async () => {
@@ -533,6 +536,44 @@ describe("MessageHandler commands", () => {
 
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("rotated to a new session segment");
+  });
+
+  it("falls back to zh /new reply when identity language hint is zh-CN", async () => {
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+        ) => Promise<{
+          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+          modelRef: string;
+          systemPrompt: string;
+        }>;
+      };
+    };
+
+    h.agentManager.getAgent = (async () => ({
+      agent: {
+        prompt: async () => {},
+        messages: [],
+      },
+      modelRef: "quotio/gemini-3-flash-preview",
+      systemPrompt: "# Identity & Persona\n## USER.md\nLanguage preference: zh-CN",
+    })) as unknown as (
+      sessionKey: string,
+      agentId: string,
+      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
+    ) => Promise<{
+      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
+      modelRef: string;
+      systemPrompt: string;
+    }>;
+
+    await handler.handle(createMessage("/new"), channel);
+
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("新会话已开始");
   });
 
   it("handles /models by showing available models", async () => {
