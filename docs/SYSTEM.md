@@ -116,8 +116,8 @@ Configuration is stored in `~/.mozi/config.jsonc`:
 {
   "paths": {
     "baseDir": "~/.mozi",
-    "sessions": "./sessions",
-    "memory": "./memory",
+    "sessions": "sessions",
+    "logs": "logs",
   },
   "models": {
     "providers": {
@@ -130,10 +130,11 @@ Configuration is stored in `~/.mozi/config.jsonc`:
   },
   "agents": {
     "defaults": { "model": "provider/model" },
-    "agent-name": { "level": "primary", "skills": [] },
+    "agent-name": { "main": true, "skills": [] },
   },
   "channels": {
-    "telegram": { "enabled": true, "botToken": "${TOKEN}" },
+    "routing": { "dmAgentId": "agent-name" },
+    "telegram": { "enabled": true, "botToken": "${TOKEN}", "agentId": "agent-name" },
   },
 }
 ```

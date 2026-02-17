@@ -451,6 +451,13 @@ export async function runInitWizard(options: { reset?: boolean; nonInteractive?:
     await fs.access(configPath);
     if (!options.reset) {
       console.log(pc.yellow("\n⚠️  Configuration already exists at " + configPath));
+      if (options.nonInteractive) {
+        console.log(
+          pc.red("Non-interactive mode cannot overwrite existing config without --reset."),
+        );
+        process.exitCode = 1;
+        return;
+      }
       const overwrite = await confirm({
         message: "Do you want to overwrite it?",
         default: false,
@@ -467,13 +474,26 @@ export async function runInitWizard(options: { reset?: boolean; nonInteractive?:
   banner();
 
   // Collect configuration
-  const provider = await promptProvider();
-  const apiKey = await promptApiKey({
-    providerLabel: provider.providerLabel,
-    envVarName: provider.envVarName,
-  });
-  const workspace = await promptWorkspace();
-  const { channel, token: channelToken } = await promptChannel();
+  const defaultProvider = BUILTIN_PROVIDER_PRESETS.openai;
+  const provider = options.nonInteractive
+    ? {
+        providerId: "openai",
+        providerLabel: defaultProvider.label,
+        api: defaultProvider.api,
+        model: defaultProvider.defaultModel,
+        envVarName: defaultProvider.envVarName,
+      }
+    : await promptProvider();
+  const apiKey = options.nonInteractive
+    ? `\${${provider.envVarName}}`
+    : await promptApiKey({
+        providerLabel: provider.providerLabel,
+        envVarName: provider.envVarName,
+      });
+  const workspace = options.nonInteractive ? DEFAULT_WORKSPACE : await promptWorkspace();
+  const { channel, token: channelToken } = options.nonInteractive
+    ? { channel: "none" as const }
+    : await promptChannel();
 
   const config: InitConfig = {
     providerId: provider.providerId,
@@ -518,7 +538,7 @@ export async function runInitWizard(options: { reset?: boolean; nonInteractive?:
   console.log();
   console.log("Next steps:");
   console.log(`  • Start chatting: ${pc.cyan("mozi chat")}`);
-  console.log(`  • Check status: ${pc.cyan("mozi status")}`);
+  console.log(`  • Check status: ${pc.cyan("mozi runtime status")}`);
   console.log(`  • View health: ${pc.cyan("mozi health")}`);
   console.log();
   console.log(pc.bold("Happy coding! 🎉"));

@@ -2,10 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import pc from "picocolors";
+import { readConfigSnapshot, resolveConfigPath, type MoziConfig } from "../../config";
 
 const DEFAULT_BASE_DIR = path.join(os.homedir(), ".mozi");
-const DEFAULT_HOME = path.join(DEFAULT_BASE_DIR, "agents", "main", "home");
-const DEFAULT_WORKSPACE = path.join(DEFAULT_BASE_DIR, "agents", "main", "workspace");
 
 interface HealthCheck {
   name: string;
@@ -19,24 +18,19 @@ interface AgentConfig {
   workspace?: string;
 }
 
-interface ParsedConfig {
-  agents?: {
-    defaults?: unknown;
-    [key: string]: unknown;
+function loadResolvedConfig(): {
+  configPath: string;
+  exists: boolean;
+  config: MoziConfig | null;
+  errors: string[];
+} {
+  const snapshot = readConfigSnapshot(resolveConfigPath());
+  return {
+    configPath: snapshot.path,
+    exists: snapshot.exists,
+    config: snapshot.load.success ? (snapshot.load.config ?? null) : null,
+    errors: snapshot.load.errors ?? [],
   };
-}
-
-async function loadConfig(): Promise<{ configPath: string; config: ParsedConfig | null }> {
-  const configPath = path.join(DEFAULT_BASE_DIR, "config.jsonc");
-  try {
-    const content = await fs.readFile(configPath, "utf-8");
-    // Strip JSONC comments
-    const stripped = content.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
-    const config = JSON.parse(stripped) as ParsedConfig;
-    return { configPath, config };
-  } catch {
-    return { configPath, config: null };
-  }
 }
 
 function resolvePath(p: string): string {
@@ -46,7 +40,15 @@ function resolvePath(p: string): string {
   return path.resolve(p);
 }
 
-function resolveDefaultAgentConfig(config: ParsedConfig | null): AgentConfig | undefined {
+function defaultHomeDir(baseDir: string): string {
+  return path.join(baseDir, "agents", "main", "home");
+}
+
+function defaultWorkspaceDir(baseDir: string): string {
+  return path.join(baseDir, "agents", "main", "workspace");
+}
+
+function resolveDefaultAgentConfig(config: MoziConfig | null): AgentConfig | undefined {
   if (!config?.agents || typeof config.agents !== "object") {
     return undefined;
   }
@@ -64,29 +66,30 @@ function resolveDefaultAgentConfig(config: ParsedConfig | null): AgentConfig | u
 }
 
 async function checkConfig(): Promise<HealthCheck> {
-  const { configPath, config } = await loadConfig();
+  const { configPath, exists, config, errors } = loadResolvedConfig();
+  if (!exists) {
+    return {
+      name: "Configuration",
+      status: "error",
+      message: `Not found. Run ${pc.cyan("mozi init")} to create.`,
+    };
+  }
   if (config === null) {
-    try {
-      await fs.access(configPath);
-      return {
-        name: "Configuration",
-        status: "error",
-        message: "Invalid JSON format",
-      };
-    } catch {
-      return {
-        name: "Configuration",
-        status: "error",
-        message: `Not found. Run ${pc.cyan("mozi init")} to create.`,
-      };
-    }
+    return {
+      name: "Configuration",
+      status: "error",
+      message: `Invalid config: ${errors[0] ?? "unknown parse/validation error"}`,
+    };
   }
   return { name: "Configuration", status: "ok", message: configPath };
 }
 
 async function checkHome(): Promise<HealthCheck> {
-  const { config } = await loadConfig();
-  let homePath = DEFAULT_HOME;
+  const { config, configPath } = loadResolvedConfig();
+  const configBaseDir = config?.paths?.baseDir
+    ? resolvePath(config.paths.baseDir)
+    : path.dirname(configPath);
+  let homePath = defaultHomeDir(configBaseDir || DEFAULT_BASE_DIR);
 
   const defaultAgent = resolveDefaultAgentConfig(config);
   if (defaultAgent?.home) {
@@ -129,8 +132,11 @@ async function checkHome(): Promise<HealthCheck> {
 }
 
 async function checkWorkspace(): Promise<HealthCheck> {
-  const { config } = await loadConfig();
-  let workspacePath = DEFAULT_WORKSPACE;
+  const { config, configPath } = loadResolvedConfig();
+  const configBaseDir = config?.paths?.baseDir
+    ? resolvePath(config.paths.baseDir)
+    : path.dirname(configPath);
+  let workspacePath = defaultWorkspaceDir(configBaseDir || DEFAULT_BASE_DIR);
 
   const defaultAgent = resolveDefaultAgentConfig(config);
   if (defaultAgent?.workspace) {
@@ -154,7 +160,8 @@ async function checkWorkspace(): Promise<HealthCheck> {
 }
 
 async function checkEnv(): Promise<HealthCheck> {
-  const envPath = path.join(DEFAULT_BASE_DIR, ".env");
+  const { configPath } = loadResolvedConfig();
+  const envPath = path.join(path.dirname(configPath), ".env");
   try {
     await fs.access(envPath);
     return { name: "Environment", status: "ok", message: envPath };

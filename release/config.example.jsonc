@@ -21,7 +21,7 @@
       },
     },
     "mozi": {
-      "level": "primary",
+      "main": true,
       "name": "Mozi",
       "home": "~/.mozi/agents/mozi/home",
       "workspace": "~/.mozi/agents/mozi/workspace",

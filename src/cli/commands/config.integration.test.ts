@@ -214,3 +214,29 @@ test("config doctor fails when sentinel is persisted in required secret field", 
   expect(doctor.status).toBe(1);
   expect(doctor.stderr.toString()).toContain("redacted sentinel");
 });
+
+test("config doctor fails when provider apiKey remains unresolved env placeholder", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-config-doctor-provider-env-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  const bad = {
+    ...BASE_CONFIG,
+    models: {
+      providers: {
+        quotio: {
+          api: "openai-responses",
+          apiKey: "${MISSING_PROVIDER_KEY}",
+          models: [{ id: "gemini-3-flash-preview" }],
+        },
+      },
+    },
+  };
+  fs.writeFileSync(configPath, JSON.stringify(bad, null, 2), "utf-8");
+
+  const doctor = spawnSync("tsx", [CLI_PATH, "config", "--doctor", "-c", configPath], {
+    env: { ...process.env, MOZI_CLI: "true" },
+  });
+  expect(doctor.status).toBe(1);
+  expect(doctor.stderr.toString()).toContain(
+    "Provider quotio apiKey is unresolved env placeholder",
+  );
+});

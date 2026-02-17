@@ -332,19 +332,24 @@ export class RuntimeHost {
 
   private async initializeChannels(): Promise<void> {
     const config = this.configManager.getAll();
+    const telegramConfig = config.channels?.telegram;
+    const discordConfig = config.channels?.discord;
 
     // Initialize Telegram if configured
-    if (config.channels?.telegram?.botToken) {
+    if (telegramConfig?.enabled === true && !telegramConfig.botToken) {
+      logger.warn("Telegram channel is enabled but botToken is missing; skipping initialization.");
+    }
+    if (telegramConfig?.enabled !== false && telegramConfig?.botToken) {
       try {
         const telegram = new TelegramPlugin({
-          botToken: config.channels.telegram.botToken,
-          allowedChats: config.channels.telegram.allowedChats,
-          dmPolicy: config.channels.telegram.dmPolicy,
-          groupPolicy: config.channels.telegram.groupPolicy,
-          allowFrom: config.channels.telegram.allowFrom,
-          groups: config.channels.telegram.groups,
-          streamMode: config.channels.telegram.streamMode,
-          polling: config.channels.telegram.polling,
+          botToken: telegramConfig.botToken,
+          allowedChats: telegramConfig.allowedChats,
+          dmPolicy: telegramConfig.dmPolicy,
+          groupPolicy: telegramConfig.groupPolicy,
+          allowFrom: telegramConfig.allowFrom,
+          groups: telegramConfig.groups,
+          streamMode: telegramConfig.streamMode,
+          polling: telegramConfig.polling,
         });
 
         // Handle incoming messages
@@ -367,12 +372,15 @@ export class RuntimeHost {
     }
 
     // Initialize Discord if configured
-    if (config.channels?.discord?.botToken) {
+    if (discordConfig?.enabled === true && !discordConfig.botToken) {
+      logger.warn("Discord channel is enabled but botToken is missing; skipping initialization.");
+    }
+    if (discordConfig?.enabled !== false && discordConfig?.botToken) {
       try {
         const discord = new DiscordPlugin({
-          botToken: config.channels.discord.botToken,
-          allowedGuilds: config.channels.discord.allowedGuilds,
-          allowedChannels: config.channels.discord.allowedChannels,
+          botToken: discordConfig.botToken,
+          allowedGuilds: discordConfig.allowedGuilds,
+          allowedChannels: discordConfig.allowedChannels,
         });
 
         // Handle incoming messages

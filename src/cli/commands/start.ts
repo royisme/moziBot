@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadConfig } from "../../config";
 import { Lifecycle } from "../../runtime/host/lifecycle";
 import { resolveRuntimeLaunchTarget } from "./runtime-launch";
 import { resolveRuntimePaths } from "./runtime-paths";
@@ -27,6 +28,15 @@ export function resolveRuntimeStartMode(
 export async function startRuntime(options: RuntimeStartOptions = {}) {
   const runtime = resolveRuntimePaths(options.config);
   process.env.MOZI_PID_FILE = runtime.pidFile;
+
+  const configResult = loadConfig(runtime.configPath);
+  if (!configResult.success || !configResult.config) {
+    console.error("Error: failed to load configuration.");
+    for (const error of configResult.errors ?? []) {
+      console.error(`- ${error}`);
+    }
+    process.exit(1);
+  }
 
   if (Lifecycle.checkExisting()) {
     console.error("Error: Mozi runtime is already running.");

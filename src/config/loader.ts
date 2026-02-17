@@ -14,6 +14,24 @@ export interface ConfigLoadResult {
   path: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function expandHomePath(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("~")) {
+    return raw;
+  }
+  if (trimmed === "~") {
+    return os.homedir();
+  }
+  if (trimmed.startsWith("~/")) {
+    return path.join(os.homedir(), trimmed.slice(2));
+  }
+  return raw;
+}
+
 export function resolveConfigPath(customPath?: string): string {
   const envPath = process.env.MOZI_CONFIG;
   if (customPath) {
@@ -27,34 +45,83 @@ export function resolveConfigPath(customPath?: string): string {
 }
 
 export function applyConfigDefaults(raw: unknown): unknown {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+  if (!isRecord(raw)) {
     return raw;
   }
   const home = os.homedir();
-  const baseDir = path.join(home, ".mozi");
-  const obj = { ...(raw as Record<string, unknown>) };
-  const paths =
-    obj.paths && typeof obj.paths === "object" && !Array.isArray(obj.paths)
-      ? { ...(obj.paths as Record<string, unknown>) }
-      : {};
-  if (!paths.baseDir) {
-    paths.baseDir = baseDir;
+  const obj = { ...raw };
+  const paths = isRecord(obj.paths) ? { ...obj.paths } : {};
+  const configuredBaseDir =
+    typeof paths.baseDir === "string" && paths.baseDir.trim()
+      ? expandHomePath(paths.baseDir)
+      : undefined;
+  const baseDir = configuredBaseDir ?? path.join(home, ".mozi");
+
+  paths.baseDir = baseDir;
+  paths.sessions =
+    typeof paths.sessions === "string"
+      ? expandHomePath(paths.sessions)
+      : path.join(baseDir, "sessions");
+  paths.logs =
+    typeof paths.logs === "string" ? expandHomePath(paths.logs) : path.join(baseDir, "logs");
+  if (typeof paths.skills === "string") {
+    paths.skills = expandHomePath(paths.skills);
   }
-  if (!paths.sessions) {
-    paths.sessions = path.join(baseDir, "sessions");
-  }
-  if (!paths.logs) {
-    paths.logs = path.join(baseDir, "logs");
+  if (typeof paths.workspace === "string") {
+    paths.workspace = expandHomePath(paths.workspace);
   }
   obj.paths = paths;
+
+  if (isRecord(obj.agents)) {
+    const agents = { ...obj.agents };
+    for (const [agentId, agentValue] of Object.entries(agents)) {
+      if (agentId === "defaults" || !isRecord(agentValue)) {
+        continue;
+      }
+      const nextAgent = { ...agentValue };
+      if (typeof nextAgent.home === "string") {
+        nextAgent.home = expandHomePath(nextAgent.home);
+      }
+      if (typeof nextAgent.workspace === "string") {
+        nextAgent.workspace = expandHomePath(nextAgent.workspace);
+      }
+      agents[agentId] = nextAgent;
+    }
+    obj.agents = agents;
+  }
+
+  if (isRecord(obj.skills)) {
+    const skills = { ...obj.skills };
+    if (Array.isArray(skills.dirs)) {
+      skills.dirs = skills.dirs.map((value) =>
+        typeof value === "string" ? expandHomePath(value) : value,
+      );
+    }
+    if (typeof skills.installDir === "string") {
+      skills.installDir = expandHomePath(skills.installDir);
+    }
+    obj.skills = skills;
+  }
+
+  if (isRecord(obj.extensions) && isRecord(obj.extensions.load)) {
+    const extensions = { ...obj.extensions };
+    const load = { ...extensions.load };
+    if (Array.isArray(load.paths)) {
+      load.paths = load.paths.map((value) =>
+        typeof value === "string" ? expandHomePath(value) : value,
+      );
+    }
+    extensions.load = load;
+    obj.extensions = extensions;
+  }
 
   if (!Object.hasOwn(obj, "logging")) {
     obj.logging = { level: "info" };
     return obj;
   }
 
-  if (obj.logging && typeof obj.logging === "object" && !Array.isArray(obj.logging)) {
-    const logging = { ...(obj.logging as Record<string, unknown>) };
+  if (isRecord(obj.logging)) {
+    const logging = { ...obj.logging };
     if (!Object.hasOwn(logging, "level")) {
       logging.level = "info";
     }

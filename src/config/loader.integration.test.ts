@@ -43,6 +43,63 @@ afterEach(() => {
 });
 
 describe("config loader local .env support", () => {
+  it("uses configured baseDir when defaulting sessions and logs", () => {
+    const { configPath } = createConfigDir();
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    parsed.paths = { baseDir: "/tmp/mozi-base" };
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.paths?.baseDir).toBe("/tmp/mozi-base");
+    expect(result.config?.paths?.sessions).toBe("/tmp/mozi-base/sessions");
+    expect(result.config?.paths?.logs).toBe("/tmp/mozi-base/logs");
+  });
+
+  it("expands ~ for path-like config entries", () => {
+    const { configPath } = createConfigDir();
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    parsed.paths = {
+      baseDir: "~/.mozi",
+      skills: "~/.mozi/skills",
+    };
+    parsed.agents = {
+      defaults: { model: "quotio/gemini-3-flash-preview" },
+      mozi: {
+        main: true,
+        home: "~/agents/home",
+        workspace: "~/agents/workspace",
+      },
+    };
+    parsed.skills = {
+      dirs: ["~/.mozi/skills"],
+      installDir: "~/.mozi/skills",
+    };
+    parsed.extensions = {
+      enabled: true,
+      load: {
+        paths: ["~/.mozi/extensions"],
+      },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.paths?.baseDir).toBe(path.join(os.homedir(), ".mozi"));
+    expect(result.config?.paths?.skills).toBe(path.join(os.homedir(), ".mozi", "skills"));
+    expect(result.config?.agents?.mozi?.home).toBe(path.join(os.homedir(), "agents", "home"));
+    expect(result.config?.agents?.mozi?.workspace).toBe(
+      path.join(os.homedir(), "agents", "workspace"),
+    );
+    expect(result.config?.skills?.installDir).toBe(path.join(os.homedir(), ".mozi", "skills"));
+    expect(result.config?.skills?.dirs?.[0]).toBe(path.join(os.homedir(), ".mozi", "skills"));
+    expect(result.config?.extensions?.load?.paths?.[0]).toBe(
+      path.join(os.homedir(), ".mozi", "extensions"),
+    );
+  });
+
   it("defaults logging level to info when logging section is missing", () => {
     delete process.env[ENV_KEY];
     const { dir, configPath } = createConfigDir();

@@ -143,10 +143,14 @@ function hasRedactedValue(value: unknown): boolean {
 
 function collectBlockingSecretIssues(config: MoziConfig): string[] {
   const issues: string[] = [];
+  const unresolvedEnvPattern = /^\$\{[^}]+\}$/;
   const providers = config.models?.providers ?? {};
   for (const [provider, entry] of Object.entries(providers)) {
     if (entry.apiKey === CONFIG_REDACTION_SENTINEL) {
       issues.push(`Provider ${provider} apiKey is redacted sentinel and must be replaced.`);
+    }
+    if (typeof entry.apiKey === "string" && unresolvedEnvPattern.test(entry.apiKey)) {
+      issues.push(`Provider ${provider} apiKey is unresolved env placeholder.`);
     }
   }
   const telegram = config.channels?.telegram;
@@ -154,7 +158,7 @@ function collectBlockingSecretIssues(config: MoziConfig): string[] {
     if (telegram.botToken === CONFIG_REDACTION_SENTINEL) {
       issues.push("Telegram botToken is redacted sentinel and must be replaced.");
     }
-    if (typeof telegram.botToken === "string" && /^\$\{[^}]+\}$/.test(telegram.botToken)) {
+    if (typeof telegram.botToken === "string" && unresolvedEnvPattern.test(telegram.botToken)) {
       issues.push("Telegram botToken is unresolved env placeholder.");
     }
   }
@@ -163,7 +167,7 @@ function collectBlockingSecretIssues(config: MoziConfig): string[] {
     if (discord.botToken === CONFIG_REDACTION_SENTINEL) {
       issues.push("Discord botToken is redacted sentinel and must be replaced.");
     }
-    if (typeof discord.botToken === "string" && /^\$\{[^}]+\}$/.test(discord.botToken)) {
+    if (typeof discord.botToken === "string" && unresolvedEnvPattern.test(discord.botToken)) {
       issues.push("Discord botToken is unresolved env placeholder.");
     }
   }
@@ -174,7 +178,7 @@ function collectBlockingSecretIssues(config: MoziConfig): string[] {
     }
     if (
       typeof localDesktop.authToken === "string" &&
-      /^\$\{[^}]+\}$/.test(localDesktop.authToken)
+      unresolvedEnvPattern.test(localDesktop.authToken)
     ) {
       issues.push("Local desktop authToken is unresolved env placeholder.");
     }
@@ -266,6 +270,17 @@ function collectDoctorReport(config: MoziConfig): DoctorReport {
 
   if (hasRedactedValue(config)) {
     warnings.push("Config contains redaction sentinel values.");
+  }
+
+  if ((config.extensions?.load?.paths?.length ?? 0) > 0) {
+    warnings.push(
+      "extensions.load.paths is currently metadata only and does not auto-load external extension code.",
+    );
+  }
+  if (config.extensions?.installs && Object.keys(config.extensions.installs).length > 0) {
+    warnings.push(
+      "extensions.installs is currently metadata only and does not auto-install extension packages.",
+    );
   }
 
   return { errors, warnings };
