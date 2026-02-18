@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [1.2.0] - 2026-02-18
+
+### Added
+
+- **Extensions Framework**: Plugin-style commands hooks and external module loading
+- **OpenClaw Migration**: Memory recall migration case support
+- **Contract v2**: Lifecycle convergence and builtin compatibility
+- **Hook Framework**: Memory maintainer with prompt safety hardening
+- **Identity Protection**: Drift protection for persona enforcement
+- **Prompt Metadata**: Tracking and logging in AgentManager
+- **Prompt Modes**: Support for main/reset-greeting/subagent-minimal modes
+- **Subagent Config**: promptMode configuration with defaults and per-agent override
+- **Streaming**: Reply finalization for message handling
+
+### Changed
+
+- Enhanced `/new` greeting with persona and language enforcement
+- Added prompt metadata to `/status` and reset greeting support
+- Consolidated message-handler flow around turn runtime
+- Unified prompt composition and removed legacy host agent loaders
+- Removed regex-based identity guards and negative-prompt constraints
+
+### Fixed
+
+- Aligned `/new` greeting language with identity
+- Aligned schema docs and hardened runtime config flow
+- Hardened terminal reply resolution and reasoning redaction
+
+### Internal
+
+- Added shared harness and hardened new-session language parsing
+
 ## [1.1.1] - 2026-02-15
 
 ### Added
