@@ -73,6 +73,7 @@ import {
 } from "./agent-manager/runtime-state";
 import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
 import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
+import { loadExternalHooks } from "./hooks/external-loader";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import {
@@ -124,6 +125,7 @@ export class AgentManager {
   private skillsIndexSynced = new Set<string>();
   private extensionRegistry: ExtensionRegistry;
   private extensionHookIds = new Set<string>();
+  private externalHookIds = new Set<string>();
   private piModelRegistry: PiCodingModelRegistry;
   private toolProvider?: (params: {
     sessionKey: string;
@@ -146,9 +148,23 @@ export class AgentManager {
     this.providerRegistry = params.providerRegistry;
     this.sessions = params.sessions;
     this.extensionRegistry = createExtensionRegistry(this.config);
+    this.syncExternalHooks();
     this.syncExtensionHooks();
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
+  }
+
+  private clearExternalHooks() {
+    for (const hookId of this.externalHookIds) {
+      unregisterRuntimeHook(hookId);
+    }
+    this.externalHookIds.clear();
+  }
+
+  private syncExternalHooks() {
+    this.clearExternalHooks();
+    const hookIds = loadExternalHooks(this.config);
+    hookIds.forEach((id) => this.externalHookIds.add(id));
   }
 
   private clearExtensionHooks() {
@@ -268,6 +284,7 @@ export class AgentManager {
     });
     this.extensionRegistry = lifecycle.extensionRegistry;
     this.skillLoader = lifecycle.skillLoader;
+    this.syncExternalHooks();
     this.syncExtensionHooks();
     configureCliBackends(this.config);
     this.piModelRegistry = this.createPiModelRegistry();
@@ -322,6 +339,7 @@ export class AgentManager {
   }
 
   async shutdownExtensions(): Promise<void> {
+    this.clearExternalHooks();
     this.clearExtensionHooks();
     await shutdownExtensionsLifecycle(this.extensionRegistry);
   }

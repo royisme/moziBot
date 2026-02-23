@@ -68,12 +68,20 @@ const RuntimeAuthConfigSchema = z
   })
   .strict();
 
+const RuntimeHooksConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    paths: z.array(z.string()).optional(),
+  })
+  .strict();
+
 export const RuntimeConfigSchema = z
   .object({
     sanitizeToolSchema: z.boolean().optional(),
     queue: RuntimeQueueConfigSchema.optional(),
     cron: RuntimeCronConfigSchema.optional(),
     auth: RuntimeAuthConfigSchema.optional(),
+    hooks: RuntimeHooksConfigSchema.optional(),
   })
   .strict();
 
