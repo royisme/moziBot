@@ -1,6 +1,7 @@
 import type { InboundMessage } from "../adapters/channels/types";
 
 export type DmScope = "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+export type SessionIdentityLinks = Record<string, string[]>;
 
 const DEFAULT_MAIN_KEY = "main";
 const DEFAULT_AGENT_ID = "mozi";
@@ -35,19 +36,73 @@ function normalizeAgentId(value: string | undefined | null): string {
   return normalizeSegment(value, DEFAULT_AGENT_ID);
 }
 
+function resolveIdentityLink(params: {
+  identityLinks?: SessionIdentityLinks;
+  channel: string;
+  peerId: string;
+}): string | undefined {
+  const { identityLinks } = params;
+  if (!identityLinks) {
+    return undefined;
+  }
+
+  const normalizedChannel = normalizeSegment(params.channel, DEFAULT_CHANNEL);
+  const normalizedPeer = normalizeSegment(params.peerId, DEFAULT_PEER);
+  const lookup = `${normalizedChannel}:${normalizedPeer}`;
+
+  for (const [canonical, entries] of Object.entries(identityLinks)) {
+    if (!Array.isArray(entries)) {
+      continue;
+    }
+    for (const entry of entries) {
+      const trimmed = String(entry ?? "").trim();
+      if (!trimmed) {
+        continue;
+      }
+      const [rawProvider, rawPeer] = trimmed.split(":", 2);
+      if (!rawProvider || !rawPeer) {
+        continue;
+      }
+      const provider = normalizeSegment(rawProvider, DEFAULT_CHANNEL);
+      const peer = normalizeSegment(rawPeer, DEFAULT_PEER);
+      if (!provider || !peer) {
+        continue;
+      }
+      if (`${provider}:${peer}` === lookup) {
+        const normalizedCanonical = normalizeSegment(canonical, normalizedPeer);
+        return normalizedCanonical || normalizedPeer;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function buildSessionKey(params: {
   agentId: string;
   message: InboundMessage;
   dmScope?: DmScope;
   mainKey?: string;
+  identityLinks?: SessionIdentityLinks;
 }): string {
   const agentId = normalizeAgentId(params.agentId);
   const mainKey = normalizeSegment(params.mainKey, DEFAULT_MAIN_KEY);
   const channel = normalizeSegment(params.message.channel, DEFAULT_CHANNEL);
   const peerKind = params.message.peerType ?? "dm";
-  const peerId = normalizeSegment(params.message.peerId, DEFAULT_PEER);
+  let peerId = normalizeSegment(params.message.peerId, DEFAULT_PEER);
   const accountId = normalizeSegment(params.message.accountId, DEFAULT_ACCOUNT_ID);
   const dmScope = params.dmScope ?? "per-channel-peer";
+
+  if (peerKind === "dm") {
+    const linked = resolveIdentityLink({
+      identityLinks: params.identityLinks,
+      channel,
+      peerId,
+    });
+    if (linked) {
+      peerId = linked;
+    }
+  }
 
   let baseKey: string;
   if (peerKind === "dm") {

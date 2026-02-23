@@ -4,6 +4,8 @@ import type { InboundMessage } from "../adapters/channels/types";
 export type ResolvedRoute = {
   agentId: string;
   dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+  mainKey?: string;
+  identityLinks?: Record<string, string[]>;
 };
 
 export class RuntimeRouter {
@@ -11,6 +13,9 @@ export class RuntimeRouter {
 
   resolve(message: InboundMessage, defaultAgentId: string): ResolvedRoute {
     const channelId = message.channel;
+    const sessionCfg = this.config.session as
+      | { dmScope?: ResolvedRoute["dmScope"]; mainKey?: string; identityLinks?: Record<string, string[]> }
+      | undefined;
     const channels = this.config.channels as
       | (Record<string, unknown> & {
           telegram?: {
@@ -57,7 +62,12 @@ export class RuntimeRouter {
       }
     }
 
-    const dmScope = channelCfg?.dmScope || this.config.channels?.dmScope;
-    return { agentId: agentId || defaultAgentId, dmScope };
+    const dmScope = channelCfg?.dmScope || sessionCfg?.dmScope || this.config.channels?.dmScope;
+    return {
+      agentId: agentId || defaultAgentId,
+      dmScope,
+      mainKey: sessionCfg?.mainKey,
+      identityLinks: sessionCfg?.identityLinks,
+    };
   }
 }

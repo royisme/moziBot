@@ -3,6 +3,12 @@ import {
   resolveTemporalLifecyclePolicy,
   shouldRotateSessionForTemporalPolicy,
 } from "../lifecycle/temporal";
+import type { InboundMessage } from "../../../adapters/channels/types";
+import {
+  resolveSessionResetPolicy,
+  resolveSessionType,
+  shouldRotateSessionForResetPolicy,
+} from "../lifecycle/reset-policy";
 
 /**
  * Lifecycle Flow Implementation
@@ -35,10 +41,41 @@ export const runLifecycleFlow: LifecycleFlow = async (ctx, deps) => {
     }
 
     const configAgents = getConfigAgents();
+    const inbound = ctx.payload as InboundMessage | undefined;
+    const channelId = inbound && typeof inbound.channel === "string" ? inbound.channel : undefined;
+    const sessionType = resolveSessionType({
+      peerType: inbound?.peerType,
+      threadId: inbound?.threadId,
+    });
 
-    // 2. Temporal Lifecycle Orchestration
-    const temporalPolicy = resolveTemporalLifecyclePolicy(agentId, configAgents);
+    // 2. Temporal or Session Reset Policy Orchestration
     const timestamps = getSessionTimestamps(sessionKey);
+    const resetPolicy = resolveSessionResetPolicy({
+      config: deps.config,
+      sessionType,
+      channelId,
+    });
+
+    if (resetPolicy) {
+      if (shouldRotateSessionForResetPolicy(resetPolicy, timestamps)) {
+        resetSession(sessionKey, agentId);
+        logger.info(
+          {
+            traceId: ctx.traceId,
+            sessionKey,
+            agentId,
+            trigger: "session_reset_policy",
+            mode: resetPolicy.mode,
+            channelId,
+            sessionType,
+          },
+          "Session auto-rotated by session reset policy",
+        );
+      }
+      return "continue";
+    }
+
+    const temporalPolicy = resolveTemporalLifecyclePolicy(agentId, configAgents);
 
     if (shouldRotateSessionForTemporalPolicy(temporalPolicy, timestamps)) {
       resetSession(sessionKey, agentId);

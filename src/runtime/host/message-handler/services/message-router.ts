@@ -29,6 +29,8 @@ export function resolveSessionContext(params: {
     agentId,
     message,
     dmScope: route.dmScope,
+    mainKey: route.mainKey,
+    identityLinks: route.identityLinks,
   });
   return {
     agentId,

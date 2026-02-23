@@ -8,6 +8,7 @@ import { MetaSchema } from "./meta";
 import { ModelsSchema } from "./models";
 import { PathsSchema } from "./paths";
 import { RuntimeConfigSchema, RuntimeCronConfigSchema } from "./runtime";
+import { SessionConfigSchema } from "./session";
 import { SkillsConfigSchema } from "./skills";
 import { VoiceConfigSchema } from "./voice";
 
@@ -21,6 +22,7 @@ export const MoziConfigSchema = z
     channels: ChannelsSchema.optional(),
     logging: LoggingSchema.optional(),
     agents: AgentsSchema.optional(),
+    session: SessionConfigSchema.optional(),
     memory: MemoryConfigSchema.optional(),
     skills: SkillsConfigSchema.optional(),
     voice: VoiceConfigSchema.optional(),

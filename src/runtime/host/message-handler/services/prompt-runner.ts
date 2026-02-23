@@ -3,6 +3,7 @@ import {
   type AgentSessionEvent,
   type StreamingCallback,
 } from "./streaming";
+import { agentEvents } from "../../../../infra/agent-events";
 
 /**
  * Prompt Runner and Active Run Bookkeeping Service
@@ -92,6 +93,14 @@ export async function waitForAgentIdle(_agent: PromptAgent, timeoutMs = 50): Pro
   await new Promise<void>((resolve) => setTimeout(resolve, settleDelayMs));
 }
 
+function resolveRunId(traceId?: string): string {
+  const trimmed = traceId?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return crypto.randomUUID();
+}
+
 function toStreamEvent(event: unknown): AgentSessionEvent | undefined {
   if (!event || typeof event !== "object") {
     return undefined;
@@ -173,6 +182,14 @@ export async function runPromptWithFallback(params: {
   let overflowCompactionAttempts = 0;
   const promptExecutionTimeoutMs = deps.agentManager.resolvePromptTimeoutMs(agentId);
   const promptProgressLogIntervalMs = 30_000;
+  const runId = resolveRunId(traceId);
+  const startedAt = Date.now();
+
+  agentEvents.emitLifecycle({
+    runId,
+    sessionKey,
+    data: { phase: "start", startedAt },
+  });
 
   try {
     while (true) {
@@ -212,6 +229,25 @@ export async function runPromptWithFallback(params: {
             const mapped = toStreamEvent(event);
             if (!mapped) {
               return;
+            }
+            if (mapped.type === "tool_execution_start") {
+              agentEvents.emitTool({
+                runId,
+                sessionKey,
+                data: {
+                  toolName: mapped.toolName,
+                  status: "called",
+                },
+              });
+            } else if (mapped.type === "tool_execution_end") {
+              agentEvents.emitTool({
+                runId,
+                sessionKey,
+                data: {
+                  toolName: mapped.toolName,
+                  status: mapped.isError ? "error" : "completed",
+                },
+              });
             }
             void handleAgentStreamEvent(mapped, onStream, (delta) => {
               accumulatedText += delta;
@@ -346,7 +382,30 @@ export async function runPromptWithFallback(params: {
         clearActivePromptRun(activeMap, interruptedSet, sessionKey);
       }
     }
+  } catch (err) {
+    const error = deps.errorClassifiers.toError(err);
+    agentEvents.emitLifecycle({
+      runId,
+      sessionKey,
+      data: {
+        phase: "error",
+        startedAt,
+        endedAt: Date.now(),
+        error: error.message,
+      },
+    });
+    throw err;
   } finally {
     deps.agentManager.clearRuntimeModelOverride(sessionKey);
   }
+
+  agentEvents.emitLifecycle({
+    runId,
+    sessionKey,
+    data: {
+      phase: "end",
+      startedAt,
+      endedAt: Date.now(),
+    },
+  });
 }
