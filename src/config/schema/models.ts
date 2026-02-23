@@ -3,8 +3,11 @@ import { z } from "zod";
 export const ModelApiSchema = z.enum([
   "openai-responses",
   "openai-completions",
+  "openai-codex-responses",
   "anthropic-messages",
   "google-generative-ai",
+  "google-gemini-cli",
+  "cli-backend",
 ]);
 
 export const ModelInputSchema = z.enum(["text", "image", "audio", "video", "file"]);

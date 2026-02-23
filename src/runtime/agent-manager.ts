@@ -22,6 +22,11 @@ import { SkillLoader } from "../agents/skills/loader";
 import { type ExtensionRegistry } from "../extensions";
 import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
+import {
+  configureCliBackends,
+  ensureCliBackendProviderRegistered,
+  listCliBackendModelDefinitions,
+} from "./cli-backends";
 import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
 import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
 // Extracted modules
@@ -135,6 +140,8 @@ export class AgentManager {
     sessions: SessionStore;
   }) {
     this.config = params.config;
+    ensureCliBackendProviderRegistered();
+    configureCliBackends(this.config);
     this.modelRegistry = params.modelRegistry;
     this.providerRegistry = params.providerRegistry;
     this.sessions = params.sessions;
@@ -179,10 +186,14 @@ export class AgentManager {
       case "openai-responses":
       case "openai-chat":
         return "https://api.openai.com/v1";
+      case "openai-codex-responses":
+        return "https://chatgpt.com/backend-api";
       case "anthropic":
         return "https://api.anthropic.com/v1";
       case "google-generative-ai":
         return "https://generativelanguage.googleapis.com/v1beta";
+      case "google-gemini-cli":
+        return "https://cloudcode-pa.googleapis.com";
       default:
         return undefined;
     }
@@ -220,6 +231,25 @@ export class AgentManager {
         })),
       });
     }
+    const cliProviders = listCliBackendModelDefinitions(this.config);
+    for (const entry of cliProviders) {
+      registry.registerProvider(entry.providerId, {
+        api: "cli-backend",
+        baseUrl: "cli://local",
+        apiKey: "LOCAL_CLI_KEY",
+        models: entry.models.map((model) => ({
+          id: model.id,
+          name: model.name ?? model.id,
+          api: "cli-backend",
+          reasoning: model.reasoning ?? false,
+          input: normalizePiInputCapabilities(model.input),
+          contextWindow: model.contextWindow ?? 128000,
+          maxTokens: model.maxTokens ?? 8192,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          headers: model.headers,
+        })),
+      });
+    }
     return registry;
   }
 
@@ -239,6 +269,7 @@ export class AgentManager {
     this.extensionRegistry = lifecycle.extensionRegistry;
     this.skillLoader = lifecycle.skillLoader;
     this.syncExtensionHooks();
+    configureCliBackends(this.config);
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillsIndexSynced.clear();
     clearMemoryManagerCache();

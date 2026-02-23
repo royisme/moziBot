@@ -90,6 +90,38 @@ const LifecycleSchema = z
   })
   .strict();
 
+const CliBackendOutputSchema = z.enum(["json", "jsonl", "text"]);
+const CliBackendInputSchema = z.enum(["arg", "stdin"]);
+const CliBackendSessionModeSchema = z.enum(["always", "existing", "none"]);
+const CliBackendSystemPromptWhenSchema = z.enum(["first", "always", "never"]);
+const CliBackendImageModeSchema = z.enum(["repeat", "append"]);
+
+const CliBackendSchema = z
+  .object({
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    resumeArgs: z.array(z.string()).optional(),
+    output: CliBackendOutputSchema.optional(),
+    resumeOutput: CliBackendOutputSchema.optional(),
+    input: CliBackendInputSchema.optional(),
+    modelArg: z.string().optional(),
+    modelAliases: z.record(z.string(), z.string()).optional(),
+    sessionArg: z.string().optional(),
+    sessionArgs: z.array(z.string()).optional(),
+    sessionMode: CliBackendSessionModeSchema.optional(),
+    sessionIdFields: z.array(z.string()).optional(),
+    systemPromptArg: z.string().optional(),
+    systemPromptWhen: CliBackendSystemPromptWhenSchema.optional(),
+    imageArg: z.string().optional(),
+    imageMode: CliBackendImageModeSchema.optional(),
+    serialize: z.boolean().optional(),
+    maxPromptArgChars: z.number().int().positive().optional(),
+    models: z.array(z.string().min(1)).optional(),
+  })
+  .strict();
+
+const CliBackendsSchema = z.record(z.string(), CliBackendSchema);
+
 export const ExecPolicySchema = z
   .object({
     allowlist: z.array(z.string()).optional(),
@@ -115,6 +147,7 @@ export const AgentEntrySchema = z
     lifecycle: LifecycleSchema.optional(),
     thinking: ThinkingLevelSchema.optional(),
     output: OutputRenderSchema.optional(),
+    cliBackends: CliBackendsSchema.optional(),
     contextPruning: ContextPruningSchema.optional(),
     timeoutSeconds: z.number().positive().optional(),
   })
@@ -134,6 +167,7 @@ export const AgentsSchema = z
         lifecycle: LifecycleSchema.optional(),
         thinking: ThinkingLevelSchema.optional(),
         output: OutputRenderSchema.optional(),
+        cliBackends: CliBackendsSchema.optional(),
         contextPruning: ContextPruningSchema.optional(),
         contextTokens: z.number().optional(),
         timeoutSeconds: z.number().positive().optional(),

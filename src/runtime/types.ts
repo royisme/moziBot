@@ -3,8 +3,11 @@ import type { MoziConfig } from "../config";
 export type ModelApi =
   | "openai-responses"
   | "openai-completions"
+  | "openai-codex-responses"
   | "anthropic-messages"
-  | "google-generative-ai";
+  | "google-generative-ai"
+  | "google-gemini-cli"
+  | "cli-backend";
 
 export type ProviderConfig = {
   id: string;

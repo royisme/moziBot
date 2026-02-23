@@ -25,6 +25,7 @@ export type AgentEntry = {
     showThinking?: boolean;
     showToolCalls?: "off" | "summary";
   };
+  cliBackends?: Record<string, unknown>;
   lifecycle?: {
     control?: {
       model?: string;

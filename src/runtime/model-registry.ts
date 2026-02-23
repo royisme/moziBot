@@ -1,6 +1,7 @@
 import type { MoziConfig } from "../config";
 import type { ModelDefinition, ModelRef, ModelSpec, ProviderConfig } from "./types";
 import { ProviderRegistry } from "./provider-registry";
+import { listCliBackendModels } from "./cli-backends";
 
 export class ModelRegistry {
   private providers: ProviderRegistry;
@@ -18,6 +19,11 @@ export class ModelRegistry {
         const spec = this.buildSpec(provider, model);
         this.models.set(this.key(spec.provider, spec.id), spec);
       }
+    }
+
+    const cliModels = listCliBackendModels(this.config);
+    for (const spec of cliModels) {
+      this.models.set(this.key(spec.provider, spec.id), spec);
     }
   }
 
