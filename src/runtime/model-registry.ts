@@ -4,10 +4,12 @@ import { ProviderRegistry } from "./provider-registry";
 import { listCliBackendModels } from "./cli-backends";
 
 export class ModelRegistry {
+  private config: MoziConfig;
   private providers: ProviderRegistry;
   private models: Map<string, ModelSpec> = new Map();
 
   constructor(config: MoziConfig) {
+    this.config = config;
     this.providers = new ProviderRegistry(config);
     this.buildIndex();
   }
