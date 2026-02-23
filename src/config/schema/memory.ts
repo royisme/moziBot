@@ -82,6 +82,8 @@ const MemoryPersistenceSchema = z
     enabled: z.boolean().default(false),
     onOverflowCompaction: z.boolean().default(true),
     onNewReset: z.boolean().default(true),
+    preFlushThresholdPercent: z.number().min(1).max(100).default(80),
+    preFlushCooldownMinutes: z.number().min(0).default(0),
     maxMessages: z.number().default(12),
     maxChars: z.number().default(4000),
     timeoutMs: z.number().default(1500),

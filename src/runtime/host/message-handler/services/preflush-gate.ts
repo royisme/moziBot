@@ -8,6 +8,7 @@ import {
 interface AgentManagerPreflushLike {
   getContextUsage(sessionKey: string): { percentage: number } | null;
   getAgent(sessionKey: string, agentId: string): Promise<{ agent: { messages: AgentMessage[] } }>;
+  getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined;
   updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void;
 }
 
@@ -30,8 +31,21 @@ export async function maybePreFlushBeforePrompt(params: {
   }
 
   const usage = agentManager.getContextUsage(sessionKey);
-  if (!usage || usage.percentage < 80) {
+  if (!usage || usage.percentage < memoryConfig.persistence.preFlushThresholdPercent) {
     return;
+  }
+
+  const cooldownMinutes = memoryConfig.persistence.preFlushCooldownMinutes;
+  if (cooldownMinutes > 0) {
+    const meta = agentManager.getSessionMetadata(sessionKey)?.memoryFlush as
+      | { lastTimestamp?: number; trigger?: string }
+      | undefined;
+    if (meta?.trigger === "pre_overflow" && typeof meta.lastTimestamp === "number") {
+      const elapsedMs = Date.now() - meta.lastTimestamp;
+      if (elapsedMs < cooldownMinutes * 60 * 1000) {
+        return;
+      }
+    }
   }
 
   const { agent } = await agentManager.getAgent(sessionKey, agentId);

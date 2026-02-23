@@ -956,6 +956,7 @@ describe("MessageHandler commands", () => {
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
+        getSessionMetadata: (sessionKey: string) => Record<string, unknown> | undefined;
         getContextUsage: (sessionKey: string) => {
           usedTokens: number;
           totalTokens: number;
@@ -975,6 +976,7 @@ describe("MessageHandler commands", () => {
       percentage: 90,
       messageCount: 20,
     });
+    fh.agentManager.getSessionMetadata = () => undefined;
     fh.agentManager.updateSessionMetadata = update;
     fh.agentManager.getAgent = async () => ({
       modelRef: "quotio/gemini-3-flash-preview",

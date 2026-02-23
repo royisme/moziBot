@@ -8,6 +8,8 @@ export type ResolvedMemoryPersistenceConfig = {
   enabled: boolean;
   onOverflowCompaction: boolean;
   onNewReset: boolean;
+  preFlushThresholdPercent: number;
+  preFlushCooldownMinutes: number;
   maxMessages: number;
   maxChars: number;
   timeoutMs: number;
@@ -36,6 +38,8 @@ const DEFAULT_PERSISTENCE: ResolvedMemoryPersistenceConfig = {
   enabled: false,
   onOverflowCompaction: true,
   onNewReset: true,
+  preFlushThresholdPercent: 80,
+  preFlushCooldownMinutes: 0,
   maxMessages: 12,
   maxChars: 4000,
   timeoutMs: 1500,
@@ -394,6 +398,12 @@ export function resolveMemoryBackendConfig(params: {
       params.cfg.memory?.persistence?.onOverflowCompaction ??
       DEFAULT_PERSISTENCE.onOverflowCompaction,
     onNewReset: params.cfg.memory?.persistence?.onNewReset ?? DEFAULT_PERSISTENCE.onNewReset,
+    preFlushThresholdPercent:
+      params.cfg.memory?.persistence?.preFlushThresholdPercent ??
+      DEFAULT_PERSISTENCE.preFlushThresholdPercent,
+    preFlushCooldownMinutes:
+      params.cfg.memory?.persistence?.preFlushCooldownMinutes ??
+      DEFAULT_PERSISTENCE.preFlushCooldownMinutes,
     maxMessages: params.cfg.memory?.persistence?.maxMessages ?? DEFAULT_PERSISTENCE.maxMessages,
     maxChars: params.cfg.memory?.persistence?.maxChars ?? DEFAULT_PERSISTENCE.maxChars,
     timeoutMs: params.cfg.memory?.persistence?.timeoutMs ?? DEFAULT_PERSISTENCE.timeoutMs,
