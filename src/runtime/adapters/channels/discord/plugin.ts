@@ -5,6 +5,15 @@ import { EventEmitter } from "node:events";
 import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
+import {
+  type AccessPolicy,
+  type DiscordGuildPolicyConfig,
+  isBotMentioned,
+  isCommandText,
+  isSenderAllowed,
+  normalizeAllowList,
+  normalizeGuildPolicies,
+} from "./access";
 
 const READY_TIMEOUT_MS = 20_000;
 const MAX_GATEWAY_RECONNECT_ATTEMPTS = 20;
@@ -16,6 +25,10 @@ export interface DiscordPluginConfig {
   botToken: string;
   allowedGuilds?: string[];
   allowedChannels?: string[];
+  dmPolicy?: AccessPolicy;
+  groupPolicy?: AccessPolicy;
+  allowFrom?: string[];
+  guilds?: Record<string, DiscordGuildPolicyConfig>;
 }
 
 class CarbonReadyBridge extends ReadyListener {
@@ -47,6 +60,8 @@ export class DiscordPlugin extends BaseChannelPlugin {
   private client: Client | null = null;
   private gateway: GatewayPlugin | null = null;
   private config: DiscordPluginConfig;
+  private botId: string | null = null;
+  private botUsername: string | null = null;
   private disabledReason?: string;
   private connectInFlight: Promise<void> | null = null;
 
@@ -55,6 +70,8 @@ export class DiscordPlugin extends BaseChannelPlugin {
     this.config = {
       ...config,
       botToken: normalizeDiscordToken(config.botToken),
+      allowFrom: normalizeAllowList(config.allowFrom),
+      guilds: normalizeGuildPolicies(config.guilds),
     };
   }
 
@@ -89,6 +106,8 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
       const listeners = [
         new CarbonReadyBridge((event) => {
+          this.botId = event.user?.id?.toString() ?? null;
+          this.botUsername = event.user?.username?.toLowerCase() ?? null;
           const tag = formatUserTag(event.user?.username, event.user?.discriminator);
           settleReady?.({ tag });
         }),
@@ -240,6 +259,48 @@ export class DiscordPlugin extends BaseChannelPlugin {
       return;
     }
 
+    const peerType = guildId ? "group" : "dm";
+
+    if (peerType === "dm" && this.config.dmPolicy === "allowlist") {
+      if (!isSenderAllowed(this.config.allowFrom, author.id, author.username)) {
+        logger.info(
+          { channelId, senderId: author.id },
+          "Discord DM dropped by dmPolicy=allowlist",
+        );
+        return;
+      }
+    }
+
+    if (peerType === "group") {
+      const guildConfig = guildId ? this.config.guilds?.[guildId] : undefined;
+      const effectiveAllowFrom = guildConfig?.allowFrom || this.config.allowFrom;
+      const groupPolicy = this.config.groupPolicy ?? "open";
+
+      if (groupPolicy === "allowlist" && !isSenderAllowed(effectiveAllowFrom, author.id, author.username)) {
+        logger.info(
+          { channelId, guildId, senderId: author.id },
+          "Discord group message dropped by groupPolicy=allowlist",
+        );
+        return;
+      }
+
+      if (guildConfig?.requireMention === true && !isCommandText(msg.content)) {
+        const mentioned = isBotMentioned({
+          text: msg.content,
+          mentions: msg.mentions ?? [],
+          botId: this.botId,
+          botUsername: this.botUsername,
+        });
+        if (!mentioned) {
+          logger.info(
+            { channelId, guildId, senderId: author.id },
+            "Discord group message dropped by requireMention=true",
+          );
+          return;
+        }
+      }
+    }
+
     // Extract only serializable data from the event to avoid cyclic structure issues
     // Carbon event objects contain circular references (client, guild, etc.) that cannot be JSON.stringify'd
     const rawData = {
@@ -287,7 +348,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
       id: msg.id,
       channel: this.id,
       peerId: channelId,
-      peerType: guildId ? "group" : "dm",
+      peerType,
       senderId: author.id,
       senderName: author.username,
       text: msg.content,

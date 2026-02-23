@@ -33,6 +33,15 @@ const ChannelDmOverrideSchema = z
   })
   .strict();
 
+const DiscordGuildConfigSchema = z
+  .object({
+    requireMention: z.boolean().optional(),
+    allowFrom: IdListSchema.optional(),
+    agentId: z.string().optional(),
+    agent: z.string().optional(),
+  })
+  .strict();
+
 export const TelegramConfigSchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -58,6 +67,10 @@ export const DiscordConfigSchema = z
     botToken: z.string().optional(),
     allowedGuilds: z.array(z.string()).optional(),
     allowedChannels: z.array(z.string()).optional(),
+    dmPolicy: AccessPolicySchema.optional(),
+    groupPolicy: AccessPolicySchema.optional(),
+    allowFrom: IdListSchema.optional(),
+    guilds: z.record(z.string(), DiscordGuildConfigSchema).optional(),
     dmHistoryLimit: z.number().int().positive().optional(),
     dms: z.record(z.string(), ChannelDmOverrideSchema).optional(),
     dmScope: DmScopeSchema.optional(),

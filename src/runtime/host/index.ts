@@ -381,6 +381,10 @@ export class RuntimeHost {
           botToken: discordConfig.botToken,
           allowedGuilds: discordConfig.allowedGuilds,
           allowedChannels: discordConfig.allowedChannels,
+          dmPolicy: discordConfig.dmPolicy,
+          groupPolicy: discordConfig.groupPolicy,
+          allowFrom: discordConfig.allowFrom,
+          guilds: discordConfig.guilds,
         });
 
         // Handle incoming messages

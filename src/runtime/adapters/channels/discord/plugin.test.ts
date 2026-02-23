@@ -130,7 +130,10 @@ describe("DiscordPlugin (carbon)", () => {
       throw new Error("ready listener not found");
     }
 
-    await readyListener.handle({ user: { username: "MoziBot", discriminator: "1234" } }, client);
+    await readyListener.handle(
+      { user: { id: "bot-1", username: "MoziBot", discriminator: "1234" } },
+      client,
+    );
     await connectPromise;
     return client;
   }
@@ -289,6 +292,163 @@ describe("DiscordPlugin (carbon)", () => {
           channelId: "allowed-1",
           content: "hello",
           attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(true);
+  });
+
+  it("enforces dm allowlist when dmPolicy=allowlist", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      dmPolicy: "allowlist",
+      allowFrom: ["user-1"],
+    });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received = false;
+    plugin.on("message", () => {
+      received = true;
+    });
+
+    await listener.handle(
+      {
+        author: { id: "user-2", username: "bob", bot: false },
+        message: {
+          id: "msg-1",
+          channelId: "dm-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(false);
+
+    await listener.handle(
+      {
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-2",
+          channelId: "dm-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(true);
+  });
+
+  it("enforces group policy allowlist", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      groupPolicy: "allowlist",
+      allowFrom: ["user-1"],
+    });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received = false;
+    plugin.on("message", () => {
+      received = true;
+    });
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        author: { id: "user-2", username: "bob", bot: false },
+        message: {
+          id: "msg-1",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(false);
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-2",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(true);
+  });
+
+  it("enforces requireMention per guild", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      guilds: {
+        "guild-1": { requireMention: true },
+      },
+    });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received = false;
+    plugin.on("message", () => {
+      received = true;
+    });
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-1",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [],
+          mentions: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(false);
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-2",
+          channelId: "chan-1",
+          content: "hello <@bot-1>",
+          attachments: [],
+          mentions: [{ id: "bot-1" }],
           timestamp: new Date().toISOString(),
         },
       },
