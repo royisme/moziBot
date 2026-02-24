@@ -61,4 +61,32 @@ describe("RuntimeRouter", () => {
     const route = router.resolve(message({ channel: "discord" }), "mozi");
     expect(route.agentId).toBe("dev-arch");
   });
+
+  it("routes discord guild messages by role mapping", () => {
+    const router = new RuntimeRouter({
+      channels: {
+        discord: {
+          guilds: {
+            "guild-1": {
+              roleRouting: {
+                "role-1": { agentId: "dev-pm" },
+                "role-2": { agentId: "dev-arch" },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const route = router.resolve(
+      message({
+        channel: "discord",
+        peerType: "group",
+        raw: { guildId: "guild-1", memberRoleIds: ["role-2"] },
+      }),
+      "mozi",
+    );
+
+    expect(route.agentId).toBe("dev-arch");
+  });
 });

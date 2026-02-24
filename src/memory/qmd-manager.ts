@@ -26,6 +26,7 @@ import {
   type SessionExporterConfig,
 } from "./qmd/session-exporter";
 import { clampResultsByInjectedChars, extractSnippetLines } from "./qmd/snippet";
+import { applyRecallPostProcessing } from "./recall";
 
 export class QmdMemoryManager implements MemorySearchManager {
   static async create(params: {
@@ -178,7 +179,23 @@ export class QmdMemoryManager implements MemorySearchManager {
           collectionNames,
           qmdSearchCommand,
         );
-        return this.buildSearchResults(parsed, limit, opts);
+        const results = await this.buildSearchResults(parsed, limit, opts);
+        return await applyRecallPostProcessing({
+          query: trimmed,
+          results,
+          recall: this.qmd.recall,
+          resolveAbsolutePath: (relPath) => {
+            try {
+              return resolveReadPath({
+                relPath,
+                workspaceDir: this.homeDir,
+                collectionRoots: this.collectionRoots,
+              });
+            } catch {
+              return null;
+            }
+          },
+        });
       }
       args.push("-c", collectionNames[0]);
       const result = await runQmd({
@@ -223,7 +240,23 @@ export class QmdMemoryManager implements MemorySearchManager {
       });
     }
 
-    return this.buildSearchResults(parsed, limit, opts);
+    const results = await this.buildSearchResults(parsed, limit, opts);
+    return await applyRecallPostProcessing({
+      query: trimmed,
+      results,
+      recall: this.qmd.recall,
+      resolveAbsolutePath: (relPath) => {
+        try {
+          return resolveReadPath({
+            relPath,
+            workspaceDir: this.homeDir,
+            collectionRoots: this.collectionRoots,
+          });
+        } catch {
+          return null;
+        }
+      },
+    });
   }
 
   private async buildSearchResults(

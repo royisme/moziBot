@@ -116,6 +116,32 @@ describe("Channels schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts discord role allowlist and role routing", () => {
+    const result = MoziConfigSchema.safeParse({
+      channels: {
+        discord: {
+          guilds: {
+            "guild-1": {
+              allowRoles: ["role-1", 42],
+              roleRouting: {
+                "role-1": { agentId: "dev-pm" },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) {
+      return;
+    }
+    expect(result.data.channels?.discord?.guilds?.["guild-1"]?.allowRoles).toEqual([
+      "role-1",
+      "42",
+    ]);
+  });
+
   it("rejects invalid local desktop port", () => {
     const result = MoziConfigSchema.safeParse({
       channels: {

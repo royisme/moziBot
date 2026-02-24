@@ -62,6 +62,12 @@ mozi/
   3. Document the incident and prevention rule update in AGENTS.md.
 - Before opening PR/commit, run a secret-pattern check on changed files (Telegram token/API key formats) and fix findings before merge.
 
+### Security Incident Notes
+
+- 2026-02-24: Replaced a real-looking Telegram bot token in
+  `src/runtime/adapters/channels/telegram/network-errors.test.ts` with a synthetic placeholder.
+  If the original string came from real logs, rotate it immediately.
+
 ### Compatibility Policy (Development Stage)
 
 - Project is currently in active development stage

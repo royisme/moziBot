@@ -24,7 +24,17 @@ export class RuntimeRouter {
             agentId?: string;
             agent?: string;
           };
-          discord?: { dmScope?: ResolvedRoute["dmScope"]; agentId?: string; agent?: string };
+          discord?: {
+            dmScope?: ResolvedRoute["dmScope"];
+            agentId?: string;
+            agent?: string;
+            guilds?: Record<
+              string,
+              {
+                roleRouting?: Record<string, { agentId?: string; agent?: string }>;
+              }
+            >;
+          };
         })
       | undefined;
     const channelCfg = channels?.[channelId] as
@@ -45,6 +55,25 @@ export class RuntimeRouter {
     const peerType = message.peerType ?? "dm";
 
     let agentId: string | undefined;
+
+    if (channelId === "discord" && peerType !== "dm") {
+      const raw = message.raw as { guildId?: unknown; memberRoleIds?: unknown } | null;
+      const guildId = typeof raw?.guildId === "string" ? raw.guildId : undefined;
+      const memberRoleIds = Array.isArray(raw?.memberRoleIds)
+        ? raw.memberRoleIds.filter((roleId): roleId is string => typeof roleId === "string")
+        : [];
+      const roleRouting = guildId ? channels?.discord?.guilds?.[guildId]?.roleRouting : undefined;
+      if (roleRouting && memberRoleIds.length > 0) {
+        for (const [roleId, route] of Object.entries(roleRouting)) {
+          if (memberRoleIds.includes(roleId)) {
+            agentId = route?.agentId || route?.agent;
+            if (agentId) {
+              break;
+            }
+          }
+        }
+      }
+    }
 
     if (channelId === "telegram" && peerType !== "dm") {
       const groupCfg = channels?.telegram?.groups?.[message.peerId];

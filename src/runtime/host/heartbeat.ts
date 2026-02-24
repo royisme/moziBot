@@ -66,14 +66,20 @@ export class HeartbeatRunner {
     const next = new Map<string, HeartbeatState>();
     const agents = config.agents ?? {};
     const defaults = (agents.defaults as { heartbeat?: HeartbeatConfig } | undefined)?.heartbeat;
-    for (const [agentId, entry] of Object.entries(agents)) {
-      if (agentId === "defaults") {
+    const entries = Object.entries(agents).filter(([agentId]) => agentId !== "defaults");
+    const hasExplicitAgents = entries.some(([, entry]) => {
+      return Boolean((entry as { heartbeat?: HeartbeatConfig }).heartbeat);
+    });
+    const defaultAgentId = resolveDefaultAgentId(agents);
+    for (const [agentId, entry] of entries) {
+      const entryHeartbeat = (entry as { heartbeat?: HeartbeatConfig }).heartbeat;
+      if (hasExplicitAgents && !entryHeartbeat) {
         continue;
       }
-      const cfg = this.mergeHeartbeatConfig(
-        defaults,
-        (entry as { heartbeat?: HeartbeatConfig }).heartbeat,
-      );
+      if (!hasExplicitAgents && agentId !== defaultAgentId) {
+        continue;
+      }
+      const cfg = this.mergeHeartbeatConfig(defaults, entryHeartbeat);
       if (!cfg?.enabled) {
         continue;
       }
@@ -214,6 +220,18 @@ export class HeartbeatRunner {
       logger.warn({ error, agentId: state.agentId }, "Heartbeat run failed");
     }
   }
+}
+
+function resolveDefaultAgentId(agents: MoziConfig["agents"]): string {
+  if (!agents) {
+    return "mozi";
+  }
+  const entries = Object.entries(agents).filter(([agentId]) => agentId !== "defaults");
+  const mainAgent = entries.find(([, entry]) => (entry as { main?: boolean }).main === true);
+  if (mainAgent?.[0]) {
+    return mainAgent[0];
+  }
+  return entries[0]?.[0] || "mozi";
 }
 
 function parseEveryMs(raw: string): number | null {

@@ -45,3 +45,13 @@ export interface InlineButton {
 }
 
 export type ChannelStatus = "connected" | "connecting" | "disconnected" | "error";
+
+export type StatusReaction = "queued" | "thinking" | "tool" | "done" | "error";
+
+export interface StatusReactionPayload {
+  readonly sessionKey?: string;
+  readonly agentId?: string;
+  readonly toolName?: string;
+  readonly toolCallId?: string;
+  readonly messageId?: string;
+}

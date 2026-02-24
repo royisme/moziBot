@@ -1,6 +1,6 @@
 import { run, sequentialize } from "@grammyjs/runner";
 import { Bot } from "grammy";
-import type { OutboundMessage } from "../types";
+import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
 import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
@@ -11,7 +11,13 @@ import {
   isRecoverableTelegramNetworkError,
 } from "./network-errors";
 import { sendMessage, reactToMessage, deleteMsg, editMsg } from "./send";
+import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import { TypingManager } from "./typing";
+
+interface StatusReactionsConfig {
+  enabled?: boolean;
+  emojis?: StatusReactionEmojis;
+}
 
 export interface TelegramPluginConfig {
   botToken: string;
@@ -27,6 +33,7 @@ export interface TelegramPluginConfig {
     retryInterval?: "exponential" | "quadratic" | number;
     silentRunnerErrors?: boolean;
   };
+  statusReactions?: StatusReactionsConfig;
 }
 
 export class TelegramPlugin extends BaseChannelPlugin {
@@ -43,9 +50,13 @@ export class TelegramPlugin extends BaseChannelPlugin {
   private botUsername: string | null = null;
   private botId: string | null = null;
   private typingManager: TypingManager;
+  private statusReactionsEnabled: boolean;
+  private statusReactionEmojis: Record<StatusReaction, string>;
+  private statusReactionState = new Map<string, string>();
 
   constructor(config: TelegramPluginConfig) {
     super();
+    const statusReactions = config.statusReactions;
     this.config = {
       ...config,
       allowedChats: (config.allowedChats ?? []).map((item) => item.toString()),
@@ -57,7 +68,10 @@ export class TelegramPlugin extends BaseChannelPlugin {
         retryInterval: config.polling?.retryInterval ?? "exponential",
         silentRunnerErrors: config.polling?.silentRunnerErrors ?? true,
       },
+      statusReactions: statusReactions ? { ...statusReactions } : undefined,
     };
+    this.statusReactionsEnabled = statusReactions?.enabled === true;
+    this.statusReactionEmojis = resolveStatusReactionEmojis(statusReactions?.emojis);
     this.bot = new Bot(config.botToken);
     this.typingManager = new TypingManager((peerId) => this.sendTypingAction(peerId));
     this.setupHandlers();
@@ -377,6 +391,37 @@ export class TelegramPlugin extends BaseChannelPlugin {
 
   async react(messageId: string, peerId: string, emoji: string): Promise<void> {
     return reactToMessage(this.bot, messageId, peerId, emoji);
+  }
+
+  async setStatusReaction(
+    peerId: string,
+    messageId: string,
+    status: StatusReaction,
+    _payload?: StatusReactionPayload,
+  ): Promise<void> {
+    if (!this.statusReactionsEnabled) {
+      return;
+    }
+
+    const emoji = this.statusReactionEmojis[status];
+    if (!emoji) {
+      return;
+    }
+
+    const reactionKey = `${peerId}:${messageId}`;
+    const lastEmoji = this.statusReactionState.get(reactionKey);
+    if (lastEmoji === emoji) {
+      return;
+    }
+
+    await reactToMessage(this.bot, messageId, peerId, emoji);
+
+    if (status === "done" || status === "error") {
+      this.statusReactionState.delete(reactionKey);
+      return;
+    }
+
+    this.statusReactionState.set(reactionKey, emoji);
   }
 
   async deleteMessage(messageId: string, peerId: string): Promise<void> {

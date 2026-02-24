@@ -350,6 +350,7 @@ export class RuntimeHost {
           groups: telegramConfig.groups,
           streamMode: telegramConfig.streamMode,
           polling: telegramConfig.polling,
+          statusReactions: telegramConfig.statusReactions,
         });
 
         // Handle incoming messages
@@ -385,6 +386,7 @@ export class RuntimeHost {
           groupPolicy: discordConfig.groupPolicy,
           allowFrom: discordConfig.allowFrom,
           guilds: discordConfig.guilds,
+          statusReactions: discordConfig.statusReactions,
         });
 
         // Handle incoming messages

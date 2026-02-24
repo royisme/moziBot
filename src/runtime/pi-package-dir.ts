@@ -25,7 +25,7 @@ export function ensurePiPackageDir() {
     }
   }
 
-  const fallbackDir = path.join(os.homedir(), ".mozi", "pi-package");
+  const fallbackDir = path.join(os.homedir(), ".mozi", "runtime-package");
   const fallbackPkgPath = path.join(fallbackDir, "package.json");
   if (!fs.existsSync(fallbackPkgPath)) {
     fs.mkdirSync(fallbackDir, { recursive: true });
@@ -35,7 +35,7 @@ export function ensurePiPackageDir() {
         {
           name: "mozi-runtime",
           version: APP_VERSION,
-          piConfig: { name: "pi", configDir: ".pi" },
+          piConfig: { name: "mozi", configDir: ".mozi" },
         },
         null,
         2,

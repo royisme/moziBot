@@ -530,22 +530,42 @@ function validateHeartbeat(config: MoziConfig, agentEntries: AgentEntry[]) {
   const defaults = (
     config.agents?.defaults as { heartbeat?: { enabled?: boolean; every?: string } } | undefined
   )?.heartbeat;
+  const hasExplicitAgents = agentEntries.some((entry) => Boolean(entry.entry.heartbeat));
+  const defaultAgentId = resolveDefaultAgentId(config);
+  let hasEnabled = false;
   for (const { id, entry } of agentEntries) {
+    if (hasExplicitAgents && !entry.heartbeat) {
+      continue;
+    }
+    if (!hasExplicitAgents && id !== defaultAgentId) {
+      continue;
+    }
     const hb = entry.heartbeat ?? defaults;
     if (!hb?.enabled) {
       continue;
     }
+    hasEnabled = true;
     const every = hb.every ?? "30m";
     if (!parseEveryMs(every)) {
       errors.push(`Agent ${id} heartbeat.every is invalid: ${every}`);
     }
   }
-  if (!defaults?.enabled) {
+  if (!hasEnabled) {
     warnings.push(
-      "Heartbeat defaults are disabled. No periodic checks will run unless enabled per agent.",
+      "Heartbeat is disabled. No periodic checks will run unless enabled for at least one agent.",
     );
   }
   return { errors, warnings };
+}
+
+function resolveDefaultAgentId(config: MoziConfig): string {
+  const agents = config.agents ?? {};
+  const entries = Object.entries(agents).filter(([id]) => id !== "defaults");
+  const main = entries.find(([, entry]) => (entry as { main?: boolean }).main === true);
+  if (main?.[0]) {
+    return main[0];
+  }
+  return entries[0]?.[0] || "mozi";
 }
 
 function parseEveryMs(raw: string): number | null {

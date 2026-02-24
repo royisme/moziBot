@@ -27,6 +27,23 @@ const TelegramPollingConfigSchema = z
   })
   .strict();
 
+const StatusReactionEmojiSchema = z
+  .object({
+    queued: z.string().min(1).optional(),
+    thinking: z.string().min(1).optional(),
+    tool: z.string().min(1).optional(),
+    done: z.string().min(1).optional(),
+    error: z.string().min(1).optional(),
+  })
+  .strict();
+
+const StatusReactionsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    emojis: StatusReactionEmojiSchema.optional(),
+  })
+  .strict();
+
 const ChannelDmOverrideSchema = z
   .object({
     historyLimit: z.number().int().positive().optional(),
@@ -37,6 +54,18 @@ const DiscordGuildConfigSchema = z
   .object({
     requireMention: z.boolean().optional(),
     allowFrom: IdListSchema.optional(),
+    allowRoles: IdListSchema.optional(),
+    roleRouting: z
+      .record(
+        z.string(),
+        z
+          .object({
+            agentId: z.string().optional(),
+            agent: z.string().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
     agentId: z.string().optional(),
     agent: z.string().optional(),
   })
@@ -56,6 +85,7 @@ export const TelegramConfigSchema = z
     dms: z.record(z.string(), ChannelDmOverrideSchema).optional(),
     streamMode: z.enum(["off", "partial", "full"]).optional(),
     polling: TelegramPollingConfigSchema.optional(),
+    statusReactions: StatusReactionsSchema.optional(),
     agentId: z.string().optional(),
     agent: z.string().optional(),
   })
@@ -74,6 +104,7 @@ export const DiscordConfigSchema = z
     dmHistoryLimit: z.number().int().positive().optional(),
     dms: z.record(z.string(), ChannelDmOverrideSchema).optional(),
     dmScope: DmScopeSchema.optional(),
+    statusReactions: StatusReactionsSchema.optional(),
     agentId: z.string().optional(),
     agent: z.string().optional(),
   })

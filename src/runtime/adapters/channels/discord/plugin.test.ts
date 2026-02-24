@@ -9,6 +9,8 @@ type MockClient = {
   }>;
   rest: {
     post: ReturnType<typeof vi.fn>;
+    put: ReturnType<typeof vi.fn>;
+    delete: ReturnType<typeof vi.fn>;
   };
   getPlugin: (id: string) => unknown;
 };
@@ -50,6 +52,8 @@ const mockState = vi.hoisted(() => {
       listeners: handlers?.listeners ?? [],
       rest: {
         post: vi.fn().mockResolvedValue({ id: "sent-123" }),
+        put: vi.fn().mockResolvedValue({}),
+        delete: vi.fn().mockResolvedValue({}),
       },
       getPlugin: (id: string) => plugins.find((plugin: { id?: string }) => plugin.id === id),
     };
@@ -402,6 +406,61 @@ describe("DiscordPlugin (carbon)", () => {
     expect(received).toBe(true);
   });
 
+  it("enforces role allowlist per guild", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      guilds: {
+        "guild-1": { allowRoles: ["role-1"] },
+      },
+    });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received = false;
+    plugin.on("message", () => {
+      received = true;
+    });
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        rawMember: { roles: ["role-2"] },
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-1",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(false);
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        rawMember: { roles: ["role-1"] },
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-2",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+    expect(received).toBe(true);
+  });
+
   it("enforces requireMention per guild", async () => {
     const plugin = new DiscordPlugin({
       botToken: "test-token",
@@ -470,5 +529,54 @@ describe("DiscordPlugin (carbon)", () => {
     expect(mockGateways[0]?.disconnect).toHaveBeenCalled();
     expect(plugin.getStatus()).toBe("error");
     await expect(plugin.connect()).rejects.toThrow("Discord authentication failed");
+  });
+
+  it("sets status reaction and removes previous", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      statusReactions: { enabled: true },
+    });
+    const client = await connectPlugin(plugin);
+
+    await plugin.setStatusReaction?.("chan-1", "msg-1", "thinking");
+
+    expect(client.rest.put).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `/channels/chan-1/messages/msg-1/reactions/${encodeURIComponent("🤔")}`,
+      ),
+    );
+
+    await plugin.setStatusReaction?.("chan-1", "msg-1", "tool");
+
+    expect(client.rest.delete).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent("🤔")),
+    );
+  });
+
+  it("encodes custom emoji identifiers", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      statusReactions: { enabled: true, emojis: { thinking: "<:party_blob:123>" } },
+    });
+    const client = await connectPlugin(plugin);
+
+    await plugin.setStatusReaction?.("chan-2", "msg-2", "thinking");
+
+    expect(client.rest.put).toHaveBeenCalledWith(
+      expect.stringContaining(encodeURIComponent("party_blob:123")),
+    );
+  });
+
+  it("skips status reaction when disabled", async () => {
+    const plugin = new DiscordPlugin({
+      botToken: "test-token",
+      statusReactions: { enabled: false },
+    });
+    const client = await connectPlugin(plugin);
+
+    await plugin.setStatusReaction?.("chan-3", "msg-3", "thinking");
+
+    expect(client.rest.put).not.toHaveBeenCalled();
+    expect(client.rest.delete).not.toHaveBeenCalled();
   });
 });

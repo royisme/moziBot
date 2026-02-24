@@ -30,9 +30,9 @@ describe("telegram network errors", () => {
 
   it("redacts bot token in formatted error", () => {
     const msg =
-      "request to https://api.telegram.org/bot8514740032:AAENJv2hp7xLCKcKyz7eFjV1VA3CxgIFcpA/getUpdates failed";
+      "request to https://api.telegram.org/bot1234567890:TEST_TOKEN_FOR_REDACTION_ONLY_ABCDE/getUpdates failed";
     const text = formatTelegramError(msg);
     expect(text).toContain("bot<redacted>");
-    expect(text).not.toContain("AAENJv2hp7xLCKcKyz7eFjV1VA3CxgIFcpA");
+    expect(text).not.toContain("TEST_TOKEN_FOR_REDACTION_ONLY_ABCDE");
   });
 });

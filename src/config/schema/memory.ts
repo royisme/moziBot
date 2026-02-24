@@ -64,6 +64,35 @@ const MemoryReliabilitySchema = z
   })
   .strict();
 
+const MemoryRecallMmrSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    lambda: z.number().min(0).max(1).default(0.7),
+  })
+  .strict();
+
+const MemoryRecallTemporalDecaySchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    halfLifeDays: z.number().positive().default(30),
+  })
+  .strict();
+
+const MemoryRecallMetricsSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    sampleRate: z.number().min(0).max(1).default(1),
+  })
+  .strict();
+
+const MemoryRecallSchema = z
+  .object({
+    mmr: MemoryRecallMmrSchema.optional(),
+    temporalDecay: MemoryRecallTemporalDecaySchema.optional(),
+    metrics: MemoryRecallMetricsSchema.optional(),
+  })
+  .strict();
+
 const MemoryQmdSearchModeSchema = z.enum(["query", "search", "vsearch"]).default("search");
 
 const MemoryQmdSchema = z
@@ -77,6 +106,7 @@ const MemoryQmdSchema = z
     sessions: MemorySessionsSchema.optional(),
     scope: MemoryScopeSchema.optional(),
     reliability: MemoryReliabilitySchema.optional(),
+    recall: MemoryRecallSchema.optional(),
   })
   .strict();
 

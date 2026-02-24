@@ -3,6 +3,8 @@ export type AccessPolicy = "open" | "allowlist";
 export type DiscordGuildPolicyConfig = {
   requireMention?: boolean;
   allowFrom?: string[];
+  allowRoles?: string[];
+  roleRouting?: Record<string, { agentId?: string; agent?: string }>;
   agentId?: string;
   agent?: string;
 };
@@ -18,6 +20,7 @@ export function normalizeGuildPolicies(
     normalized[guildId] = {
       ...config,
       allowFrom: (config.allowFrom ?? []).map((item) => item.toString()),
+      allowRoles: (config.allowRoles ?? []).map((item) => item.toString()),
     };
   }
   return normalized;
@@ -54,6 +57,20 @@ export function isSenderAllowed(
     const value = entry.startsWith("@") ? entry.slice(1) : entry;
     return value.toLowerCase() === normalizedUsername;
   });
+}
+
+export function isRoleAllowed(allowRoles: string[] | undefined, memberRoleIds: string[]): boolean {
+  if (!allowRoles || allowRoles.length === 0) {
+    return true;
+  }
+  if (!memberRoleIds || memberRoleIds.length === 0) {
+    return false;
+  }
+  const allowSet = new Set(allowRoles.map((item) => item.trim()).filter(Boolean));
+  if (allowSet.size === 0) {
+    return true;
+  }
+  return memberRoleIds.some((roleId) => allowSet.has(roleId));
 }
 
 export function isCommandText(text: string): boolean {

@@ -133,6 +133,17 @@ Controls how session history is archived into memory files:
 
 Circuit-open state is exposed in provider status (`custom.qmd.reliability`) and is used by fallback memory routing to avoid repeatedly failing QMD searches.
 
+### QMD Recall Quality (`memory.qmd.recall`)
+
+Optional post-processing for QMD results:
+
+- `mmr.enabled` (boolean, default `false`): Enable MMR reranking for diversity.
+- `mmr.lambda` (number, default `0.7`): Relevance vs diversity trade-off.
+- `temporalDecay.enabled` (boolean, default `false`): Apply recency decay for dated memory files.
+- `temporalDecay.halfLifeDays` (number, default `30`): Score half-life in days.
+- `metrics.enabled` (boolean, default `false`): Write recall metrics to `data/metrics/memory-recall.jsonl`.
+- `metrics.sampleRate` (number, default `1`): Sampling rate for metrics logging (0-1).
+
 ## Edit + Verify
 
 - After schema/default changes:

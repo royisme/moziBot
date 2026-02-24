@@ -1,4 +1,9 @@
-import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
+import type {
+  InboundMessage,
+  OutboundMessage,
+  StatusReaction,
+  StatusReactionPayload,
+} from "../adapters/channels/types";
 
 export type RuntimeQueueStatus =
   | "queued"
@@ -47,6 +52,12 @@ export interface RuntimeIngress {
 export interface RuntimeEgress {
   deliver(outbound: OutboundMessage, receipt: RuntimeDeliveryReceipt): Promise<string>;
   beginTyping?(receipt: RuntimeDeliveryReceipt): Promise<(() => Promise<void> | void) | void>;
+  setStatusReaction?(params: {
+    receipt: RuntimeDeliveryReceipt;
+    messageId: string;
+    status: StatusReaction;
+    payload?: StatusReactionPayload;
+  }): Promise<void>;
 }
 
 export interface RuntimeErrorDecision {

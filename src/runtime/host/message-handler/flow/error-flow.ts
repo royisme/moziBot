@@ -14,6 +14,8 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const toError = (err: unknown) => deps.toError(err);
   const emitPhase = (params: Parameters<typeof deps.emitPhaseSafely>[0]) =>
     deps.emitPhaseSafely(params);
+  const emitStatus = (params: Parameters<typeof deps.emitStatusSafely>[0]) =>
+    deps.emitStatusSafely(params);
   const isAbortError = (err: Error) => deps.isAbortError(err);
   const createErrorReplyText = (err: Error) => deps.createErrorReplyText(err);
   const getChannel = (payload: unknown) => deps.getChannel(payload);
@@ -45,6 +47,11 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
     // 2. Interaction Phase Update
     await emitPhase({
       phase: "error",
+      payload: { sessionKey, agentId, messageId: ctx.messageId },
+    });
+    await emitStatus({
+      status: "error",
+      messageId: ctx.messageId,
       payload: { sessionKey, agentId, messageId: ctx.messageId },
     });
 

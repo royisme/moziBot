@@ -177,6 +177,40 @@ describe("TelegramPlugin", () => {
     }
   });
 
+  it("should set status reaction when enabled", async () => {
+    plugin = new TelegramPlugin({
+      botToken: "test-token",
+      statusReactions: { enabled: true },
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results.at(-1)?.value;
+    expect(botInstance).toBeDefined();
+    if (!botInstance) {
+      return;
+    }
+
+    await plugin.setStatusReaction?.("12345", "456", "thinking");
+
+    expect(botInstance.api.setMessageReaction).toHaveBeenCalledWith("12345", 456, [
+      { type: "emoji", emoji: "🤔" },
+    ]);
+  });
+
+  it("should skip status reaction when disabled", async () => {
+    plugin = new TelegramPlugin({
+      botToken: "test-token",
+      statusReactions: { enabled: false },
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results.at(-1)?.value;
+    expect(botInstance).toBeDefined();
+    if (!botInstance) {
+      return;
+    }
+
+    await plugin.setStatusReaction?.("12345", "456", "thinking");
+
+    expect(botInstance.api.setMessageReaction).not.toHaveBeenCalled();
+  });
+
   it("should convert inbound message correctly", async () => {
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     const handler = botInstance.on.mock.calls.find(

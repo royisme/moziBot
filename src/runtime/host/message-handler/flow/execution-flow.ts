@@ -85,6 +85,8 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     deps.startTypingIndicator(params);
   const emitPhase = (params: Parameters<typeof deps.emitPhaseSafely>[0]) =>
     deps.emitPhaseSafely(params);
+  const emitStatus = (params: Parameters<typeof deps.emitStatusSafely>[0]) =>
+    deps.emitStatusSafely(params);
   const getChannel = (p: unknown) => deps.getChannel(p);
   const createStreamingBuffer = (params: {
     peerId: string;
@@ -131,6 +133,11 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     phase: "thinking",
     payload: { sessionKey, agentId, messageId: ctx.messageId },
   });
+  await emitStatus({
+    status: "thinking",
+    messageId: ctx.messageId,
+    payload: { sessionKey, agentId, messageId: ctx.messageId },
+  });
 
   const channel = getChannel(payload);
   const supportsStreaming = typeof channel.editMessage === "function";
@@ -174,6 +181,11 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
           inboundPlan: null,
           traceId: ctx.traceId,
         });
+        await emitStatus({
+          status: "error",
+          messageId: ctx.messageId,
+          payload: { sessionKey, agentId, messageId: ctx.messageId },
+        });
       },
       onStream: async (event) => {
         if (event.type === "text_delta" && event.delta) {
@@ -200,9 +212,25 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
               messageId: ctx.messageId,
             },
           });
+          void emitStatus({
+            status: "tool",
+            messageId: ctx.messageId,
+            payload: {
+              sessionKey,
+              agentId,
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              messageId: ctx.messageId,
+            },
+          });
         } else if (event.type === "tool_end") {
           void emitPhase({
             phase: "thinking",
+            payload: { sessionKey, agentId, messageId: ctx.messageId },
+          });
+          void emitStatus({
+            status: "thinking",
+            messageId: ctx.messageId,
             payload: { sessionKey, agentId, messageId: ctx.messageId },
           });
         }
@@ -221,6 +249,11 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
           replyText: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`,
           inboundPlan: null,
           traceId: ctx.traceId,
+        });
+        await emitStatus({
+          status: "error",
+          messageId: ctx.messageId,
+          payload: { sessionKey, agentId, messageId: ctx.messageId },
         });
       },
       onStream: async (event) => {

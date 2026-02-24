@@ -74,6 +74,24 @@ export function applyConfigDefaults(raw: unknown): unknown {
 
   if (isRecord(obj.agents)) {
     const agents = { ...obj.agents };
+    const defaults = isRecord(agents.defaults) ? { ...agents.defaults } : {};
+    const rawHeartbeat = isRecord(defaults.heartbeat) ? { ...defaults.heartbeat } : {};
+    let heartbeatMutated = false;
+    if (!isRecord(defaults.heartbeat)) {
+      heartbeatMutated = true;
+    }
+    if (rawHeartbeat.enabled === undefined) {
+      rawHeartbeat.enabled = true;
+      heartbeatMutated = true;
+    }
+    if (rawHeartbeat.every === undefined) {
+      rawHeartbeat.every = "30m";
+      heartbeatMutated = true;
+    }
+    if (heartbeatMutated) {
+      defaults.heartbeat = rawHeartbeat;
+      agents.defaults = defaults;
+    }
     for (const [agentId, agentValue] of Object.entries(agents)) {
       if (agentId === "defaults" || !isRecord(agentValue)) {
         continue;

@@ -17,6 +17,7 @@ import {
   type InteractionPhase,
   type PhasePayload,
 } from "./interaction-lifecycle";
+import { emitStatusReactionSafely as emitStatusReactionSafelyService } from "./status-reaction";
 import { resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator-session";
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
 import { dispatchReply } from "./reply-dispatcher";
@@ -116,6 +117,7 @@ type PromptDeps = Pick<
   | "ensureChannelContext"
   | "startTypingIndicator"
   | "emitPhaseSafely"
+  | "emitStatusSafely"
   | "createStreamingBuffer"
   | "runPromptWithFallback"
   | "maybePreFlushBeforePrompt"
@@ -327,6 +329,21 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         channel: lifecycleChannel,
         peerId: resolvedPeerId,
         phase,
+        payload,
+        deps: { logger, toError: toErrorService },
+      });
+    },
+    emitStatusSafely: async ({ status, messageId, payload }) => {
+      const agentId = payload?.agentId;
+      const resolvedPeerId = agentId ? lastRoutes.get(agentId)?.peerId : undefined;
+      if (!resolvedPeerId) {
+        return;
+      }
+      await emitStatusReactionSafelyService({
+        channel: lifecycleChannel,
+        peerId: resolvedPeerId,
+        messageId,
+        status,
         payload,
         deps: { logger, toError: toErrorService },
       });

@@ -2,6 +2,10 @@
   "name": "@royisme/mozi-bot",
   "version": "1.2.0",
   "description": "Personal AI coding agent that runs securely in containers",
+  "piConfig": {
+    "name": "mozi",
+    "configDir": ".mozi"
+  },
   "homepage": "https://github.com/royisme/moziBot#readme",
   "bugs": {
     "url": "https://github.com/royisme/moziBot/issues"

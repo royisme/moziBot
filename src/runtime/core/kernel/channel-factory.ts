@@ -34,6 +34,17 @@ export function createRuntimeChannel(params: {
       }
       return await params.egress.beginTyping(buildReceipt(peerId));
     },
+    setStatusReaction: async (peerId: string, messageId: string, status, payload) => {
+      if (!params.egress.setStatusReaction) {
+        return;
+      }
+      await params.egress.setStatusReaction({
+        receipt: buildReceipt(peerId),
+        messageId,
+        status,
+        payload,
+      });
+    },
     on: () => runtimeChannel,
     once: () => runtimeChannel,
     off: () => runtimeChannel,

@@ -74,6 +74,19 @@ Phase 3 adds bounded retry and circuit-breaker controls to QMD update/embed exec
 
 When the circuit is open, QMD update calls are skipped (unless forced). In fallback mode, a circuit-open QMD status can preemptively route searches to builtin memory.
 
+### QMD Recall Quality (`memory.qmd.recall`)
+
+Optional post-processing to improve recall ordering after QMD retrieval.
+
+| Key                             | Default | Description |
+| ------------------------------ | ------- | ----------- |
+| `mmr.enabled`                  | `false` | Enable MMR (Maximal Marginal Relevance) reranking for diversity. |
+| `mmr.lambda`                   | `0.7`   | Relevance vs diversity trade-off (1 = relevance-only). |
+| `temporalDecay.enabled`        | `false` | Enable recency boost for dated memory files. |
+| `temporalDecay.halfLifeDays`   | `30`    | Score half-life in days for dated files. |
+| `metrics.enabled`              | `false` | Write recall metrics to `data/metrics/memory-recall.jsonl`. |
+| `metrics.sampleRate`           | `1`     | Sampling rate for metrics logging (0-1). |
+
 ### Memory Persistence (`memory.persistence`)
 
 | Key                    | Default | Description                                           |

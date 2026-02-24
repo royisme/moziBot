@@ -17,6 +17,8 @@ export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
     deps.setSessionModel(sessionKey, modelRef);
   const emitPhase = (params: Parameters<typeof deps.emitPhaseSafely>[0]) =>
     deps.emitPhaseSafely(params);
+  const emitStatus = (params: Parameters<typeof deps.emitStatusSafely>[0]) =>
+    deps.emitStatusSafely(params);
   const stopTypingIndicator = (params: Parameters<typeof deps.stopTypingIndicator>[0]) =>
     deps.stopTypingIndicator(params);
   const { logger } = deps;
@@ -49,6 +51,13 @@ export const runCleanupFlow: CleanupFlow = async (ctx, deps, _bundle) => {
   // 2. Interaction Signaling
   if (sessionKey && agentId && peerId) {
     try {
+      if (_bundle.finalStatus === "success") {
+        await emitStatus({
+          status: "done",
+          messageId: ctx.messageId,
+          payload: { sessionKey, agentId, messageId: ctx.messageId },
+        });
+      }
       await emitPhase({
         phase: "idle",
         payload: { sessionKey, agentId, messageId: ctx.messageId },

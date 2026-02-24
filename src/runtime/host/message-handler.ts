@@ -27,6 +27,7 @@ import {
   type InteractionPhase as _unusedInteractionPhase,
   type PhasePayload as _unusedPhasePayload,
 } from "./message-handler/services/interaction-lifecycle";
+import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } from "./message-handler/services/status-reaction";
 import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import {
   resolveSessionContext as resolveSessionContextService,

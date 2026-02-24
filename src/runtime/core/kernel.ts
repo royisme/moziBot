@@ -182,6 +182,26 @@ export class RuntimeKernel implements RuntimeIngress {
         status: SessionStatus.QUEUED,
       });
       await this.sessionManager.setStatus(context.sessionKey, SessionStatus.QUEUED);
+      if (this.egress.setStatusReaction) {
+        await this.egress.setStatusReaction({
+          receipt: {
+            queueItemId,
+            envelopeId: queueItemId,
+            sessionKey: context.sessionKey,
+            channelId: envelope.inbound.channel,
+            peerId: envelope.inbound.peerId,
+            attempt: 0,
+            status: "queued",
+          },
+          messageId: envelope.inbound.id,
+          status: "queued",
+          payload: {
+            sessionKey: context.sessionKey,
+            agentId: context.agentId,
+            messageId: envelope.inbound.id,
+          },
+        });
+      }
       this.trimSessionBacklog(context.sessionKey);
       this.schedulePump();
       logger.info(

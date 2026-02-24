@@ -21,10 +21,72 @@ Implementations:
 All channel plugins must implement `ChannelPlugin`:
 
 - lifecycle: `connect()`, `disconnect()`
-- messaging: `send()` (+ optional `editMessage`, `beginTyping`, `emitPhase`)
+- messaging: `send()` (+ optional `editMessage`, `beginTyping`, `emitPhase`, `setStatusReaction`)
 - status and event emission through `EventEmitter`
 
 `InboundMessage` carries normalized sender/peer/media fields used by runtime host and multimodal ingest.
+
+## Status Reactions
+
+Channels can optionally surface lifecycle status (queued/thinking/tool/done/error) as message reactions
+via `setStatusReaction`. Telegram/Discord enable this via config:
+
+```jsonc
+{
+  "channels": {
+    "telegram": {
+      "statusReactions": {
+        "enabled": true,
+        "emojis": {
+          "queued": "👀",
+          "thinking": "🤔",
+          "tool": "🔥",
+          "done": "👍",
+          "error": "😱"
+        }
+      }
+    },
+    "discord": {
+      "statusReactions": {
+        "enabled": true,
+        "emojis": {
+          "queued": "👀",
+          "thinking": "🤔",
+          "tool": "🔥",
+          "done": "👍",
+          "error": "😱"
+        }
+      }
+    }
+  }
+}
+```
+
+Defaults are disabled and fall back to the emojis above when enabled.
+
+## Discord Role Access + Routing
+
+Discord guilds can optionally enforce role allowlists and route to agents by role:
+
+```jsonc
+{
+  "channels": {
+    "discord": {
+      "guilds": {
+        "guild-id": {
+          "allowRoles": ["role-id-1", "role-id-2"],
+          "roleRouting": {
+            "role-id-1": { "agentId": "dev-pm" },
+            "role-id-2": { "agentId": "dev-arch" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+When `allowRoles` is set, members must have a matching role even if user allowlists pass.
 
 ## Runtime Integration
 

@@ -51,6 +51,7 @@ function createDeps(): OrchestratorDeps {
     ensureChannelContext: vi.fn(async () => {}),
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
+    emitStatusSafely: vi.fn(async () => {}),
     createStreamingBuffer: vi.fn(() => ({
       append: vi.fn(),
       initialize: vi.fn(async () => {}),

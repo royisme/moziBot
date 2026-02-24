@@ -69,4 +69,53 @@ describe("HeartbeatRunner", () => {
     expect(inbound?.text).toContain("# HEARTBEAT.md");
     expect(inbound?.text).toContain("HEARTBEAT_FILE_END");
   });
+
+  it("schedules only explicit heartbeat agents when any entry defines heartbeat", () => {
+    const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+
+    const handler = {
+      getLastRoute: vi.fn(() => ({
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      })),
+      resolveSessionContext: vi.fn(() => ({
+        sessionKey: "agent:mozi:telegram:dm:chat-1",
+      })),
+      isSessionActive: vi.fn(() => false),
+    };
+
+    const agentManager = {
+      getWorkspaceDir: vi.fn(() => "/tmp/workspace"),
+    };
+
+    const runner = new HeartbeatRunner(
+      handler as never,
+      agentManager as never,
+      enqueueInbound as never,
+    );
+
+    runner.updateConfig({
+      models: { providers: {} },
+      agents: {
+        defaults: {
+          heartbeat: {
+            enabled: true,
+            every: "30m",
+          },
+        },
+        mozi: {
+          main: true,
+          model: "quotio/gemini-3-flash-preview",
+        },
+        "dev-coder": {
+          heartbeat: { enabled: true, every: "5m" },
+        },
+      },
+    } as never);
+
+    const stateMap = (runner as unknown as { states: Map<string, unknown> }).states;
+    expect(stateMap.size).toBe(1);
+    expect(stateMap.has("dev-coder")).toBe(true);
+  });
 });

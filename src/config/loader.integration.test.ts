@@ -111,6 +111,16 @@ describe("config loader local .env support", () => {
     expect(result.config?.logging?.level).toBe("info");
   });
 
+  it("defaults heartbeat to enabled with 30m interval when missing", () => {
+    const { configPath } = createConfigDir();
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.agents?.defaults?.heartbeat?.enabled).toBe(true);
+    expect(result.config?.agents?.defaults?.heartbeat?.every).toBe("30m");
+  });
+
   it("keeps explicit logging level from config", () => {
     delete process.env[ENV_KEY];
     const { dir, configPath } = createConfigDir();

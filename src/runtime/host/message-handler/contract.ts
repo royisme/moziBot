@@ -1,6 +1,10 @@
 import type { MoziConfig } from "../../../config";
 import type { DeliveryPlan } from "../../../multimodal/capabilities";
-import type { OutboundMessage } from "../../adapters/channels/types";
+import type {
+  OutboundMessage,
+  StatusReaction,
+  StatusReactionPayload,
+} from "../../adapters/channels/types";
 import type { SessionTimestamps } from "./lifecycle/temporal";
 import type { CommandHandlerMap } from "./services/command-handlers";
 import type { InteractionPhase, PhasePayload } from "./services/interaction-lifecycle";
@@ -115,6 +119,11 @@ export interface OrchestratorDeps {
     peerId: string;
   }): Promise<(() => Promise<void> | void) | undefined>;
   emitPhaseSafely(params: { phase: InteractionPhase; payload: PhasePayload }): Promise<void>;
+  emitStatusSafely(params: {
+    status: StatusReaction;
+    messageId: string;
+    payload?: StatusReactionPayload;
+  }): Promise<void>;
   createStreamingBuffer(params: {
     peerId: string;
     onError: (err: Error) => void;

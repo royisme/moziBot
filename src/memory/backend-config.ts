@@ -102,6 +102,7 @@ export type ResolvedQmdConfig = {
   limits: ResolvedQmdLimitsConfig;
   includeDefaultMemory: boolean;
   scope?: MemoryQmdConfig["scope"];
+  recall?: MemoryQmdConfig["recall"];
 };
 
 const DEFAULT_BACKEND = "builtin" as const;
@@ -164,6 +165,7 @@ const ResolvedQmdConfigSchema = z
     }),
     includeDefaultMemory: z.boolean(),
     scope: z.any().optional(),
+    recall: z.any().optional(),
   })
   .strict();
 
@@ -477,6 +479,7 @@ export function resolveMemoryBackendConfig(params: {
     },
     limits: resolveLimits(qmdCfg?.limits),
     scope: qmdCfg?.scope ?? (DEFAULT_QMD_SCOPE as unknown as ResolvedQmdConfig["scope"]),
+    recall: qmdCfg?.recall,
   };
 
   ResolvedQmdConfigSchema.parse(resolved);

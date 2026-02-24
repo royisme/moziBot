@@ -2,14 +2,22 @@ import { Client, MessageCreateListener, ReadyListener } from "@buape/carbon";
 import { GatewayIntents, GatewayPlugin } from "@buape/carbon/gateway";
 import { Routes, type APIAttachment, type APIEmbed } from "discord-api-types/v10";
 import { EventEmitter } from "node:events";
-import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
+import type {
+  InboundMessage,
+  MediaAttachment,
+  OutboundMessage,
+  StatusReaction,
+  StatusReactionPayload,
+} from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
+import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import {
   type AccessPolicy,
   type DiscordGuildPolicyConfig,
   isBotMentioned,
   isCommandText,
+  isRoleAllowed,
   isSenderAllowed,
   normalizeAllowList,
   normalizeGuildPolicies,
@@ -21,6 +29,11 @@ const MAX_GATEWAY_RECONNECT_ATTEMPTS = 20;
 type CarbonMessageCreateEvent = Parameters<MessageCreateListener["handle"]>[0];
 type CarbonReadyEvent = Parameters<ReadyListener["handle"]>[0];
 
+interface StatusReactionsConfig {
+  enabled?: boolean;
+  emojis?: StatusReactionEmojis;
+}
+
 export interface DiscordPluginConfig {
   botToken: string;
   allowedGuilds?: string[];
@@ -29,6 +42,7 @@ export interface DiscordPluginConfig {
   groupPolicy?: AccessPolicy;
   allowFrom?: string[];
   guilds?: Record<string, DiscordGuildPolicyConfig>;
+  statusReactions?: StatusReactionsConfig;
 }
 
 class CarbonReadyBridge extends ReadyListener {
@@ -64,15 +78,22 @@ export class DiscordPlugin extends BaseChannelPlugin {
   private botUsername: string | null = null;
   private disabledReason?: string;
   private connectInFlight: Promise<void> | null = null;
+  private statusReactionsEnabled: boolean;
+  private statusReactionEmojis: Record<StatusReaction, string>;
+  private statusReactionState = new Map<string, string>();
 
   constructor(config: DiscordPluginConfig) {
     super();
+    const statusReactions = config.statusReactions;
     this.config = {
       ...config,
       botToken: normalizeDiscordToken(config.botToken),
       allowFrom: normalizeAllowList(config.allowFrom),
       guilds: normalizeGuildPolicies(config.guilds),
+      statusReactions: statusReactions ? { ...statusReactions } : undefined,
     };
+    this.statusReactionsEnabled = statusReactions?.enabled === true;
+    this.statusReactionEmojis = resolveStatusReactionEmojis(statusReactions?.emojis);
   }
 
   async connect(): Promise<void> {
@@ -240,6 +261,62 @@ export class DiscordPlugin extends BaseChannelPlugin {
     return sent.id ?? "unknown";
   }
 
+  async setStatusReaction(
+    peerId: string,
+    messageId: string,
+    status: StatusReaction,
+    _payload?: StatusReactionPayload,
+  ): Promise<void> {
+    if (!this.client || !this.statusReactionsEnabled) {
+      return;
+    }
+
+    const emoji = this.statusReactionEmojis[status];
+    if (!emoji) {
+      return;
+    }
+
+    const reactionKey = `${peerId}:${messageId}`;
+    const lastEmoji = this.statusReactionState.get(reactionKey);
+    if (lastEmoji === emoji) {
+      return;
+    }
+
+    try {
+      const encoded = normalizeDiscordReactionEmoji(emoji);
+      await this.client.rest.put(
+        Routes.channelMessageOwnReaction(peerId, messageId, encoded),
+      );
+    } catch (error) {
+      logger.warn(
+        { error, peerId, messageId, emoji, status },
+        "Failed to set Discord status reaction",
+      );
+      return;
+    }
+
+    if (lastEmoji && lastEmoji !== emoji) {
+      try {
+        const encodedPrev = normalizeDiscordReactionEmoji(lastEmoji);
+        await this.client.rest.delete(
+          Routes.channelMessageOwnReaction(peerId, messageId, encodedPrev),
+        );
+      } catch (error) {
+        logger.warn(
+          { error, peerId, messageId, emoji: lastEmoji, status },
+          "Failed to remove previous Discord status reaction",
+        );
+      }
+    }
+
+    if (status === "done" || status === "error") {
+      this.statusReactionState.delete(reactionKey);
+      return;
+    }
+
+    this.statusReactionState.set(reactionKey, emoji);
+  }
+
   private async handleMessage(event: CarbonMessageCreateEvent): Promise<void> {
     const author = event.author;
     const msg = event.message;
@@ -250,6 +327,9 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
     const guildId = event.guild_id ?? event.guild?.id;
     const channelId = msg.channelId;
+    const memberRoleIds = Array.isArray(event.rawMember?.roles)
+      ? event.rawMember.roles.map((roleId: string) => roleId.toString())
+      : [];
 
     if (this.config.allowedGuilds && guildId && !this.config.allowedGuilds.includes(guildId)) {
       return;
@@ -275,6 +355,17 @@ export class DiscordPlugin extends BaseChannelPlugin {
       const guildConfig = guildId ? this.config.guilds?.[guildId] : undefined;
       const effectiveAllowFrom = guildConfig?.allowFrom || this.config.allowFrom;
       const groupPolicy = this.config.groupPolicy ?? "open";
+      const roleAllowList = guildConfig?.allowRoles;
+
+      if (roleAllowList && roleAllowList.length > 0) {
+        if (!isRoleAllowed(roleAllowList, memberRoleIds)) {
+          logger.info(
+            { channelId, guildId, senderId: author.id },
+            "Discord group message dropped by role allowlist",
+          );
+          return;
+        }
+      }
 
       if (groupPolicy === "allowlist" && !isSenderAllowed(effectiveAllowFrom, author.id, author.username)) {
         logger.info(
@@ -333,6 +424,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
         .filter((id: string | undefined): id is string => Boolean(id)),
       mentionRoles: msg.mentionRoles ?? [],
       mentionEveryone: msg.mentionEveryone,
+      memberRoleIds,
       messageReference: msg.messageReference
         ? {
             message_id: msg.messageReference.message_id,
@@ -449,6 +541,18 @@ function toError(error: unknown): Error {
     return error;
   }
   return new Error(String(error));
+}
+
+function normalizeDiscordReactionEmoji(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("emoji required");
+  }
+  const customMatch = trimmed.match(/^<a?:([^:>]+):(\d+)>$/);
+  const identifier = customMatch
+    ? `${customMatch[1]}:${customMatch[2]}`
+    : trimmed.replace(/[\uFE0E\uFE0F]/g, "");
+  return encodeURIComponent(identifier);
 }
 
 async function fetchApplicationId(token: string): Promise<string> {

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildChannelContext, buildSandboxPrompt, buildSystemPrompt } from "./prompt-builder";
+import {
+  buildChannelContext,
+  buildRuntimePathsPrompt,
+  buildSandboxPrompt,
+  buildSystemPrompt,
+} from "./prompt-builder";
 
 vi.mock("../../agents/home", () => ({
   checkBootstrapState: vi.fn(async () => ({
@@ -98,6 +103,8 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("## AGENTS.md");
     expect(prompt).toContain("## SOUL.md");
     expect(prompt).toContain("# Workspace");
+    expect(prompt).toContain("Home directory: /tmp/home");
+    expect(prompt).toContain("Workspace directory: /tmp/workspace");
     expect(prompt).toContain(
       "After using a skill, record key learnings with the skills_note tool.",
     );
@@ -195,5 +202,15 @@ describe("buildSystemPrompt", () => {
 
     expect(text).toContain("Sandbox workspace: /tmp/abc");
     expect(text).toContain("Workspace access: rwx");
+  });
+
+  it("sanitizes runtime path literals", () => {
+    const text = buildRuntimePathsPrompt({
+      homeDir: "/tmp/h\nx",
+      workspaceDir: "/tmp/w\r\ny",
+    });
+
+    expect(text).toContain("Home directory: /tmp/hx");
+    expect(text).toContain("Workspace directory: /tmp/wy");
   });
 });

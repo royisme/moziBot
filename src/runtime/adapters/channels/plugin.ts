@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import type { ChannelStatus, InboundMessage, OutboundMessage } from "./types";
+import type {
+  ChannelStatus,
+  InboundMessage,
+  OutboundMessage,
+  StatusReaction,
+  StatusReactionPayload,
+} from "./types";
 
 export interface ChannelPlugin extends EventEmitter {
   readonly id: string;
@@ -27,6 +33,12 @@ export interface ChannelPlugin extends EventEmitter {
       toolCallId?: string;
       messageId?: string;
     },
+  ): Promise<void>;
+  setStatusReaction?(
+    peerId: string,
+    messageId: string,
+    status: StatusReaction,
+    payload?: StatusReactionPayload,
   ): Promise<void>;
 
   // Events (via EventEmitter)

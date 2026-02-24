@@ -70,6 +70,21 @@ export function buildSandboxPrompt(params: {
   return lines.join("\n");
 }
 
+export function buildRuntimePathsPrompt(params: {
+  homeDir: string;
+  workspaceDir: string;
+}): string {
+  const safeHomeDir = sanitizePromptLiteral(params.homeDir);
+  const safeWorkspaceDir = sanitizePromptLiteral(params.workspaceDir);
+  const lines = [
+    "# Runtime Paths",
+    `Home directory: ${safeHomeDir}`,
+    `Workspace directory: ${safeWorkspaceDir}`,
+    "Home is the agent's identity store; write task output only to the workspace.",
+  ];
+  return lines.join("\n");
+}
+
 export function buildToolsSection(tools?: string[]): string | null {
   if (!tools || tools.length === 0) {
     return null;
@@ -297,6 +312,9 @@ export async function buildSystemPrompt(params: {
   }
 
   const runtimeContextParts: string[] = [];
+  runtimeContextParts.push(
+    buildRuntimePathsPrompt({ homeDir: params.homeDir, workspaceDir: params.workspaceDir }),
+  );
   const bootstrapNote = buildBootstrapSection(bootstrapState);
   if (bootstrapNote) {
     runtimeContextParts.push(bootstrapNote);

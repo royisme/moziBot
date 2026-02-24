@@ -1,5 +1,5 @@
 import type { ChannelRegistry } from "../adapters/channels/registry";
-import type { OutboundMessage } from "../adapters/channels/types";
+import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../adapters/channels/types";
 import type { RuntimeDeliveryReceipt, RuntimeEgress } from "./contracts";
 
 export class ChannelRuntimeEgress implements RuntimeEgress {
@@ -19,5 +19,23 @@ export class ChannelRuntimeEgress implements RuntimeEgress {
       return undefined;
     }
     return await channel.beginTyping(receipt.peerId);
+  }
+
+  async setStatusReaction(params: {
+    receipt: RuntimeDeliveryReceipt;
+    messageId: string;
+    status: StatusReaction;
+    payload?: StatusReactionPayload;
+  }): Promise<void> {
+    const channel = this.channels.get(params.receipt.channelId);
+    if (!channel || typeof channel.setStatusReaction !== "function") {
+      return;
+    }
+    await channel.setStatusReaction(
+      params.receipt.peerId,
+      params.messageId,
+      params.status,
+      params.payload,
+    );
   }
 }
