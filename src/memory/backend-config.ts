@@ -61,6 +61,8 @@ export type ResolvedQmdCollection = {
   kind: "memory" | "custom" | "sessions";
 };
 
+export type MemoryQmdSearchMode = "query" | "search" | "vsearch";
+
 export type ResolvedQmdUpdateConfig = {
   intervalMs: number;
   debounceMs: number;
@@ -92,6 +94,7 @@ type MemoryQmdConfig = NonNullable<MemoryConfig["qmd"]>;
 
 export type ResolvedQmdConfig = {
   command: string;
+  searchMode: MemoryQmdSearchMode;
   collections: ResolvedQmdCollection[];
   sessions: ResolvedQmdSessionConfig;
   reliability: ResolvedQmdReliabilityConfig;
@@ -106,6 +109,7 @@ const DEFAULT_CITATIONS = "auto" as const;
 const DEFAULT_QMD_INTERVAL = "5m";
 const DEFAULT_QMD_DEBOUNCE_MS = 15_000;
 const DEFAULT_QMD_TIMEOUT_MS = 4_000;
+const DEFAULT_QMD_SEARCH_MODE: MemoryQmdSearchMode = "search";
 const DEFAULT_QMD_EMBED_INTERVAL = "60m";
 const DEFAULT_QMD_LIMITS: ResolvedQmdLimitsConfig = {
   maxResults: 6,
@@ -126,6 +130,7 @@ const DEFAULT_QMD_SCOPE: NonNullable<MemoryQmdConfig["scope"]> = {
 const ResolvedQmdConfigSchema = z
   .object({
     command: z.string(),
+    searchMode: z.enum(["query", "search", "vsearch"]),
     collections: z.array(
       z.object({
         name: z.string(),
@@ -358,6 +363,13 @@ function resolveCommandBinary(raw: string | undefined): string {
   return first.replace(/^"|"$/g, "").replace(/^'|'$/g, "") || "qmd";
 }
 
+function resolveSearchMode(raw?: MemoryQmdConfig["searchMode"]): MemoryQmdSearchMode {
+  if (raw === "query" || raw === "search" || raw === "vsearch") {
+    return raw;
+  }
+  return DEFAULT_QMD_SEARCH_MODE;
+}
+
 export function resolveWorkspaceDir(cfg: MoziConfig, agentId: string): string {
   const agents = cfg.agents as Record<string, { workspace?: string }> | undefined;
   const entry = agents?.[agentId];
@@ -452,6 +464,7 @@ export function resolveMemoryBackendConfig(params: {
   const command = resolveCommandBinary(qmdCfg?.command);
   const resolved: ResolvedQmdConfig = {
     command,
+    searchMode: resolveSearchMode(qmdCfg?.searchMode),
     collections,
     includeDefaultMemory,
     sessions: resolveSessionConfig(qmdCfg?.sessions, homeDir),

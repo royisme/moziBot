@@ -163,9 +163,24 @@ export class QmdMemoryManager implements MemorySearchManager {
       this.qmd.limits.maxResults,
       opts?.maxResults ?? this.qmd.limits.maxResults,
     );
-    const args = ["query", trimmed, "--json", "-n", String(limit)];
+    const collectionNames = this.listManagedCollectionNames();
+    const qmdSearchCommand = this.qmd.searchMode;
+    if (collectionNames.length === 0) {
+      return [];
+    }
+    const args = this.buildSearchArgs(qmdSearchCommand, trimmed, limit);
     let stdout: string;
     try {
+      if (collectionNames.length > 1) {
+        const parsed = await this.runQueryAcrossCollections(
+          trimmed,
+          limit,
+          collectionNames,
+          qmdSearchCommand,
+        );
+        return this.buildSearchResults(parsed, limit, opts);
+      }
+      args.push("-c", collectionNames[0]);
       const result = await runQmd({
         command: this.qmd.command,
         args,
@@ -208,6 +223,14 @@ export class QmdMemoryManager implements MemorySearchManager {
       });
     }
 
+    return this.buildSearchResults(parsed, limit, opts);
+  }
+
+  private async buildSearchResults(
+    parsed: ReturnType<typeof parseQueryResults>,
+    limit: number,
+    opts?: SearchOptions,
+  ): Promise<MemorySearchResult[]> {
     const results: MemorySearchResult[] = [];
     for (const entry of parsed) {
       const doc = await this.docResolver.resolveDocLocation(entry.docid);
@@ -232,6 +255,90 @@ export class QmdMemoryManager implements MemorySearchManager {
       });
     }
     return clampResultsByInjectedChars(results.slice(0, limit), this.qmd.limits.maxInjectedChars);
+  }
+
+  private listManagedCollectionNames(): string[] {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const collection of this.qmd.collections) {
+      const name = collection.name?.trim();
+      if (!name || seen.has(name)) {
+        continue;
+      }
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  }
+
+  private buildSearchArgs(
+    command: "query" | "search" | "vsearch",
+    query: string,
+    limit: number,
+  ): string[] {
+    return [command, query, "--json", "-n", String(limit)];
+  }
+
+  private async runQueryAcrossCollections(
+    query: string,
+    limit: number,
+    collectionNames: string[],
+    command: "query" | "search" | "vsearch",
+  ): Promise<ReturnType<typeof parseQueryResults>> {
+    const bestByKey = new Map<string, { entry: ReturnType<typeof parseQueryResults>[number]; order: number }>();
+    let order = 0;
+    for (const collectionName of collectionNames) {
+      const args = this.buildSearchArgs(command, query, limit);
+      args.push("-c", collectionName);
+      const result = await runQmd({
+        command: this.qmd.command,
+        args,
+        env: this.env,
+        cwd: this.homeDir,
+        timeoutMs: this.qmd.limits.timeoutMs,
+      });
+      const parsed = parseQueryResults(result.stdout);
+      for (const entry of parsed) {
+        const key = this.buildEntryKey(entry, collectionName);
+        if (!key) {
+          bestByKey.set(`__fallback_${order}`, { entry, order });
+          order += 1;
+          continue;
+        }
+        const existing = bestByKey.get(key);
+        const existingScore =
+          typeof existing?.entry.score === "number" ? existing.entry.score : Number.NEGATIVE_INFINITY;
+        const nextScore =
+          typeof entry.score === "number" ? entry.score : Number.NEGATIVE_INFINITY;
+        if (!existing || nextScore > existingScore) {
+          bestByKey.set(key, { entry, order });
+        }
+        order += 1;
+      }
+    }
+    return [...bestByKey.values()]
+      .toSorted((left, right) => {
+        const leftScore = typeof left.entry.score === "number" ? left.entry.score : 0;
+        const rightScore = typeof right.entry.score === "number" ? right.entry.score : 0;
+        if (rightScore !== leftScore) {
+          return rightScore - leftScore;
+        }
+        return left.order - right.order;
+      })
+      .map((item) => item.entry);
+  }
+
+  private buildEntryKey(
+    entry: ReturnType<typeof parseQueryResults>[number],
+    collectionName: string,
+  ): string | null {
+    if (typeof entry.docid === "string" && entry.docid.trim()) {
+      return entry.docid.startsWith("#") ? entry.docid.slice(1) : entry.docid;
+    }
+    if (typeof entry.file === "string" && entry.file.trim()) {
+      return `${collectionName}:${entry.file}`;
+    }
+    return null;
   }
 
   async sync(params?: SyncParams): Promise<void> {

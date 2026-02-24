@@ -64,9 +64,12 @@ const MemoryReliabilitySchema = z
   })
   .strict();
 
+const MemoryQmdSearchModeSchema = z.enum(["query", "search", "vsearch"]).default("search");
+
 const MemoryQmdSchema = z
   .object({
     command: z.string().default("qmd"),
+    searchMode: MemoryQmdSearchModeSchema.optional(),
     includeDefaultMemory: z.boolean().default(true),
     paths: z.array(MemoryPathSchema).optional(),
     update: MemoryUpdateSchema.optional(),

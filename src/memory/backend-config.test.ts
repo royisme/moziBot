@@ -64,3 +64,29 @@ describe("resolveMemoryBackendConfig builtin sync policy", () => {
     });
   });
 });
+
+describe("resolveMemoryBackendConfig qmd search mode", () => {
+  test("defaults to search", () => {
+    const cfg = makeBaseConfig();
+    (cfg as { memory?: Record<string, unknown> }).memory = {
+      backend: "qmd",
+      qmd: {},
+    };
+
+    const resolved = resolveMemoryBackendConfig({ cfg, agentId: "mozi" });
+    expect(resolved.qmd?.searchMode).toBe("search");
+  });
+
+  test("respects searchMode override", () => {
+    const cfg = makeBaseConfig();
+    (cfg as { memory?: Record<string, unknown> }).memory = {
+      backend: "qmd",
+      qmd: {
+        searchMode: "vsearch",
+      },
+    };
+
+    const resolved = resolveMemoryBackendConfig({ cfg, agentId: "mozi" });
+    expect(resolved.qmd?.searchMode).toBe("vsearch");
+  });
+});
