@@ -177,17 +177,7 @@ export class HeartbeatRunner {
       return;
     }
 
-    const heartbeatPrompt = [
-      effectivePrompt,
-      "",
-      "HEARTBEAT_FILE_BEGIN",
-      content.trim(),
-      "HEARTBEAT_FILE_END",
-    ]
-      .filter((line) => line.length > 0)
-      .join("\n");
-
-    const inbound: InboundMessage = {
+    const baseMessage: InboundMessage = {
       id: `heartbeat-${Date.now()}`,
       channel: lastRoute.channelId,
       peerId: lastRoute.peerId,
@@ -196,12 +186,29 @@ export class HeartbeatRunner {
       threadId: lastRoute.threadId,
       senderId: "heartbeat",
       senderName: "Heartbeat",
-      text: heartbeatPrompt,
+      text: "",
       timestamp: new Date(),
       raw: { source: "heartbeat" },
     };
 
-    const context = this.handler.resolveSessionContext(inbound);
+    const context = this.handler.resolveSessionContext(baseMessage);
+    const timestamps = this.handler.getSessionTimestamps(context.sessionKey);
+    const heartbeatContext = buildHeartbeatContext(timestamps);
+    const heartbeatPrompt = [
+      effectivePrompt,
+      "",
+      ...heartbeatContext,
+      "HEARTBEAT_FILE_BEGIN",
+      content.trim(),
+      "HEARTBEAT_FILE_END",
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n");
+
+    const inbound: InboundMessage = {
+      ...baseMessage,
+      text: heartbeatPrompt,
+    };
     if (this.handler.isSessionActive(context.sessionKey)) {
       logger.info(
         {
@@ -321,4 +328,19 @@ function parseHeartbeatDirectives(content: string): HeartbeatDirectives {
     }
   }
   return directives;
+}
+
+function buildHeartbeatContext(
+  timestamps: { createdAt: number; updatedAt?: number } | null,
+): string[] {
+  const lastActivityMs = timestamps?.updatedAt ?? timestamps?.createdAt;
+  const lines = ["HEARTBEAT_CONTEXT_BEGIN"];
+  if (typeof lastActivityMs === "number") {
+    lines.push(`SESSION_LAST_ACTIVITY_MS=${lastActivityMs}`);
+    lines.push(`SESSION_LAST_ACTIVITY_ISO=${new Date(lastActivityMs).toISOString()}`);
+  } else {
+    lines.push("SESSION_LAST_ACTIVITY_MS=unknown");
+  }
+  lines.push("HEARTBEAT_CONTEXT_END");
+  return lines;
 }

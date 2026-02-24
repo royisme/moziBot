@@ -16,6 +16,7 @@ describe("HeartbeatRunner", () => {
     fsReadFileMock.mockResolvedValueOnce("# HEARTBEAT.md\n@heartbeat enabled=on\n- check inbox");
 
     const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+    const lastActivityMs = 1_700_000_000_000;
 
     const handler = {
       getLastRoute: vi.fn(() => ({
@@ -27,6 +28,10 @@ describe("HeartbeatRunner", () => {
         sessionKey: "agent:mozi:telegram:dm:chat-1",
       })),
       isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({
+        createdAt: lastActivityMs - 10_000,
+        updatedAt: lastActivityMs,
+      })),
     };
 
     const agentManager = {
@@ -68,6 +73,9 @@ describe("HeartbeatRunner", () => {
     expect(inbound?.text).toContain("HEARTBEAT_FILE_BEGIN");
     expect(inbound?.text).toContain("# HEARTBEAT.md");
     expect(inbound?.text).toContain("HEARTBEAT_FILE_END");
+    expect(inbound?.text).toContain("HEARTBEAT_CONTEXT_BEGIN");
+    expect(inbound?.text).toContain(`SESSION_LAST_ACTIVITY_MS=${lastActivityMs}`);
+    expect(inbound?.text).toContain("HEARTBEAT_CONTEXT_END");
   });
 
   it("schedules only explicit heartbeat agents when any entry defines heartbeat", () => {
@@ -83,6 +91,9 @@ describe("HeartbeatRunner", () => {
         sessionKey: "agent:mozi:telegram:dm:chat-1",
       })),
       isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({
+        createdAt: Date.now(),
+      })),
     };
 
     const agentManager = {

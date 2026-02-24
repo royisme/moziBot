@@ -102,6 +102,17 @@ export class MessageHandler {
     return this.agentManager;
   }
 
+  getSessionTimestamps(sessionKey: string): { createdAt: number; updatedAt?: number } | null {
+    const session = this.sessions.get(sessionKey);
+    if (!session) {
+      return null;
+    }
+    return {
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+    };
+  }
+
   async initExtensions(): Promise<void> {
     await this.agentManager.initExtensionsAsync();
   }
