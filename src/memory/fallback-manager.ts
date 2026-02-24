@@ -8,6 +8,9 @@ import type {
   SyncParams,
 } from "./types";
 import { logger } from "../logger";
+import { expandQueryForFts } from "./query-expansion";
+
+const LOW_RECALL_MIN_RESULTS = 2;
 
 export class FallbackMemoryManager implements MemorySearchManager {
   private fallback: MemorySearchManager | null = null;
@@ -28,7 +31,17 @@ export class FallbackMemoryManager implements MemorySearchManager {
     }
     if (!this.primaryFailed) {
       try {
-        return await this.deps.primary.search(query, opts);
+        const results = await this.deps.primary.search(query, opts);
+        if (!this.shouldFallbackOnLowRecall(results, opts)) {
+          return results;
+        }
+        const fallback = await this.ensureFallback();
+        if (!fallback) {
+          return results;
+        }
+        const fallbackQuery = this.buildFallbackQuery(query, fallback);
+        const fallbackResults = await fallback.search(fallbackQuery, opts);
+        return this.mergeResults(results, fallbackResults, opts);
       } catch (err) {
         this.primaryFailed = true;
         this.lastError = err instanceof Error ? err.message : String(err);
@@ -129,5 +142,62 @@ export class FallbackMemoryManager implements MemorySearchManager {
     this.lastError = qmd.reliability.lastFailureReason ?? this.lastError ?? "qmd circuit open";
     logger.warn(`qmd memory circuit-open; switching to builtin: ${this.lastError}`);
     return true;
+  }
+
+  private shouldFallbackOnLowRecall(
+    results: MemorySearchResult[],
+    opts?: SearchOptions,
+  ): boolean {
+    const requested = opts?.maxResults;
+    if (requested !== undefined && requested <= 0) {
+      return false;
+    }
+    const minResults =
+      requested !== undefined
+        ? Math.min(LOW_RECALL_MIN_RESULTS, Math.max(1, requested))
+        : LOW_RECALL_MIN_RESULTS;
+    return results.length < minResults;
+  }
+
+  private buildFallbackQuery(query: string, fallback: MemorySearchManager): string {
+    const status = fallback.status();
+    const ftsAvailable = Boolean(status.fts?.available);
+    if (!ftsAvailable) {
+      return query;
+    }
+    const expanded = expandQueryForFts(query).expanded;
+    return expanded || query;
+  }
+
+  private mergeResults(
+    primary: MemorySearchResult[],
+    fallback: MemorySearchResult[],
+    opts?: SearchOptions,
+  ): MemorySearchResult[] {
+    const limit =
+      opts?.maxResults ?? Math.max(primary.length, fallback.length);
+    const seen = new Set<string>();
+    const merged: MemorySearchResult[] = [];
+    const push = (entry: MemorySearchResult) => {
+      const key = `${entry.path}:${entry.startLine}:${entry.endLine}`;
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      merged.push(entry);
+    };
+    for (const entry of primary) {
+      push(entry);
+      if (limit > 0 && merged.length >= limit) {
+        return merged;
+      }
+    }
+    for (const entry of fallback) {
+      push(entry);
+      if (limit > 0 && merged.length >= limit) {
+        break;
+      }
+    }
+    return merged;
   }
 }

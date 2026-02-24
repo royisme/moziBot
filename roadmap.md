@@ -46,6 +46,8 @@
 - [x] Builtin Backend（SQLite FTS5 + LIKE fallback）
 - [x] Fallback Manager（QMD → Builtin 降级）
 - [x] QMD Manager（外部 CLI 集成）
+- [x] QMD searchMode + per-collection fan-out
+- [x] 低召回 FTS fallback + 查询扩展
 - [x] memory_search / memory_get 工具
 - [x] Per-Agent 隔离 + Scope 控制
 - [x] Session 导出 + 清理
