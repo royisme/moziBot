@@ -2,6 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentEvents } from "../../../../infra/agent-events";
 import { runPromptWithFallback, type PromptAgent, type PromptRunnerDeps } from "./prompt-runner";
 
+const hookMocks = vi.hoisted(() => ({
+  runner: {
+    hasHooks: vi.fn(() => false),
+    runLlmInput: vi.fn(async () => {}),
+    runLlmOutput: vi.fn(async () => {}),
+    runAgentEnd: vi.fn(async () => {}),
+  },
+}));
+
+vi.mock("../../../hooks", () => ({
+  getRuntimeHookRunner: () => hookMocks.runner,
+}));
+
 function buildDeps(agent: PromptAgent): PromptRunnerDeps {
   return {
     logger: {
@@ -28,6 +41,10 @@ function buildDeps(agent: PromptAgent): PromptRunnerDeps {
 describe("runPromptWithFallback agent events", () => {
   afterEach(() => {
     agentEvents.removeAllListeners();
+    hookMocks.runner.hasHooks.mockReturnValue(false);
+    hookMocks.runner.runLlmInput.mockClear();
+    hookMocks.runner.runLlmOutput.mockClear();
+    hookMocks.runner.runAgentEnd.mockClear();
   });
 
   it("emits lifecycle start/end for successful runs", async () => {
@@ -64,6 +81,165 @@ describe("runPromptWithFallback agent events", () => {
       expect.objectContaining({
         runId: "turn:t1",
         data: expect.objectContaining({ phase: "end" }),
+      }),
+    );
+  });
+
+  it("emits llm_input and llm_output hooks for successful runs", async () => {
+    hookMocks.runner.hasHooks.mockImplementation((name: string) =>
+      name === "llm_input" || name === "llm_output",
+    );
+
+    const agent: PromptAgent = {
+      prompt: vi.fn(async () => {}),
+      subscribe: (next) => {
+        next({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "ok" } });
+        return () => undefined;
+      },
+    };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-llm",
+      agentId: "mozi",
+      text: "sk-THIS_SHOULD_REDACT",
+      traceId: "turn:llm",
+      onStream: async () => {},
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(hookMocks.runner.runLlmInput).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runLlmInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: "turn:llm",
+        modelRef: "model-1",
+        attempt: 1,
+        promptText: expect.not.stringContaining("sk-THIS_SHOULD_REDACT"),
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:dm:peer-llm",
+        agentId: "mozi",
+      }),
+    );
+
+    expect(hookMocks.runner.runLlmOutput).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runLlmOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: "turn:llm",
+        modelRef: "model-1",
+        attempt: 1,
+        status: "success",
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:dm:peer-llm",
+        agentId: "mozi",
+      }),
+    );
+  });
+
+  it("emits llm_output hook on error", async () => {
+    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "llm_output");
+
+    const agent: PromptAgent = {
+      prompt: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+    };
+
+    await expect(
+      runPromptWithFallback({
+        sessionKey: "agent:mozi:dm:peer-error",
+        agentId: "mozi",
+        text: "hello",
+        traceId: "turn:error",
+        deps: buildDeps(agent),
+        activeMap: new Map(),
+        interruptedSet: new Set(),
+      }),
+    ).rejects.toThrow("boom");
+
+    expect(hookMocks.runner.runLlmInput).not.toHaveBeenCalled();
+    expect(hookMocks.runner.runLlmOutput).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runLlmOutput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: "turn:error",
+        modelRef: "model-1",
+        attempt: 1,
+        status: "error",
+        error: "boom",
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:dm:peer-error",
+        agentId: "mozi",
+      }),
+    );
+  });
+
+  it("emits agent_end hook on success", async () => {
+    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "agent_end");
+
+    const agent: PromptAgent = {
+      prompt: vi.fn(async () => {}),
+      messages: [{ role: "assistant", content: "done" }],
+    };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-end",
+      agentId: "mozi",
+      text: "hello",
+      traceId: "turn:agent-end",
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(hookMocks.runner.runAgentEnd).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runAgentEnd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "turn:agent-end",
+        success: true,
+        messages: expect.any(Array),
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:dm:peer-end",
+        agentId: "mozi",
+      }),
+    );
+  });
+
+  it("emits agent_end hook on error", async () => {
+    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "agent_end");
+
+    const agent: PromptAgent = {
+      prompt: vi.fn(async () => {
+        throw new Error("boom");
+      }),
+      messages: [],
+    };
+
+    await expect(
+      runPromptWithFallback({
+        sessionKey: "agent:mozi:dm:peer-end-error",
+        agentId: "mozi",
+        text: "hello",
+        traceId: "turn:agent-end-error",
+        deps: buildDeps(agent),
+        activeMap: new Map(),
+        interruptedSet: new Set(),
+      }),
+    ).rejects.toThrow("boom");
+
+    expect(hookMocks.runner.runAgentEnd).toHaveBeenCalledTimes(1);
+    expect(hookMocks.runner.runAgentEnd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "turn:agent-end-error",
+        success: false,
+        error: "boom",
+      }),
+      expect.objectContaining({
+        sessionKey: "agent:mozi:dm:peer-end-error",
+        agentId: "mozi",
       }),
     );
   });

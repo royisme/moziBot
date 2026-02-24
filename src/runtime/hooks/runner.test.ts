@@ -124,4 +124,146 @@ describe("RuntimeHookRunner", () => {
 
     expect(result?.promptText).toContain("[Hooked]");
   });
+
+  it("runs message_received hooks", async () => {
+    const registry = new RuntimeHookRegistry();
+    const handler = vi.fn();
+    registry.register("message_received", handler);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runMessageReceived(
+      {
+        traceId: "t1",
+        messageId: "m1",
+        text: "hello",
+        rawStartsWithSlash: false,
+        isCommand: false,
+        mediaCount: 0,
+      },
+      { sessionKey: "s1", agentId: "a1", channelId: "telegram" },
+    );
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: "m1", text: "hello" }),
+      expect.objectContaining({ channelId: "telegram" }),
+    );
+  });
+
+  it("runs message_sent hooks", async () => {
+    const registry = new RuntimeHookRegistry();
+    const handler = vi.fn();
+    registry.register("message_sent", handler);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runMessageSent(
+      {
+        traceId: "t1",
+        messageId: "m1",
+        replyText: "hi",
+        outboundId: "out-1",
+        deliveryMode: "direct_dispatch",
+        channelId: "telegram",
+        peerId: "peer-1",
+      },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: "m1", replyText: "hi" }),
+      expect.objectContaining({ sessionKey: "s1" }),
+    );
+  });
+
+  it("runs message_sending hooks and supports modification/cancel", async () => {
+    const registry = new RuntimeHookRegistry();
+    const modify = vi.fn(async () => ({ replyText: "modified" }));
+    const cancel = vi.fn(async () => ({ cancel: true }));
+    registry.register("message_sending", modify, { priority: 10 });
+    registry.register("message_sending", cancel);
+
+    const runner = createRuntimeHookRunner(registry);
+    const result = await runner.runMessageSending(
+      { traceId: "t1", messageId: "m1", replyText: "original", to: "peer-1" },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(modify).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ cancel: true, cancelReason: undefined });
+  });
+
+  it("returns modified replyText from message_sending hooks", async () => {
+    const registry = new RuntimeHookRegistry();
+    registry.register("message_sending", async () => ({ replyText: "modified" }));
+
+    const runner = createRuntimeHookRunner(registry);
+    const result = await runner.runMessageSending(
+      { traceId: "t2", messageId: "m2", replyText: "original", to: "peer-2" },
+      { sessionKey: "s2", agentId: "a2" },
+    );
+
+    expect(result).toEqual({ replyText: "modified" });
+  });
+
+  it("runs llm_input/llm_output hooks and reports availability", async () => {
+    const registry = new RuntimeHookRegistry();
+    const inputHandler = vi.fn();
+    registry.register("llm_input", inputHandler);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runLlmInput(
+      {
+        runId: "run-1",
+        modelRef: "model-1",
+        attempt: 1,
+        promptText: "hello",
+      },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(inputHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1", promptText: "hello" }),
+      expect.objectContaining({ sessionKey: "s1" }),
+    );
+    expect(runner.hasHooks("llm_input")).toBe(true);
+    expect(runner.hasHooks("llm_output")).toBe(false);
+  });
+
+  it("runs compaction hooks", async () => {
+    const registry = new RuntimeHookRegistry();
+    const before = vi.fn();
+    const after = vi.fn();
+    registry.register("before_compaction", before);
+    registry.register("after_compaction", after);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runBeforeCompaction(
+      { messageCount: 3, compactingCount: 3, tokenCount: 10 },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+    await runner.runAfterCompaction(
+      { messageCount: 2, compactedCount: 1, tokenCount: 8 },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(before).toHaveBeenCalledTimes(1);
+    expect(after).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs agent_end hooks", async () => {
+    const registry = new RuntimeHookRegistry();
+    const handler = vi.fn();
+    registry.register("agent_end", handler);
+
+    const runner = createRuntimeHookRunner(registry);
+    await runner.runAgentEnd(
+      { runId: "r1", success: true, durationMs: 12 },
+      { sessionKey: "s1", agentId: "a1" },
+    );
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "r1", success: true }),
+      expect.objectContaining({ sessionKey: "s1" }),
+    );
+  });
 });

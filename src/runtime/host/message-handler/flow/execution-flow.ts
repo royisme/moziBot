@@ -6,6 +6,7 @@ import { renderAssistantReply } from "../../reply-utils";
 import { resolveCurrentReasoningLevel } from "../services/reasoning-level";
 import { StreamingBuffer } from "../services/streaming";
 import { resolveTerminalReplyDecision } from "../services/terminal-text-resolver";
+import { getRuntimeHookRunner } from "../../../hooks";
 
 function hashPreview(text: string | undefined): string {
   if (!text) {
@@ -109,6 +110,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     traceId?: string;
   }) => deps.dispatchReply(params);
   const { logger } = deps;
+  const hookRunner = getRuntimeHookRunner();
 
   // 1. Artifact Extraction with narrow guards
   const promptText = typeof bundle.config.promptText === "string" ? bundle.config.promptText : "";
@@ -277,7 +279,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const renderedTerminalText = terminalReplyTextRaw
     ? renderAssistantReply(terminalReplyTextRaw, { showThinking: shouldShowThinking })
     : undefined;
-  const terminalReplyText = renderedTerminalText;
+  let terminalReplyText = renderedTerminalText;
 
   logger.info(
     {
@@ -293,6 +295,39 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     },
     "Terminal reply decision",
   );
+
+  if (hookRunner.hasHooks("message_sending")) {
+    const hookResult = await hookRunner.runMessageSending(
+      {
+        traceId: ctx.traceId,
+        messageId: ctx.messageId,
+        replyText: terminalReplyText,
+        content: terminalReplyText,
+        to: peerId,
+        channelId: channel.id,
+        peerId,
+      },
+      {
+        sessionKey,
+        agentId,
+      },
+    );
+
+    if (hookResult?.cancel) {
+      if (streamingBuffer) {
+        deliveryMode = "streaming_finalize";
+        outboundId = await streamingBuffer.finalize();
+        state.outboundId = outboundId;
+      }
+      return "handled";
+    }
+
+    if (typeof hookResult?.replyText === "string") {
+      terminalReplyText = hookResult.replyText;
+    } else if (typeof hookResult?.content === "string") {
+      terminalReplyText = hookResult.content;
+    }
+  }
 
   if (streamingBuffer) {
     deliveryMode = "streaming_finalize";
@@ -331,6 +366,26 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     },
     "Terminal reply delivered",
   );
+
+  if (hookRunner.hasHooks("message_sent")) {
+    await hookRunner.runMessageSent(
+      {
+        traceId: ctx.traceId,
+        messageId: ctx.messageId,
+        replyText: terminalReplyText,
+        content: terminalReplyText,
+        to: peerId,
+        outboundId,
+        deliveryMode,
+        channelId: channel.id,
+        peerId,
+      },
+      {
+        sessionKey,
+        agentId,
+      },
+    );
+  }
 
   state.outboundId = outboundId;
   return "continue";

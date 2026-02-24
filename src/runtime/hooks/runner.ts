@@ -1,14 +1,31 @@
 import type {
   AfterToolCallContext,
   AfterToolCallEvent,
+  AfterCompactionContext,
+  AfterCompactionEvent,
+  AgentEndContext,
+  AgentEndEvent,
   BeforeAgentStartContext,
   BeforeAgentStartEvent,
   BeforeAgentStartResult,
+  BeforeCompactionContext,
+  BeforeCompactionEvent,
   BeforeResetContext,
   BeforeResetEvent,
   BeforeToolCallContext,
   BeforeToolCallEvent,
   BeforeToolCallResult,
+  LlmInputContext,
+  LlmInputEvent,
+  LlmOutputContext,
+  LlmOutputEvent,
+  MessageReceivedContext,
+  MessageReceivedEvent,
+  MessageSendingContext,
+  MessageSendingEvent,
+  MessageSendingResult,
+  MessageSentContext,
+  MessageSentEvent,
   RuntimeHookHandlerMap,
   RuntimeHookName,
   RuntimeHookRegistration,
@@ -187,8 +204,58 @@ export function createRuntimeHookRunner(
     return modified ? { args } : undefined;
   }
 
+  async function runMessageSending(
+    event: MessageSendingEvent,
+    ctx: MessageSendingContext,
+  ): Promise<MessageSendingResult | undefined> {
+    const hooks = getHooksForName(registry, "message_sending");
+    if (hooks.length === 0) {
+      return undefined;
+    }
+
+    let replyText = event.replyText ?? event.content;
+    let modified = false;
+
+    for (const entry of hooks) {
+      try {
+        const result = await entry.handler({ ...event, replyText, content: replyText }, ctx);
+        if (result?.cancel) {
+          return { cancel: true, cancelReason: result.cancelReason };
+        }
+        if (typeof result?.replyText === "string") {
+          replyText = result.replyText;
+          modified = true;
+        } else if (typeof result?.content === "string") {
+          replyText = result.content;
+          modified = true;
+        }
+      } catch (error) {
+        const message = `[runtime-hooks] message_sending failed (${entry.id}): ${String(error)}`;
+        if (catchErrors) {
+          logger?.error?.(message);
+          continue;
+        }
+        throw new Error(message, { cause: error });
+      }
+    }
+
+    return modified ? { replyText } : undefined;
+  }
+
   async function runAfterToolCall(event: AfterToolCallEvent, ctx: AfterToolCallContext) {
     return runObserverHook("after_tool_call", event, ctx);
+  }
+
+  async function runBeforeCompaction(event: BeforeCompactionEvent, ctx: BeforeCompactionContext) {
+    return runObserverHook("before_compaction", event, ctx);
+  }
+
+  async function runAfterCompaction(event: AfterCompactionEvent, ctx: AfterCompactionContext) {
+    return runObserverHook("after_compaction", event, ctx);
+  }
+
+  async function runAgentEnd(event: AgentEndEvent, ctx: AgentEndContext) {
+    return runObserverHook("agent_end", event, ctx);
   }
 
   async function runBeforeReset(event: BeforeResetEvent, ctx: BeforeResetContext) {
@@ -197,6 +264,22 @@ export function createRuntimeHookRunner(
 
   async function runTurnCompleted(event: TurnCompletedEvent, ctx: TurnCompletedContext) {
     return runObserverHook("turn_completed", event, ctx);
+  }
+
+  async function runMessageReceived(event: MessageReceivedEvent, ctx: MessageReceivedContext) {
+    return runObserverHook("message_received", event, ctx);
+  }
+
+  async function runMessageSent(event: MessageSentEvent, ctx: MessageSentContext) {
+    return runObserverHook("message_sent", event, ctx);
+  }
+
+  async function runLlmInput(event: LlmInputEvent, ctx: LlmInputContext) {
+    return runObserverHook("llm_input", event, ctx);
+  }
+
+  async function runLlmOutput(event: LlmOutputEvent, ctx: LlmOutputContext) {
+    return runObserverHook("llm_output", event, ctx);
   }
 
   function hasHooks(hookName: RuntimeHookName): boolean {
@@ -210,9 +293,17 @@ export function createRuntimeHookRunner(
   return {
     runBeforeAgentStart,
     runBeforeToolCall,
+    runMessageSending,
     runAfterToolCall,
+    runBeforeCompaction,
+    runAfterCompaction,
+    runAgentEnd,
     runBeforeReset,
     runTurnCompleted,
+    runMessageReceived,
+    runMessageSent,
+    runLlmInput,
+    runLlmOutput,
     hasHooks,
     getHookCount,
     registry,

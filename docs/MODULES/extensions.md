@@ -47,6 +47,14 @@ Supported runtime hook names:
 - `after_tool_call`
 - `before_reset`
 - `turn_completed`
+- `message_received`
+- `message_sending`
+- `message_sent`
+- `llm_input`
+- `llm_output`
+- `before_compaction`
+- `after_compaction`
+- `agent_end`
 
 OpenClaw compatibility facade (minimal set):
 
@@ -54,13 +62,28 @@ OpenClaw compatibility facade (minimal set):
 - `before_tool_call` -> `before_tool_call`
 - `after_tool_call` -> `after_tool_call`
 - `before_reset` -> `before_reset`
+- `message_received` -> `message_received`
+- `message_sending` -> `message_sending`
+- `llm_input` -> `llm_input`
+- `llm_output` -> `llm_output`
+- `before_compaction` -> `before_compaction`
+- `after_compaction` -> `after_compaction`
+- `agent_end` -> `agent_end`
 
 OpenClaw hooks currently diagnosed as unsupported:
 
-- `message_received`
-- `message_sending`
 - `before_message_write`
 - `tool_result_persist`
+- `before_model_resolve`
+- `before_prompt_build`
+- `session_start`
+- `session_end`
+- `subagent_spawning`
+- `subagent_delivery_target`
+- `subagent_spawned`
+- `subagent_ended`
+- `gateway_start`
+- `gateway_stop`
 
 Capability mismatch policy:
 

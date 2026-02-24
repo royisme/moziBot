@@ -3,6 +3,7 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { ModelRegistry } from "../model-registry";
 import type { SessionStore } from "../session-store";
 import { estimateMessagesTokens, estimateTokens } from "../context-management";
+import { getRuntimeHookRunner } from "../hooks";
 import { sanitizePromptInputForModel } from "../payload-sanitizer";
 
 export type ContextUsage = {
@@ -62,9 +63,43 @@ export async function compactSession(params: {
     return { success: false, tokensReclaimed: 0, reason: "Too few messages to compact" };
   }
 
+  const hookRunner = getRuntimeHookRunner();
+  const sessionState = sessions.get(sessionKey);
+  const agentId = sessionState?.agentId;
+  const sessionFile = sessionState?.latestSessionFile;
+  const messageCount = messages.length;
+  const tokenCount = estimateMessagesTokens(messages);
+
   try {
+    if (hookRunner.hasHooks("before_compaction")) {
+      await hookRunner.runBeforeCompaction(
+        {
+          messageCount,
+          compactingCount: messageCount,
+          tokenCount,
+          messages,
+          sessionFile,
+        },
+        { sessionKey, agentId },
+      );
+    }
+
     const result = await agent.compact();
     sessions.update(sessionKey, { context: agent.messages });
+
+    if (hookRunner.hasHooks("after_compaction")) {
+      const afterCount = agent.messages.length;
+      await hookRunner.runAfterCompaction(
+        {
+          messageCount: afterCount,
+          tokenCount: estimateMessagesTokens(agent.messages),
+          compactedCount: Math.max(0, messageCount - afterCount),
+          sessionFile,
+        },
+        { sessionKey, agentId },
+      );
+    }
+
     return {
       success: true,
       tokensReclaimed: result.tokensBefore,

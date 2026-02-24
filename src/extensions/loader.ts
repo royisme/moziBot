@@ -38,6 +38,14 @@ const RUNTIME_HOOK_NAMES: Set<RuntimeHookName> = new Set([
   "after_tool_call",
   "before_reset",
   "turn_completed",
+  "message_received",
+  "message_sending",
+  "message_sent",
+  "llm_input",
+  "llm_output",
+  "before_compaction",
+  "after_compaction",
+  "agent_end",
 ]);
 
 const OPENCLAW_HOOK_COMPAT_MAP: Record<string, RuntimeHookName> = {
@@ -45,13 +53,28 @@ const OPENCLAW_HOOK_COMPAT_MAP: Record<string, RuntimeHookName> = {
   before_tool_call: "before_tool_call",
   after_tool_call: "after_tool_call",
   before_reset: "before_reset",
+  message_received: "message_received",
+  message_sending: "message_sending",
+  llm_input: "llm_input",
+  llm_output: "llm_output",
+  before_compaction: "before_compaction",
+  after_compaction: "after_compaction",
+  agent_end: "agent_end",
 };
 
 const OPENCLAW_UNSUPPORTED_HOOKS = new Set([
-  "message_received",
-  "message_sending",
+  "before_model_resolve",
+  "before_prompt_build",
   "before_message_write",
   "tool_result_persist",
+  "session_start",
+  "session_end",
+  "subagent_spawning",
+  "subagent_delivery_target",
+  "subagent_spawned",
+  "subagent_ended",
+  "gateway_start",
+  "gateway_stop",
 ]);
 
 const RESERVED_COMMANDS = new Set([
@@ -441,7 +464,9 @@ function resolveRuntimeHookCompatibility(rawHookName: string): {
 
   if (OPENCLAW_UNSUPPORTED_HOOKS.has(normalized)) {
     return {
-      diagnosticMessage: `OpenClaw hook "${normalized}" is not supported yet (supported: before_agent_start, before_tool_call, after_tool_call, before_reset)`,
+      diagnosticMessage:
+        `OpenClaw hook "${normalized}" is not supported yet ` +
+        "(supported: before_agent_start, before_tool_call, after_tool_call, before_reset, message_received, message_sending, message_sent, llm_input, llm_output, before_compaction, after_compaction, agent_end)",
     };
   }
 

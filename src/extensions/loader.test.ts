@@ -346,7 +346,7 @@ describe("loadExtensions", () => {
         "  version: '1.0.0',",
         "  name: 'External OpenClaw Hook',",
         "  register(api) {",
-        "    api.registerHook('message_sending', async () => {});",
+        "    api.registerHook('before_message_write', async () => {});",
         "  },",
         "};",
       ].join("\n"),
@@ -366,7 +366,7 @@ describe("loadExtensions", () => {
     expect(ext).toBeDefined();
     expect(
       ext?.diagnostics.some((diag) =>
-        diag.message.includes('OpenClaw hook "message_sending" is not supported yet'),
+        diag.message.includes('OpenClaw hook "before_message_write" is not supported yet'),
       ),
     ).toBe(true);
   });

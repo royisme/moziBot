@@ -4,6 +4,7 @@ import {
   type StreamingCallback,
 } from "./streaming";
 import { agentEvents } from "../../../../infra/agent-events";
+import { getRuntimeHookRunner } from "../../../hooks";
 
 /**
  * Prompt Runner and Active Run Bookkeeping Service
@@ -23,6 +24,7 @@ export interface PromptAgent {
   prompt(text: string): Promise<void> | void;
   abort?: () => Promise<void> | void;
   subscribe?: (listener: (event: unknown) => void) => () => void;
+  messages?: unknown[];
 }
 
 export interface FallbackInfo {
@@ -58,6 +60,17 @@ export interface PromptRunnerDeps {
     isTransientError(message: string): boolean;
     toError(err: unknown): Error;
   };
+}
+
+function redactSensitiveText(text: string): string {
+  if (!text) {
+    return "";
+  }
+  return text
+    .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
+    .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-<redacted>")
+    .replace(/(Bearer\\s+)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
+    .replace(/(\"(?:apiKey|token|authToken|botToken)\"\\s*:\\s*\")[^\"]+(\"\\s*)/gi, "$1<redacted>$2");
 }
 
 /**
@@ -184,6 +197,11 @@ export async function runPromptWithFallback(params: {
   const promptProgressLogIntervalMs = 30_000;
   const runId = resolveRunId(traceId);
   const startedAt = Date.now();
+  const hookRunner = getRuntimeHookRunner();
+  const hasLlmInputHooks = hookRunner.hasHooks("llm_input");
+  const hasLlmOutputHooks = hookRunner.hasHooks("llm_output");
+  const hasAgentEndHooks = hookRunner.hasHooks("agent_end");
+  let lastAgent: PromptAgent | undefined;
 
   agentEvents.emitLifecycle({
     runId,
@@ -194,8 +212,9 @@ export async function runPromptWithFallback(params: {
   try {
     while (true) {
       const { agent, modelRef } = await deps.agentManager.getAgent(sessionKey, agentId);
+      lastAgent = agent;
       attempt += 1;
-      const startedAt = Date.now();
+      const attemptStartedAt = Date.now();
 
       const progressTimer = setInterval(() => {
         deps.logger.warn(
@@ -205,7 +224,7 @@ export async function runPromptWithFallback(params: {
             agentId,
             modelRef,
             attempt,
-            elapsedMs: Date.now() - startedAt,
+            elapsedMs: Date.now() - attemptStartedAt,
             textChars: text.length,
           },
           "Agent prompt still running",
@@ -299,10 +318,45 @@ export async function runPromptWithFallback(params: {
         }, promptExecutionTimeoutMs);
 
         try {
+          if (hasLlmInputHooks) {
+            await hookRunner.runLlmInput(
+              {
+                traceId,
+                runId,
+                modelRef,
+                attempt,
+                promptText: redactSensitiveText(text),
+              },
+              {
+                sessionKey,
+                agentId,
+              },
+            );
+          }
+
           await abortable(Promise.resolve(agent.prompt(text)));
 
           if (onStream) {
             await onStream({ type: "agent_end", fullText: accumulatedText });
+          }
+          if (hasLlmOutputHooks) {
+            await hookRunner.runLlmOutput(
+              {
+                traceId,
+                runId,
+                modelRef,
+                attempt,
+                status: "success",
+                durationMs: Math.max(0, Date.now() - attemptStartedAt),
+                outputText: accumulatedText
+                  ? redactSensitiveText(accumulatedText)
+                  : undefined,
+              },
+              {
+                sessionKey,
+                agentId,
+              },
+            );
           }
           break; // Success
         } finally {
@@ -310,6 +364,24 @@ export async function runPromptWithFallback(params: {
         }
       } catch (err) {
         const error = deps.errorClassifiers.toError(err);
+
+        if (hasLlmOutputHooks) {
+          await hookRunner.runLlmOutput(
+            {
+              traceId,
+              runId,
+              modelRef,
+              attempt,
+              status: "error",
+              durationMs: Math.max(0, Date.now() - attemptStartedAt),
+              error: error.message,
+            },
+            {
+              sessionKey,
+              agentId,
+            },
+          );
+        }
 
         if (interruptedSet.has(sessionKey)) {
           const abortError = new Error("Interrupted by queue mode");
@@ -384,6 +456,19 @@ export async function runPromptWithFallback(params: {
     }
   } catch (err) {
     const error = deps.errorClassifiers.toError(err);
+    if (hasAgentEndHooks) {
+      const messages = Array.isArray(lastAgent?.messages) ? lastAgent?.messages : undefined;
+      await hookRunner.runAgentEnd(
+        {
+          runId,
+          success: false,
+          error: error.message,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          messages,
+        },
+        { sessionKey, agentId },
+      );
+    }
     agentEvents.emitLifecycle({
       runId,
       sessionKey,
@@ -397,6 +482,19 @@ export async function runPromptWithFallback(params: {
     throw err;
   } finally {
     deps.agentManager.clearRuntimeModelOverride(sessionKey);
+  }
+
+  if (hasAgentEndHooks) {
+    const messages = Array.isArray(lastAgent?.messages) ? lastAgent?.messages : undefined;
+    await hookRunner.runAgentEnd(
+      {
+        runId,
+        success: true,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        messages,
+      },
+      { sessionKey, agentId },
+    );
   }
 
   agentEvents.emitLifecycle({

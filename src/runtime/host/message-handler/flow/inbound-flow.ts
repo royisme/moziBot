@@ -1,4 +1,5 @@
 import type { InboundFlow } from "../contract";
+import { getRuntimeHookRunner } from "../../../hooks";
 
 /**
  * Inbound Flow Implementation
@@ -16,6 +17,7 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
   const resolveContext = (p: unknown) => deps.resolveSessionContext(p);
   const rememberRoute = (agentId: string, p: unknown) => deps.rememberLastRoute(agentId, p);
   const sendDirect = (peerId: string, text: string) => deps.sendDirect(peerId, text);
+  const getChannel = (p: unknown) => deps.getChannel(p);
   const parseInlineOverrides = (parsed: { name: string; args: string } | null) =>
     deps.parseInlineOverrides(parsed);
   const { logger } = deps;
@@ -46,6 +48,31 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
     // 3. Session Resolution
     const context = resolveContext(payload);
     rememberRoute(context.agentId, payload);
+
+    const hookRunner = getRuntimeHookRunner();
+    if (hookRunner.hasHooks("message_received")) {
+      const channel = getChannel(payload);
+      await hookRunner.runMessageReceived(
+        {
+          traceId: ctx.traceId,
+          messageId: ctx.messageId,
+          text: rawText,
+          normalizedText,
+          rawStartsWithSlash: rawText.startsWith("/"),
+          isCommand: Boolean(parsedCommand),
+          commandName: parsedCommand?.name,
+          commandArgs: parsedCommand?.args,
+          mediaCount: media.length,
+        },
+        {
+          sessionKey: context.sessionKey,
+          agentId: context.agentId,
+          peerId: context.peerId,
+          channelId: channel?.id,
+          dmScope: context.dmScope,
+        },
+      );
+    }
 
     // 4. Reminder Short-Circuit
     const isReminder =
