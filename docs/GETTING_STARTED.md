@@ -183,6 +183,28 @@ Enable browser automation via Chrome extension relay (existing tabs) or local CD
 
 4. Click the extension icon on a tab to attach. Then the `browser` tool can list tabs.
 
+5. Basic browser tool actions (examples):
+
+```json
+{ "action": "navigate", "url": "https://example.com" }
+```
+
+```json
+{ "action": "evaluate", "expression": "document.title" }
+```
+
+```json
+{ "action": "click", "selector": "button[type=submit]" }
+```
+
+```json
+{ "action": "type", "selector": "input[name=q]", "text": "hello" }
+```
+
+```json
+{ "action": "screenshot", "screenshot": { "format": "png" } }
+```
+
 ## 7) Where to go next
 
 - Memory internals: `docs/MODULES/memory.md`

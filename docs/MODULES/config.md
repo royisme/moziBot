@@ -70,6 +70,7 @@ Recommended baseline for a new user config:
 
 Notes:
 
+- If only one profile is defined and `browser.defaultProfile` is omitted, the browser tool will use that profile.
 - Extension relay is **loopback-only** and requires a relay auth token.
 - Direct CDP profiles are currently restricted to loopback URLs for safety.
 

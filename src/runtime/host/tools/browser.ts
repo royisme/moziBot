@@ -7,9 +7,30 @@ import {
 } from "../../../agents/tools/browser";
 
 const BrowserToolParameters = Type.Object({
-  action: Type.Union([Type.Literal("status"), Type.Literal("tabs")]),
+  action: Type.Union([
+    Type.Literal("status"),
+    Type.Literal("tabs"),
+    Type.Literal("navigate"),
+    Type.Literal("evaluate"),
+    Type.Literal("screenshot"),
+    Type.Literal("click"),
+    Type.Literal("type"),
+  ]),
   profile: Type.Optional(Type.String()),
   timeoutMs: Type.Optional(Type.Number()),
+  targetId: Type.Optional(Type.String()),
+  url: Type.Optional(Type.String()),
+  expression: Type.Optional(Type.String()),
+  selector: Type.Optional(Type.String()),
+  text: Type.Optional(Type.String()),
+  x: Type.Optional(Type.Number()),
+  y: Type.Optional(Type.Number()),
+  screenshot: Type.Optional(
+    Type.Object({
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg")])),
+      quality: Type.Optional(Type.Number()),
+    }),
+  ),
 });
 
 export function createBrowserTools(ctx: BrowserToolContext): AgentTool[] {
@@ -18,7 +39,7 @@ export function createBrowserTools(ctx: BrowserToolContext): AgentTool[] {
       name: "browser",
       label: "Browser",
       description:
-        "Query browser status or list tabs via local CDP or Chrome extension relay (profile-based).",
+        "Query browser status/tabs or run basic CDP actions (navigate/evaluate/click/type/screenshot) via local CDP or extension relay.",
       parameters: BrowserToolParameters,
       execute: async (_toolCallId, args) => {
         const parsed = browserToolSchema.safeParse(args);

@@ -40,6 +40,7 @@ Runtime behavior:
 - `src/agents/tools/sessions.ts` - sessions list/history/send/spawn/continuation
 - `src/agents/tools/memory.ts` - memory search/get
 - `src/agents/tools/bootstrap.ts` - bootstrap-file mutation helpers
+- `src/agents/tools/browser.ts` - browser status/tabs + basic CDP actions (navigate/evaluate/click/type/screenshot)
 
 ### Extensions
 
@@ -73,6 +74,27 @@ Tool assembly is coordinated by `src/runtime/agent-manager.ts`:
 
 - Edit `src/runtime/schema-sanitizer.ts`
 - Also inspect provider/model behavior in runtime tests
+
+## Browser Tool
+
+The `browser` tool provides a minimal CDP action surface for local Chrome via either:
+
+- `driver=extension` (Chrome extension relay)
+- `driver=cdp` (direct local CDP)
+
+Supported actions:
+
+- `status`, `tabs`
+- `navigate` (requires `url`)
+- `evaluate` (requires `expression`)
+- `click` (requires `selector` or `x/y`)
+- `type` (requires `text`, optional `selector` to focus)
+- `screenshot` (optional `screenshot.format` + `screenshot.quality` for JPEG)
+
+Notes:
+
+- When `browser.defaultProfile` is not set and only one profile exists, the tool uses that profile automatically.
+- The relay remains loopback-only and requires `browser.relay.authToken` when enabled.
 
 ## Verification
 
