@@ -35,7 +35,7 @@ describe("HeartbeatRunner", () => {
     };
 
     const agentManager = {
-      getWorkspaceDir: vi.fn(() => "/tmp/workspace"),
+      getHomeDir: vi.fn(() => "/tmp/home"),
     };
 
     const runner = new HeartbeatRunner(
@@ -97,7 +97,7 @@ describe("HeartbeatRunner", () => {
     };
 
     const agentManager = {
-      getWorkspaceDir: vi.fn(() => "/tmp/workspace"),
+      getHomeDir: vi.fn(() => "/tmp/home"),
     };
 
     const runner = new HeartbeatRunner(

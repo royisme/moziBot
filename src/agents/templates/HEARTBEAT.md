@@ -1,7 +1,7 @@
 ---
-summary: "Workspace template for HEARTBEAT.md"
+summary: "Home template for HEARTBEAT.md"
 read_when:
-  - Bootstrapping a workspace manually
+  - Bootstrapping a new agent manually
 ---
 
 # HEARTBEAT.md

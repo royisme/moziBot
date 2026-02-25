@@ -38,6 +38,8 @@ interface ResetGreetingTurnResult {
   identityLanguageHint?: string | null;
 }
 
+type ResetReason = "new" | "reset";
+
 function normalizeResetGreetingResult(
   result: string | ResetGreetingTurnResult | null | undefined,
 ): {
@@ -84,6 +86,7 @@ export async function handleNewSessionCommand(params: {
   }) => Promise<string | ResetGreetingTurnResult | null>;
   identityLanguageHint?: string | null;
   logger?: LoggerLike;
+  reason?: ResetReason;
 }): Promise<void> {
   const {
     sessionKey,
@@ -96,49 +99,19 @@ export async function handleNewSessionCommand(params: {
     runResetGreetingTurn,
     identityLanguageHint,
     logger,
+    reason = "new",
   } = params;
   const commandStartAt = Date.now();
   let resolvedLanguageHint = normalizeIdentityLanguageHint(identityLanguageHint);
-  const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
-  let snapshotMessages: AgentMessage[] | undefined;
-  if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
-    const { agent } = await agentManager.getAgent(sessionKey, agentId);
-    snapshotMessages = agent.messages;
-    const success = await flushMemory(
-      sessionKey,
-      agentId,
-      agent.messages,
-      memoryConfig.persistence,
-    );
-    agentManager.updateSessionMetadata(sessionKey, {
-      memoryFlush: {
-        lastAttemptedCycle: 0,
-        lastTimestamp: Date.now(),
-        lastStatus: success ? "success" : "failure",
-        trigger: "new",
-      },
-    });
-  }
-
-  const hookRunner = getRuntimeHookRunner();
-  if (hookRunner.hasHooks("before_reset")) {
-    if (!snapshotMessages) {
-      const { agent } = await agentManager.getAgent(sessionKey, agentId);
-      snapshotMessages = agent.messages;
-    }
-    await hookRunner.runBeforeReset(
-      {
-        reason: "new",
-        messages: snapshotMessages ?? [],
-      },
-      {
-        sessionKey,
-        agentId,
-      },
-    );
-  }
-
-  agentManager.resetSession(sessionKey, agentId);
+  await performSessionReset({
+    sessionKey,
+    agentId,
+    config,
+    agentManager,
+    flushMemory,
+    logger,
+    reason,
+  });
 
   let greetingSource: "reset-greeting" | "fallback" = "fallback";
   let fallbackReason:
@@ -168,7 +141,7 @@ export async function handleNewSessionCommand(params: {
           peerId,
           error,
         },
-        "/new reset greeting failed, falling back to static text",
+        `/${reason} reset greeting failed, falling back to static text`,
       );
     }
   }
@@ -185,13 +158,75 @@ export async function handleNewSessionCommand(params: {
       agentId,
       peerId,
       greetingSource,
+      reason,
       identityLanguageHint: resolvedLanguageHint ?? null,
       greetingChars: text.length,
       durationMs: Date.now() - commandStartAt,
       fallbackReason: greetingSource === "fallback" ? fallbackReason : null,
       greetingPreview: buildGreetingPreview(text),
     },
-    "/new greeting dispatched",
+    "Session reset greeting dispatched",
+  );
+}
+
+export async function performSessionReset(params: {
+  sessionKey: string;
+  agentId: string;
+  config: MoziConfig;
+  agentManager: AgentManagerLike;
+  flushMemory: (
+    sessionKey: string,
+    agentId: string,
+    messages: AgentMessage[],
+    config: ResolvedMemoryPersistenceConfig,
+  ) => Promise<boolean>;
+  logger?: LoggerLike;
+  reason: ResetReason;
+}): Promise<void> {
+  const { sessionKey, agentId, config, agentManager, flushMemory, logger, reason } = params;
+  const memoryConfig = resolveMemoryBackendConfig({ cfg: config, agentId });
+  let snapshotMessages: AgentMessage[] | undefined;
+  if (memoryConfig.persistence.enabled && memoryConfig.persistence.onNewReset) {
+    const { agent } = await agentManager.getAgent(sessionKey, agentId);
+    snapshotMessages = agent.messages;
+    const success = await flushMemory(
+      sessionKey,
+      agentId,
+      agent.messages,
+      memoryConfig.persistence,
+    );
+    agentManager.updateSessionMetadata(sessionKey, {
+      memoryFlush: {
+        lastAttemptedCycle: 0,
+        lastTimestamp: Date.now(),
+        lastStatus: success ? "success" : "failure",
+        trigger: reason,
+      },
+    });
+  }
+
+  const hookRunner = getRuntimeHookRunner();
+  if (hookRunner.hasHooks("before_reset")) {
+    if (!snapshotMessages) {
+      const { agent } = await agentManager.getAgent(sessionKey, agentId);
+      snapshotMessages = agent.messages;
+    }
+    await hookRunner.runBeforeReset(
+      {
+        reason,
+        messages: snapshotMessages ?? [],
+      },
+      {
+        sessionKey,
+        agentId,
+      },
+    );
+  }
+
+  agentManager.resetSession(sessionKey, agentId);
+  logger?.info?.(
+    { sessionKey, agentId, reason },
+    "Session reset completed (segment rotated)",
   );
 }
 

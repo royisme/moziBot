@@ -11,20 +11,20 @@ interface HeartbeatLogger {
 
 function getHeartbeatFilePath(
   agentId: string,
-  resolveWorkspaceDir: (agentId: string) => string | null,
+  resolveHomeDir: (agentId: string) => string | null,
 ): string | null {
-  const workspaceDir = resolveWorkspaceDir(agentId);
-  if (!workspaceDir) {
+  const homeDir = resolveHomeDir(agentId);
+  if (!homeDir) {
     return null;
   }
-  return path.join(workspaceDir, "HEARTBEAT.md");
+  return path.join(homeDir, "HEARTBEAT.md");
 }
 
 async function readHeartbeatEnabledDirective(
   agentId: string,
-  resolveWorkspaceDir: (agentId: string) => string | null,
+  resolveHomeDir: (agentId: string) => string | null,
 ): Promise<boolean | null> {
-  const filePath = getHeartbeatFilePath(agentId, resolveWorkspaceDir);
+  const filePath = getHeartbeatFilePath(agentId, resolveHomeDir);
   if (!filePath) {
     return null;
   }
@@ -50,12 +50,12 @@ async function readHeartbeatEnabledDirective(
 async function writeHeartbeatEnabledDirective(params: {
   agentId: string;
   enabled: boolean;
-  resolveWorkspaceDir: (agentId: string) => string | null;
+  resolveHomeDir: (agentId: string) => string | null;
   logger: HeartbeatLogger;
   toError: (error: unknown) => Error;
 }): Promise<boolean> {
-  const { agentId, enabled, resolveWorkspaceDir, logger, toError } = params;
-  const filePath = getHeartbeatFilePath(agentId, resolveWorkspaceDir);
+  const { agentId, enabled, resolveHomeDir, logger, toError } = params;
+  const filePath = getHeartbeatFilePath(agentId, resolveHomeDir);
   if (!filePath) {
     return false;
   }
@@ -104,13 +104,13 @@ export async function handleHeartbeatCommand(params: {
   channel: SendChannel;
   peerId: string;
   args: string;
-  resolveWorkspaceDir: (agentId: string) => string | null;
+  resolveHomeDir: (agentId: string) => string | null;
   logger: HeartbeatLogger;
   toError: (error: unknown) => Error;
 }): Promise<void> {
-  const { agentId, channel, peerId, args, resolveWorkspaceDir, logger, toError } = params;
+  const { agentId, channel, peerId, args, resolveHomeDir, logger, toError } = params;
   const action = args.trim().toLowerCase() || "status";
-  const enabledDirective = await readHeartbeatEnabledDirective(agentId, resolveWorkspaceDir);
+  const enabledDirective = await readHeartbeatEnabledDirective(agentId, resolveHomeDir);
   const effectiveEnabled = enabledDirective ?? true;
 
   if (action === "status") {
@@ -124,7 +124,7 @@ export async function handleHeartbeatCommand(params: {
     const ok = await writeHeartbeatEnabledDirective({
       agentId,
       enabled: false,
-      resolveWorkspaceDir,
+      resolveHomeDir,
       logger,
       toError,
     });
@@ -140,7 +140,7 @@ export async function handleHeartbeatCommand(params: {
     const ok = await writeHeartbeatEnabledDirective({
       agentId,
       enabled: true,
-      resolveWorkspaceDir,
+      resolveHomeDir,
       logger,
       toError,
     });

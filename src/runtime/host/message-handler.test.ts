@@ -3,6 +3,7 @@ import type { MoziConfig } from "../../config";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
 import { MessageHandler } from "./message-handler";
+import { RESET_SESSION_GREETING_PROMPT } from "./message-handler/services/reset-greeting-prompt";
 
 const ingestInboundMessageMock = vi.fn((..._args: unknown[]) => null);
 const preprocessInboundMessageMock = vi.fn<
@@ -286,7 +287,7 @@ describe("MessageHandler commands", () => {
               mode: "main" | "reset-greeting" | "subagent-minimal";
               homeDir: string;
               workspaceDir: string;
-              loadedFiles: Array<{ name: string; chars: number }>;
+              loadedFiles: Array<{ name: string; chars: number; hash: string }>;
               skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
               promptHash: string;
             }
@@ -297,6 +298,7 @@ describe("MessageHandler commands", () => {
         getContextUsage: (sessionKey: string) => unknown;
         getContextBreakdown: (sessionKey: string) => unknown;
         getWorkspaceDir: (agentId: string) => string | undefined;
+        getHomeDir: (agentId: string) => string | undefined;
       };
       runPromptWithFallback: (params: unknown) => Promise<void>;
     };
@@ -370,7 +372,7 @@ describe("MessageHandler commands", () => {
             mode: "main" | "reset-greeting" | "subagent-minimal";
             homeDir: string;
             workspaceDir: string;
-            loadedFiles: Array<{ name: string; chars: number }>;
+            loadedFiles: Array<{ name: string; chars: number; hash: string }>;
             skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
             promptHash: string;
           }
@@ -383,6 +385,7 @@ describe("MessageHandler commands", () => {
       getWorkspaceDir: (() => "/tmp/mozi-tests") as unknown as (
         agentId: string,
       ) => string | undefined,
+      getHomeDir: (() => "/tmp/mozi-home") as unknown as (agentId: string) => string | undefined,
     };
     h.runPromptWithFallback = runPromptWithFallback as unknown as (
       params: unknown,
@@ -409,8 +412,21 @@ describe("MessageHandler commands", () => {
     expect(payload.text).toContain("what they want to work on now");
   });
 
+  it("handles /reset by rotating current session segment", async () => {
+    await handler.handle(createMessage("/reset"), channel);
+    expect(resetSession).toHaveBeenCalledTimes(1);
+    expect(resetSession.mock.calls[0]?.[1]).toBe("mozi");
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("what they want to work on now");
+  });
+
   it("uses reset-greeting output as-is without regex fallback", async () => {
     let capturedResetPrompt = "";
+    let capturedPromptMode: string | undefined;
+    runPromptWithFallback.mockImplementation(async (params: { text?: string; promptMode?: string }) => {
+      capturedResetPrompt = params.text ?? "";
+      capturedPromptMode = params.promptMode;
+    });
     const h = handler as unknown as {
       agentManager: {
         getAgent: (
@@ -432,9 +448,6 @@ describe("MessageHandler commands", () => {
       },
     ) => ({
       agent: {
-        prompt: async (text: string) => {
-          capturedResetPrompt = text;
-        },
         messages:
           options?.promptMode === "reset-greeting"
             ? [{ role: "assistant", content: "I am pi. Nice to meet you." }]
@@ -454,11 +467,8 @@ describe("MessageHandler commands", () => {
 
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("I am pi. Nice to meet you.");
-    expect(capturedResetPrompt).toContain("Identity/persona are authoritative");
-    expect(capturedResetPrompt).toContain("SOUL.md + IDENTITY.md + USER.md");
-    expect(capturedResetPrompt).toContain(
-      "Language rule: use the language specified by those files",
-    );
+    expect(capturedResetPrompt).toBe(RESET_SESSION_GREETING_PROMPT);
+    expect(capturedPromptMode).toBe("reset-greeting");
   });
 
   it("preserves zh identity greeting output from reset mode without rewriting", async () => {

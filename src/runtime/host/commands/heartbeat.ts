@@ -3,8 +3,8 @@ import path from "node:path";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import { logger } from "../../../logger";
 
-type WorkspaceResolver = {
-  getWorkspaceDir: (agentId: string) => string | undefined;
+type HomeResolver = {
+  getHomeDir: (agentId: string) => string | undefined;
 };
 
 export async function handleHeartbeatCommand(params: {
@@ -12,12 +12,12 @@ export async function handleHeartbeatCommand(params: {
   channel: ChannelPlugin;
   peerId: string;
   args: string;
-  workspaceResolver: WorkspaceResolver;
+  homeResolver: HomeResolver;
   toErrorMessage: (error: unknown) => string;
 }): Promise<void> {
-  const { agentId, channel, peerId, args, workspaceResolver, toErrorMessage } = params;
+  const { agentId, channel, peerId, args, homeResolver, toErrorMessage } = params;
   const action = args.trim().toLowerCase() || "status";
-  const enabledDirective = await readHeartbeatEnabledDirective({ agentId, workspaceResolver });
+  const enabledDirective = await readHeartbeatEnabledDirective({ agentId, homeResolver });
   const effectiveEnabled = enabledDirective ?? true;
 
   if (action === "status") {
@@ -31,7 +31,7 @@ export async function handleHeartbeatCommand(params: {
     const ok = await writeHeartbeatEnabledDirective({
       agentId,
       enabled: false,
-      workspaceResolver,
+      homeResolver,
       toErrorMessage,
     });
     await channel.send(peerId, {
@@ -46,7 +46,7 @@ export async function handleHeartbeatCommand(params: {
     const ok = await writeHeartbeatEnabledDirective({
       agentId,
       enabled: true,
-      workspaceResolver,
+      homeResolver,
       toErrorMessage,
     });
     await channel.send(peerId, {
@@ -64,18 +64,18 @@ export async function handleHeartbeatCommand(params: {
 
 function getHeartbeatFilePath(params: {
   agentId: string;
-  workspaceResolver: WorkspaceResolver;
+  homeResolver: HomeResolver;
 }): string | null {
-  const workspaceDir = params.workspaceResolver.getWorkspaceDir(params.agentId);
-  if (!workspaceDir) {
+  const homeDir = params.homeResolver.getHomeDir(params.agentId);
+  if (!homeDir) {
     return null;
   }
-  return path.join(workspaceDir, "HEARTBEAT.md");
+  return path.join(homeDir, "HEARTBEAT.md");
 }
 
 async function readHeartbeatEnabledDirective(params: {
   agentId: string;
-  workspaceResolver: WorkspaceResolver;
+  homeResolver: HomeResolver;
 }): Promise<boolean | null> {
   const filePath = getHeartbeatFilePath(params);
   if (!filePath) {
@@ -103,11 +103,11 @@ async function readHeartbeatEnabledDirective(params: {
 async function writeHeartbeatEnabledDirective(params: {
   agentId: string;
   enabled: boolean;
-  workspaceResolver: WorkspaceResolver;
+  homeResolver: HomeResolver;
   toErrorMessage: (error: unknown) => string;
 }): Promise<boolean> {
-  const { agentId, enabled, workspaceResolver, toErrorMessage } = params;
-  const filePath = getHeartbeatFilePath({ agentId, workspaceResolver });
+  const { agentId, enabled, homeResolver, toErrorMessage } = params;
+  const filePath = getHeartbeatFilePath({ agentId, homeResolver });
   if (!filePath) {
     return false;
   }

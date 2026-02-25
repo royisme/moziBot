@@ -41,7 +41,7 @@ text
 # IDENTITY.md - Who Am I?
 - **Preferred Language:** zh-CN
 
-# Project & Workspace Rules
+# Workspace Rules
 content
 `;
     expect(extractIdentityLanguageHintFromSystemPrompt(prompt)).toBe("zh-CN");

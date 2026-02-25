@@ -16,7 +16,20 @@ export interface MessageCommandRegistryDeps {
     message: InboundMessage;
     peerId: string;
   }): Promise<void>;
-  onNew(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
+  onNew(params: {
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+    args: string;
+    message: InboundMessage;
+  }): Promise<void>;
+  onReset(params: {
+    sessionKey: string;
+    agentId: string;
+    peerId: string;
+    args: string;
+    message: InboundMessage;
+  }): Promise<void>;
   onModels(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
   onSwitch(params: {
     sessionKey: string;
@@ -28,6 +41,7 @@ export interface MessageCommandRegistryDeps {
   onRestart(params: { peerId: string }): Promise<void>;
   onCompact(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
   onContext(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
+  onPromptDigest(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
   onThink(params: {
     sessionKey: string;
     agentId: string;
@@ -69,7 +83,7 @@ export interface MessageCommandRegistryDeps {
 }
 
 const HELP_TEXT =
-  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
+  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
 
 export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps): CommandHandlerMap {
   const withInbound = (ctx: CommandDispatchContext): InboundMessage =>
@@ -93,8 +107,23 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
         peerId: ctx.peerId,
       });
     },
-    new: async (ctx) => {
-      await deps.onNew({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
+    new: async (ctx, args) => {
+      await deps.onNew({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+        args,
+        message: withInbound(ctx),
+      });
+    },
+    reset: async (ctx, args) => {
+      await deps.onReset({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+        args,
+        message: withInbound(ctx),
+      });
     },
     models: async (ctx) => {
       await deps.onModels({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
@@ -122,6 +151,13 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
     },
     context: async (ctx) => {
       await deps.onContext({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        peerId: ctx.peerId,
+      });
+    },
+    prompt_digest: async (ctx) => {
+      await deps.onPromptDigest({
         sessionKey: ctx.sessionKey,
         agentId: ctx.agentId,
         peerId: ctx.peerId,

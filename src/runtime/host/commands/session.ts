@@ -272,6 +272,44 @@ export async function handleContextCommand(params: {
   await channel.send(peerId, { text: lines.join("\n") });
 }
 
+export async function handlePromptDigestCommand(params: {
+  sessionKey: string;
+  agentId: string;
+  channel: ChannelPlugin;
+  peerId: string;
+  agentManager: AgentManager;
+}): Promise<void> {
+  const { sessionKey, agentId, channel, peerId, agentManager } = params;
+  const promptMetadata = agentManager.getPromptMetadata(sessionKey);
+  if (!promptMetadata) {
+    await channel.send(peerId, { text: "No active session." });
+    return;
+  }
+
+  const lines: string[] = [];
+  lines.push("Prompt digest:");
+  lines.push(`  Mode: ${promptMetadata.mode}`);
+  lines.push(`  Hash: ${promptMetadata.promptHash}`);
+  lines.push(`  Home: ${promptMetadata.homeDir}`);
+  lines.push(`  Workspace: ${promptMetadata.workspaceDir}`);
+  if (promptMetadata.loadedFiles.length > 0) {
+    lines.push(
+      `  Loaded files: ${promptMetadata.loadedFiles
+        .map((f) => `${f.name}(${f.chars}, ${f.hash})`)
+        .join(", ")}`,
+    );
+  }
+  if (promptMetadata.skippedFiles.length > 0) {
+    lines.push(
+      `  Skipped files: ${promptMetadata.skippedFiles
+        .map((f) => `${f.name}:${f.reason}`)
+        .join(", ")}`,
+    );
+  }
+
+  await channel.send(peerId, { text: lines.join("\n") });
+}
+
 function formatTokens(tokens: number): string {
   if (tokens < 1000) {
     return `${tokens} tokens`;

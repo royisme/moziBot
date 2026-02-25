@@ -65,6 +65,7 @@ export async function createAndInitializeAgentSession(params: {
   }) => SandboxExecutor;
   sandboxConfig?: SandboxConfig;
   onPromptMetadata?: (metadata: import("./prompt-builder").PromptBuildMetadata) => void;
+  onToolsResolved?: (toolNames: string[]) => void;
 }): Promise<AgentSession> {
   const modelSpec = params.modelRegistry.get(params.modelRef);
   if (!modelSpec) {
@@ -111,6 +112,9 @@ export async function createAndInitializeAgentSession(params: {
   );
 
   const toolNames = Array.from(new Set(tools.map((tool) => tool.name)));
+  if (params.onToolsResolved) {
+    params.onToolsResolved(toolNames);
+  }
   const systemPromptText = await buildSystemPrompt({
     homeDir: params.homeDir,
     workspaceDir: params.workspaceDir,

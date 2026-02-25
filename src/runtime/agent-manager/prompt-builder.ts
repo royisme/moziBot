@@ -10,7 +10,6 @@ import {
 } from "../../agents/home";
 import {
   loadWorkspaceFiles,
-  buildWorkspaceContext,
   type WorkspaceFile,
 } from "../../agents/workspace";
 import { sanitizePromptLiteral } from "../../security/prompt-literal";
@@ -124,85 +123,330 @@ function buildPromptPrecedenceContract(): string {
     "# Prompt Precedence",
     "Resolve instructions in this order:",
     "1) Core Constraints and Safety",
-    "2) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)",
-    "3) Project & Workspace Rules (AGENTS.md, workspace docs, HEARTBEAT.md)",
-    "4) Runtime Context and tooling notes",
+    "2) Bootstrap (BOOTSTRAP.md) when present",
+    "3) Agent Behavior (AGENTS.md)",
+    "4) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)",
+    "5) Heartbeat (HEARTBEAT.md)",
+    "6) Workspace Rules (WORK.md, TOOLS.md)",
+    "7) Runtime Context and tooling notes",
     "If two instructions conflict within the same layer, prefer the more specific one.",
   ];
   return lines.join("\n");
 }
 
-function indexHomeFiles(files: HomeFile[]): Map<string, string> {
-  const index = new Map<string, string>();
-  for (const file of files) {
+type ContextFile = {
+  name: string;
+  path: string;
+  content: string;
+  missing: boolean;
+};
+
+const DEFAULT_CONTEXT_MAX_CHARS = 20_000;
+const DEFAULT_CONTEXT_TOTAL_MAX_CHARS = 150_000;
+const CONTEXT_HEAD_RATIO = 0.7;
+const CONTEXT_TAIL_RATIO = 0.2;
+
+type TrimContextResult = {
+  content: string;
+  truncated: boolean;
+  maxChars: number;
+  originalLength: number;
+};
+
+function hashPromptContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 12);
+}
+
+function trimContextContent(
+  content: string,
+  fileName: string,
+  maxChars: number,
+): TrimContextResult {
+  const trimmed = content.trimEnd();
+  if (trimmed.length <= maxChars) {
+    return {
+      content: trimmed,
+      truncated: false,
+      maxChars,
+      originalLength: trimmed.length,
+    };
+  }
+
+  const headChars = Math.floor(maxChars * CONTEXT_HEAD_RATIO);
+  const tailChars = Math.floor(maxChars * CONTEXT_TAIL_RATIO);
+  const head = trimmed.slice(0, headChars);
+  const tail = trimmed.slice(-tailChars);
+  const marker = [
+    "",
+    `[...truncated, read ${fileName} for full content...]`,
+    `(truncated ${fileName}: kept ${headChars}+${tailChars} chars of ${trimmed.length})`,
+    "",
+  ].join("\n");
+  return {
+    content: [head, marker, tail].join("\n"),
+    truncated: true,
+    maxChars,
+    originalLength: trimmed.length,
+  };
+}
+
+function clampToBudget(content: string, budget: number): string {
+  if (budget <= 0) {
+    return "";
+  }
+  if (content.length <= budget) {
+    return content;
+  }
+  if (budget <= 3) {
+    return content.slice(0, budget);
+  }
+  return `${content.slice(0, budget - 3)}...`;
+}
+
+function buildContextFileSection(params: {
+  file: ContextFile | undefined;
+  remainingTotalChars: number;
+  maxChars: number;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  const { file } = params;
+  if (!file) {
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
+  }
+  const recordSkipped = (reason: "missing" | "empty") => {
+    params.observability?.skippedFiles.push({ name: file.name, reason });
+  };
+  const header = `## ${file.name}`;
+  const headerLength = header.length + 2;
+  if (params.remainingTotalChars <= headerLength) {
     if (file.missing) {
-      continue;
+      recordSkipped("missing");
+    } else if (!file.content.trim()) {
+      recordSkipped("empty");
     }
-    const content = file.content.trim();
-    if (!content) {
-      continue;
-    }
-    index.set(file.name, content);
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
   }
-  return index;
+
+  let body = file.missing
+    ? `[MISSING] Expected at: ${file.path}`
+    : file.content.trim();
+
+  if (!body) {
+    recordSkipped(file.missing ? "missing" : "empty");
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
+  }
+
+  if (!file.missing) {
+    const trimmed = trimContextContent(body, file.name, params.maxChars);
+    body = trimmed.content;
+  }
+
+  const available = params.remainingTotalChars - headerLength;
+  body = clampToBudget(body, available);
+  if (!body) {
+    recordSkipped(file.missing ? "missing" : "empty");
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
+  }
+
+  const section = `${header}\n\n${body}`;
+  const nextRemaining = Math.max(0, params.remainingTotalChars - section.length);
+  if (file.missing) {
+    recordSkipped("missing");
+  } else {
+    params.observability?.loadedFiles.push({
+      name: file.name,
+      chars: body.length,
+      hash: hashPromptContent(body),
+    });
+  }
+  return { section, remainingTotalChars: nextRemaining };
 }
 
-function buildProjectWorkspaceRules(params: {
-  homeIndex: Map<string, string>;
-  workspaceContext: string;
-}): string | null {
-  const sections: string[] = ["# Project & Workspace Rules"];
-
-  const agents = params.homeIndex.get("AGENTS.md");
-  if (agents) {
-    sections.push("## AGENTS.md", agents);
-  }
-
-  if (params.workspaceContext.trim()) {
-    sections.push(params.workspaceContext);
-  }
-
-  const heartbeat = params.homeIndex.get("HEARTBEAT.md");
-  if (heartbeat) {
-    sections.push("## HEARTBEAT.md", heartbeat);
-  }
-
-  return sections.length > 1 ? sections.join("\n\n") : null;
+function findContextFile(files: ContextFile[], name: string): ContextFile | undefined {
+  return files.find((file) => file.name === name);
 }
 
-function buildIdentityPersona(params: { homeIndex: Map<string, string> }): string | null {
+function buildAgentBehaviorSection(params: {
+  homeFiles: ContextFile[];
+  remainingTotalChars: number;
+  maxChars: number;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  const result = buildContextFileSection({
+    file: findContextFile(params.homeFiles, "AGENTS.md"),
+    remainingTotalChars: params.remainingTotalChars,
+    maxChars: params.maxChars,
+    observability: params.observability,
+  });
+  if (!result.section) {
+    return { section: null, remainingTotalChars: result.remainingTotalChars };
+  }
+  return {
+    section: ["# Agent Behavior", result.section].join("\n\n"),
+    remainingTotalChars: result.remainingTotalChars,
+  };
+}
+
+function buildIdentityPersonaSection(params: {
+  homeFiles: ContextFile[];
+  remainingTotalChars: number;
+  maxChars: number;
+  mode: PromptMode;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  if (params.mode === "subagent-minimal") {
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
+  }
+
   const sections: string[] = [
     "# Identity & Persona",
     "These files are authoritative for your identity, tone, language, and user relationship.",
     "Treat identity as behavioral operating state, not decoration.",
     "When introducing yourself or speaking about role, derive it from these files.",
-    "Use USER.md preferences for language and communication style unless safety or project rules require otherwise.",
+    "Use USER.md preferences for language and communication style unless safety or agent rules require otherwise.",
+    "If USER.md exists and is non-empty, do not claim you lack the user's identity or preferences. Use USER.md as the source of truth.",
   ];
 
-  const orderedFiles = ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const;
+  let remainingTotalChars = params.remainingTotalChars;
+  const orderedFiles =
+    params.mode === "reset-greeting"
+      ? (["SOUL.md", "IDENTITY.md", "USER.md"] as const)
+      : (["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] as const);
+
   for (const fileName of orderedFiles) {
-    const content = params.homeIndex.get(fileName);
-    if (!content) {
-      continue;
+    const result = buildContextFileSection({
+      file: findContextFile(params.homeFiles, fileName),
+      remainingTotalChars,
+      maxChars: params.maxChars,
+      observability: params.observability,
+    });
+    if (result.section) {
+      sections.push(result.section);
+      remainingTotalChars = result.remainingTotalChars;
     }
-    sections.push(`## ${fileName}`, content);
   }
 
-  return sections.length > 1 ? sections.join("\n\n") : null;
+  if (sections.length <= 1) {
+    return { section: null, remainingTotalChars };
+  }
+
+  return { section: sections.join("\n\n"), remainingTotalChars };
 }
 
-function buildBootstrapSection(bootstrapState: BootstrapState): string | null {
-  if (!bootstrapState.isBootstrapping || !bootstrapState.bootstrapContent?.trim()) {
-    return null;
+function buildHeartbeatSection(params: {
+  homeFiles: ContextFile[];
+  remainingTotalChars: number;
+  maxChars: number;
+  mode: PromptMode;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  if (params.mode === "subagent-minimal") {
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
   }
 
-  const lines = [
-    "# Bootstrap Mode",
-    bootstrapState.bootstrapContent.trim(),
-    "IMPORTANT: Complete bootstrap and then call complete_bootstrap.",
+  const result = buildContextFileSection({
+    file: findContextFile(params.homeFiles, "HEARTBEAT.md"),
+    remainingTotalChars: params.remainingTotalChars,
+    maxChars: params.maxChars,
+    observability: params.observability,
+  });
+  if (!result.section) {
+    return { section: null, remainingTotalChars: result.remainingTotalChars };
+  }
+  return {
+    section: ["# Heartbeat", result.section].join("\n\n"),
+    remainingTotalChars: result.remainingTotalChars,
+  };
+}
+
+function buildWorkspaceRulesSection(params: {
+  workspaceFiles: ContextFile[];
+  workspaceDir: string;
+  remainingTotalChars: number;
+  maxChars: number;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  const sections: string[] = [
+    "# Workspace Rules",
+    `Path: ${sanitizePromptLiteral(params.workspaceDir)}`,
+    "Rule: Save work artifacts in the workspace directory.",
   ];
 
-  return lines.join("\n\n");
+  let remainingTotalChars = params.remainingTotalChars;
+  for (const fileName of ["WORK.md", "TOOLS.md"]) {
+    const result = buildContextFileSection({
+      file: findContextFile(params.workspaceFiles, fileName),
+      remainingTotalChars,
+      maxChars: params.maxChars,
+      observability: params.observability,
+    });
+    if (result.section) {
+      sections.push(result.section);
+      remainingTotalChars = result.remainingTotalChars;
+    }
+  }
+
+  if (sections.length <= 1) {
+    return { section: null, remainingTotalChars };
+  }
+
+  return { section: sections.join("\n\n"), remainingTotalChars };
+}
+
+function buildBootstrapSection(params: {
+  bootstrapState: BootstrapState;
+  remainingTotalChars: number;
+  maxChars: number;
+  observability?: {
+    loadedFiles: Array<{ name: string; chars: number; hash: string }>;
+    skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
+  };
+}): { section: string | null; remainingTotalChars: number } {
+  const { bootstrapState } = params;
+  if (!bootstrapState.isBootstrapping || !bootstrapState.bootstrapContent?.trim()) {
+    return { section: null, remainingTotalChars: params.remainingTotalChars };
+  }
+
+  const bootstrapFile: ContextFile = {
+    name: "BOOTSTRAP.md",
+    path: bootstrapState.bootstrapPath,
+    content: bootstrapState.bootstrapContent,
+    missing: false,
+  };
+
+  const result = buildContextFileSection({
+    file: bootstrapFile,
+    remainingTotalChars: params.remainingTotalChars,
+    maxChars: params.maxChars,
+    observability: params.observability,
+  });
+  if (!result.section) {
+    return { section: null, remainingTotalChars: result.remainingTotalChars };
+  }
+
+  const header = [
+    "# Bootstrap",
+    "This is first-run setup. Complete it and then call complete_bootstrap to remove BOOTSTRAP.md.",
+  ];
+  return {
+    section: [...header, result.section].join("\n\n"),
+    remainingTotalChars: result.remainingTotalChars,
+  };
 }
 
 export type PromptMode = "main" | "reset-greeting" | "subagent-minimal";
@@ -211,45 +455,9 @@ export interface PromptBuildMetadata {
   mode: PromptMode;
   homeDir: string;
   workspaceDir: string;
-  loadedFiles: Array<{ name: string; chars: number }>;
+  loadedFiles: Array<{ name: string; chars: number; hash: string }>;
   skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
   promptHash: string;
-}
-
-function collectFileObservability(params: {
-  homeFiles: HomeFile[];
-  workspaceFiles: WorkspaceFile[];
-}): Pick<PromptBuildMetadata, "loadedFiles" | "skippedFiles"> {
-  const loadedFiles: Array<{ name: string; chars: number }> = [];
-  const skippedFiles: Array<{ name: string; reason: "missing" | "empty" }> = [];
-
-  for (const file of params.homeFiles) {
-    if (file.missing) {
-      skippedFiles.push({ name: file.name, reason: "missing" });
-      continue;
-    }
-    const content = file.content.trim();
-    if (!content) {
-      skippedFiles.push({ name: file.name, reason: "empty" });
-      continue;
-    }
-    loadedFiles.push({ name: file.name, chars: content.length });
-  }
-
-  for (const file of params.workspaceFiles) {
-    if (file.missing) {
-      skippedFiles.push({ name: file.name, reason: "missing" });
-      continue;
-    }
-    const content = file.content.trim();
-    if (!content) {
-      skippedFiles.push({ name: file.name, reason: "empty" });
-      continue;
-    }
-    loadedFiles.push({ name: file.name, chars: content.length });
-  }
-
-  return { loadedFiles, skippedFiles };
 }
 
 export async function buildSystemPrompt(params: {
@@ -267,20 +475,7 @@ export async function buildSystemPrompt(params: {
   const mode = params.mode ?? "main";
   const bootstrapState = await checkBootstrapState(params.homeDir);
   const homeFiles = await loadHomeFiles(params.homeDir);
-  const homeIndex = indexHomeFiles(homeFiles);
-
   const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
-  const workspaceContext = buildWorkspaceContext(workspaceFiles, params.workspaceDir);
-
-  if (mode === "subagent-minimal") {
-    for (const key of ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md", "HEARTBEAT.md"]) {
-      homeIndex.delete(key);
-    }
-  }
-
-  if (mode === "reset-greeting") {
-    homeIndex.delete("MEMORY.md");
-  }
 
   let skillsPrompt = "";
   if (params.skillLoader) {
@@ -301,24 +496,75 @@ export async function buildSystemPrompt(params: {
     sections.push("# Runtime Base Prompt\n" + params.basePrompt.trim());
   }
 
-  const identityPersona = buildIdentityPersona({ homeIndex });
-  if (identityPersona) {
-    sections.push(identityPersona);
-  }
+  let remainingTotalChars = DEFAULT_CONTEXT_TOTAL_MAX_CHARS;
+  const maxCharsPerFile = DEFAULT_CONTEXT_MAX_CHARS;
+  const observability = {
+    loadedFiles: [] as Array<{ name: string; chars: number; hash: string }>,
+    skippedFiles: [] as Array<{ name: string; reason: "missing" | "empty" }>,
+  };
 
-  const projectWorkspace = buildProjectWorkspaceRules({ homeIndex, workspaceContext });
-  if (projectWorkspace) {
-    sections.push(projectWorkspace);
+  const bootstrapSection = buildBootstrapSection({
+    bootstrapState,
+    remainingTotalChars,
+    maxChars: maxCharsPerFile,
+    observability,
+  });
+  if (bootstrapSection.section) {
+    sections.push(bootstrapSection.section);
   }
+  remainingTotalChars = bootstrapSection.remainingTotalChars;
+
+  const agentBehavior = buildAgentBehaviorSection({
+    homeFiles,
+    remainingTotalChars,
+    maxChars: maxCharsPerFile,
+    observability,
+  });
+  if (agentBehavior.section) {
+    sections.push(agentBehavior.section);
+  }
+  remainingTotalChars = agentBehavior.remainingTotalChars;
+
+  const identityPersona = buildIdentityPersonaSection({
+    homeFiles,
+    remainingTotalChars,
+    maxChars: maxCharsPerFile,
+    mode,
+    observability,
+  });
+  if (identityPersona.section) {
+    sections.push(identityPersona.section);
+  }
+  remainingTotalChars = identityPersona.remainingTotalChars;
+
+  const heartbeatSection = buildHeartbeatSection({
+    homeFiles,
+    remainingTotalChars,
+    maxChars: maxCharsPerFile,
+    mode,
+    observability,
+  });
+  if (heartbeatSection.section) {
+    sections.push(heartbeatSection.section);
+  }
+  remainingTotalChars = heartbeatSection.remainingTotalChars;
+
+  const workspaceRules = buildWorkspaceRulesSection({
+    workspaceFiles,
+    workspaceDir: params.workspaceDir,
+    remainingTotalChars,
+    maxChars: maxCharsPerFile,
+    observability,
+  });
+  if (workspaceRules.section) {
+    sections.push(workspaceRules.section);
+  }
+  remainingTotalChars = workspaceRules.remainingTotalChars;
 
   const runtimeContextParts: string[] = [];
   runtimeContextParts.push(
     buildRuntimePathsPrompt({ homeDir: params.homeDir, workspaceDir: params.workspaceDir }),
   );
-  const bootstrapNote = buildBootstrapSection(bootstrapState);
-  if (bootstrapNote) {
-    runtimeContextParts.push(bootstrapNote);
-  }
   const toolsNote = buildToolsSection(params.tools);
   if (toolsNote) {
     runtimeContextParts.push(toolsNote);
@@ -340,13 +586,12 @@ export async function buildSystemPrompt(params: {
 
   const promptText = sections.join("\n\n");
   if (params.onMetadata) {
-    const filesMeta = collectFileObservability({ homeFiles, workspaceFiles });
     params.onMetadata({
       mode,
       homeDir: params.homeDir,
       workspaceDir: params.workspaceDir,
-      loadedFiles: filesMeta.loadedFiles,
-      skippedFiles: filesMeta.skippedFiles,
+      loadedFiles: observability.loadedFiles,
+      skippedFiles: observability.skippedFiles,
       promptHash: createHash("sha256").update(promptText).digest("hex").slice(0, 12),
     });
   }

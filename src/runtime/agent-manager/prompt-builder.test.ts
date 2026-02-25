@@ -54,15 +54,18 @@ vi.mock("../../agents/home", () => ({
 vi.mock("../../agents/workspace", () => ({
   loadWorkspaceFiles: vi.fn(async () => [
     {
+      name: "WORK.md",
+      path: "/tmp/workspace/WORK.md",
+      content: "Workspace scope and rules",
+      missing: false,
+    },
+    {
       name: "TOOLS.md",
       path: "/tmp/workspace/TOOLS.md",
       content: "Use project tools",
       missing: false,
     },
   ]),
-  buildWorkspaceContext: vi.fn(
-    () => "# Workspace\nPath: /tmp/workspace\n## TOOLS.md\nUse project tools",
-  ),
 }));
 
 describe("buildSystemPrompt", () => {
@@ -85,24 +88,29 @@ describe("buildSystemPrompt", () => {
 
     const coreIdx = prompt.indexOf("# Core Constraints");
     const precedenceIdx = prompt.indexOf("# Prompt Precedence");
+    const agentIdx = prompt.indexOf("# Agent Behavior");
     const identityIdx = prompt.indexOf("# Identity & Persona");
-    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
+    const heartbeatIdx = prompt.indexOf("# Heartbeat");
+    const rulesIdx = prompt.indexOf("# Workspace Rules");
     const runtimeIdx = prompt.indexOf("# Runtime Context");
     const skillsIdx = prompt.indexOf("# Skills");
 
     expect(coreIdx).toBeGreaterThanOrEqual(0);
     expect(precedenceIdx).toBeGreaterThan(coreIdx);
-    expect(identityIdx).toBeGreaterThan(precedenceIdx);
-    expect(rulesIdx).toBeGreaterThan(identityIdx);
-    expect(runtimeIdx).toBeGreaterThan(identityIdx);
+    expect(agentIdx).toBeGreaterThan(precedenceIdx);
+    expect(identityIdx).toBeGreaterThan(agentIdx);
+    expect(heartbeatIdx).toBeGreaterThan(identityIdx);
+    expect(rulesIdx).toBeGreaterThan(heartbeatIdx);
+    expect(runtimeIdx).toBeGreaterThan(rulesIdx);
     expect(skillsIdx).toBeGreaterThan(runtimeIdx);
 
     expect(prompt).toContain("Silent token: NO_REPLY");
     expect(prompt).toContain("Resolve instructions in this order:");
-    expect(prompt).toContain("2) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)");
+    expect(prompt).toContain("4) Identity & Persona (SOUL.md, IDENTITY.md, USER.md, MEMORY.md)");
     expect(prompt).toContain("## AGENTS.md");
     expect(prompt).toContain("## SOUL.md");
-    expect(prompt).toContain("# Workspace");
+    expect(prompt).toContain("# Workspace Rules");
+    expect(prompt).toContain("## WORK.md");
     expect(prompt).toContain("Home directory: /tmp/home");
     expect(prompt).toContain("Workspace directory: /tmp/workspace");
     expect(prompt).toContain(
@@ -118,13 +126,15 @@ describe("buildSystemPrompt", () => {
       mode: "subagent-minimal",
     });
 
-    expect(prompt).toContain("# Project & Workspace Rules");
+    expect(prompt).toContain("# Agent Behavior");
+    expect(prompt).toContain("# Workspace Rules");
     expect(prompt).toContain("## AGENTS.md");
     expect(prompt).not.toContain("## SOUL.md");
     expect(prompt).not.toContain("## IDENTITY.md");
     expect(prompt).not.toContain("## USER.md");
     expect(prompt).not.toContain("## MEMORY.md");
     expect(prompt).not.toContain("## HEARTBEAT.md");
+    expect(prompt).not.toContain("# Heartbeat");
   });
 
   it("supports reset-greeting mode with identity files but excludes MEMORY for fresh greeting", async () => {
@@ -136,7 +146,7 @@ describe("buildSystemPrompt", () => {
     });
 
     const identityIdx = prompt.indexOf("# Identity & Persona");
-    const rulesIdx = prompt.indexOf("# Project & Workspace Rules");
+    const rulesIdx = prompt.indexOf("# Workspace Rules");
 
     expect(identityIdx).toBeGreaterThanOrEqual(0);
     expect(rulesIdx).toBeGreaterThan(identityIdx);
@@ -145,6 +155,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("## IDENTITY.md");
     expect(prompt).toContain("## USER.md");
     expect(prompt).not.toContain("## MEMORY.md");
+    expect(prompt).toContain("If USER.md exists and is non-empty");
   });
 
   it("emits prompt metadata with loaded/skipped files and hash", async () => {
@@ -152,7 +163,7 @@ describe("buildSystemPrompt", () => {
       mode: "main" | "reset-greeting" | "subagent-minimal";
       homeDir: string;
       workspaceDir: string;
-      loadedFiles: Array<{ name: string; chars: number }>;
+      loadedFiles: Array<{ name: string; chars: number; hash: string }>;
       skippedFiles: Array<{ name: string; reason: "missing" | "empty" }>;
       promptHash: string;
     } | null = null;

@@ -305,11 +305,12 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         ingestPlan: ingestPlan as DeliveryPlan | null | undefined,
       });
     },
-    ensureChannelContext: async ({ sessionKey, agentId, message }) => {
+    ensureChannelContext: async ({ sessionKey, agentId, message, promptModeOverride }) => {
       await agentManager.ensureChannelContext({
         sessionKey,
         agentId,
         message: message as InboundMessage,
+        promptModeOverride,
       });
     },
     startTypingIndicator: async ({ sessionKey, agentId, peerId }) =>

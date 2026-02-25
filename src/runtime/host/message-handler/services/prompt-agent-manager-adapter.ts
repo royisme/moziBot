@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentManager } from "../../..";
+import type { PromptMode } from "../../../agent-manager/prompt-builder";
 import type { PromptAgent } from "./prompt-runner";
 
 export type PromptCoordinatorAgentManager = {
@@ -34,6 +35,27 @@ export type PromptCoordinatorAgentManager = {
 
 export function toPromptCoordinatorAgentManager(
   agentManager: AgentManager,
+  promptMode?: PromptMode,
 ): PromptCoordinatorAgentManager {
-  return agentManager as unknown as PromptCoordinatorAgentManager;
+  return {
+    getAgent: async (sessionKey, agentId) => {
+      const resolved = await agentManager.getAgent(sessionKey, agentId, {
+        promptMode,
+      });
+      return { agent: resolved.agent, modelRef: resolved.modelRef };
+    },
+    getAgentFallbacks: (agentId) => agentManager.getAgentFallbacks(agentId),
+    setSessionModel: async (sessionKey, modelRef, options) =>
+      await agentManager.setSessionModel(sessionKey, modelRef, options),
+    clearRuntimeModelOverride: (sessionKey) => agentManager.clearRuntimeModelOverride(sessionKey),
+    resolvePromptTimeoutMs: (agentId) => agentManager.resolvePromptTimeoutMs(agentId),
+    getSessionMetadata: (sessionKey) => agentManager.getSessionMetadata(sessionKey),
+    updateSessionMetadata: (sessionKey, metadata) =>
+      agentManager.updateSessionMetadata(sessionKey, metadata),
+    compactSession: async (sessionKey, agentId) =>
+      await agentManager.compactSession(sessionKey, agentId),
+    updateSessionContext: (sessionKey, messages) =>
+      agentManager.updateSessionContext(sessionKey, messages),
+    getContextUsage: (sessionKey) => agentManager.getContextUsage(sessionKey),
+  };
 }

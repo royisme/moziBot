@@ -33,6 +33,7 @@ import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orche
 import {
   type AgentEntry,
   resolveWorkspaceDir,
+  resolveHomeDir,
   resolveSandboxConfig,
   resolveExecAllowlist,
   resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
@@ -115,6 +116,7 @@ export class AgentManager {
   private homeContext = new Map<string, string>();
   private channelContextSessions = new Set<string>();
   private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
+  private promptToolsBySession = new Map<string, string[]>();
   private sandboxExecutors = new Map<string, SandboxExecutor>();
   private modelRegistry: ModelRegistry;
   private providerRegistry: ProviderRegistry;
@@ -297,6 +299,8 @@ export class AgentManager {
       runtimeModelOverrides: this.runtimeModelOverrides,
       channelContextSessions: this.channelContextSessions,
     });
+    this.promptMetadataBySession.clear();
+    this.promptToolsBySession.clear();
   }
 
   setSubagentRegistry(registry: SubagentRegistry) {
@@ -413,6 +417,14 @@ export class AgentManager {
     return resolveWorkspaceDir(this.config, agentId, entry);
   }
 
+  getHomeDir(agentId: string): string | undefined {
+    const entry = this.getAgentEntry(agentId);
+    if (!entry) {
+      return undefined;
+    }
+    return resolveHomeDir(this.config, agentId, entry);
+  }
+
   private async getHomeContext(homeDir: string): Promise<string> {
     const cached = this.homeContext.get(homeDir);
     if (cached !== undefined) {
@@ -429,17 +441,57 @@ export class AgentManager {
     sessionKey: string;
     agentId: string;
     message: InboundMessage;
+    promptModeOverride?: PromptMode;
   }): Promise<void> {
-    if (this.channelContextSessions.has(params.sessionKey)) {
-      return;
+    const { agentId, sessionKey, message, promptModeOverride } = params;
+    const entry = this.getAgentEntry(agentId);
+    const workspaceDir = resolveWorkspaceDir(this.config, agentId, entry);
+    const homeDir = resolveHomeDir(this.config, agentId, entry);
+    const sandboxConfig = resolveSandboxConfig(this.config, entry);
+    const requestedPromptMode =
+      promptModeOverride ?? this.promptMetadataBySession.get(sessionKey)?.mode;
+
+    const { agent } = await this.getAgent(sessionKey, agentId, {
+      promptMode: requestedPromptMode,
+    });
+
+    const promptMode =
+      promptModeOverride ??
+      this.promptMetadataBySession.get(sessionKey)?.mode ??
+      requestedPromptMode;
+    const tools = this.promptToolsBySession.get(sessionKey);
+    const basePrompt = await buildSystemPrompt({
+      homeDir,
+      workspaceDir,
+      basePrompt: entry?.systemPrompt,
+      skills: entry?.skills,
+      tools,
+      sandboxConfig,
+      skillLoader: this.skillLoader,
+      skillsIndexSynced: this.skillsIndexSynced,
+      mode: promptMode,
+      onMetadata: (metadata) => {
+        this.promptMetadataBySession.set(sessionKey, metadata);
+        logger.debug(
+          {
+            sessionKey,
+            agentId,
+            promptMode: metadata.mode,
+            promptHash: metadata.promptHash,
+            loadedFiles: metadata.loadedFiles,
+            skippedFiles: metadata.skippedFiles,
+          },
+          "Prompt files resolved",
+        );
+      },
+    });
+
+    const channelContext = buildChannelContext(message);
+    const nextPrompt = channelContext ? `${basePrompt}\n\n${channelContext}` : basePrompt;
+    if (agent.systemPrompt !== nextPrompt) {
+      agent.agent.setSystemPrompt(nextPrompt);
     }
-    const { agent } = await this.getAgent(params.sessionKey, params.agentId);
-    const context = buildChannelContext(params.message);
-    if (!context) {
-      return;
-    }
-    agent.agent.setSystemPrompt(`${agent.systemPrompt}\n\n${context}`);
-    this.channelContextSessions.add(params.sessionKey);
+    this.channelContextSessions.add(sessionKey);
   }
 
   private getSandboxExecutor(params: {
@@ -568,6 +620,9 @@ export class AgentManager {
           skillsIndexSynced: this.skillsIndexSynced,
           toolProvider: this.toolProvider,
           getSandboxExecutor: (p) => this.getSandboxExecutor(p),
+          onToolsResolved: (toolNames) => {
+            this.promptToolsBySession.set(sessionKey, toolNames);
+          },
         }),
       promptMode: options?.promptMode,
       onPromptMetadata: (metadata) => {
@@ -674,6 +729,7 @@ export class AgentManager {
       channelContextSessions: this.channelContextSessions,
     });
     this.promptMetadataBySession.delete(sessionKey);
+    this.promptToolsBySession.delete(sessionKey);
   }
 
   updateSessionContext(sessionKey: string, messages: unknown): void {

@@ -112,6 +112,7 @@ export interface OrchestratorDeps {
     sessionKey: string;
     agentId: string;
     message: unknown;
+    promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }): Promise<void>;
   startTypingIndicator(params: {
     sessionKey: string;

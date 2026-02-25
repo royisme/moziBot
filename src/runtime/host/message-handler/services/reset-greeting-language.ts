@@ -38,7 +38,7 @@ export function extractIdentityLanguageHintFromSystemPrompt(
     return null;
   }
   const identitySliceMatch = systemPrompt.match(
-    /# Identity & Persona([\s\S]*?)(?=\n# (?:Project & Workspace Rules|Runtime Context|Skills|Tools)\b|\s*$)/i,
+    /# Identity & Persona([\s\S]*?)(?=\n# (?:Agent Behavior|Heartbeat|Workspace Rules|Runtime Context|Skills|Tools)\b|\s*$)/i,
   );
   const identitySlice = identitySliceMatch?.[1] ?? systemPrompt;
 

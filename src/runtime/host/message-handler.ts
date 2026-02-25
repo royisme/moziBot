@@ -35,6 +35,7 @@ import {
 } from "./message-handler/services/message-router";
 import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
+import type { PromptMode } from "../agent-manager/prompt-builder";
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
@@ -200,12 +201,14 @@ export class MessageHandler {
       attempt: number;
       error: string;
     }) => Promise<void> | void;
+    promptMode?: PromptMode;
   }): Promise<void> {
+    const { promptMode, ...runnerParams } = params;
     await runPromptWithCoordinatorService({
-      ...params,
+      ...runnerParams,
       config: this.config,
       logger,
-      agentManager: toPromptCoordinatorAgentManager(this.agentManager),
+      agentManager: toPromptCoordinatorAgentManager(this.agentManager, promptMode),
       activeMap: this.activePromptRuns,
       interruptedSet: this.interruptedPromptRuns,
       flushMemory: async (sessionKey, agentId, messages, config) =>
@@ -332,7 +335,8 @@ export class MessageHandler {
         await this.flushMemory(sessionKey, agentId, messages, config),
       interruptSession: async (sessionKey, reason) =>
         await this.interruptSession(sessionKey, reason),
-      resolveWorkspaceDir: (agentId) => this.agentManager.getWorkspaceDir(agentId) ?? null,
+      runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
+      resolveHomeDir: (agentId) => this.agentManager.getHomeDir(agentId) ?? null,
     });
   }
 

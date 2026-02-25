@@ -36,6 +36,7 @@ export async function resolveOrCreateAgentSession(params: {
     sandboxConfig?: SandboxConfig;
     promptMode?: PromptMode;
     onPromptMetadata?: (metadata: PromptBuildMetadata) => void;
+    onToolsResolved?: (toolNames: string[]) => void;
   }) => Promise<AgentSession>;
   promptMode?: PromptMode;
   onPromptMetadata?: (metadata: PromptBuildMetadata) => void;

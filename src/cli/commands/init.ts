@@ -72,8 +72,8 @@ const HOME_FILES = [
   "HEARTBEAT.md",
 ];
 
-// Workspace files (user tools)
-const WORKSPACE_FILES = ["TOOLS.md"];
+// Workspace files (project rules + tools)
+const WORKSPACE_FILES = ["WORK.md", "TOOLS.md"];
 
 function banner() {
   console.log();

@@ -8,7 +8,7 @@ import { logger } from "../../logger";
 
 const DEFAULT_HEARTBEAT_EVERY = "30m";
 const DEFAULT_HEARTBEAT_PROMPT =
-  "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.";
+  "Read HEARTBEAT.md if it exists (home context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.";
 
 const HEARTBEAT_FILENAME = "HEARTBEAT.md";
 
@@ -151,12 +151,12 @@ export class HeartbeatRunner {
     if (!lastRoute) {
       return;
     }
-    const workspaceDir = this.agentManager.getWorkspaceDir(state.agentId);
-    if (!workspaceDir) {
+    const homeDir = this.agentManager.getHomeDir(state.agentId);
+    if (!homeDir) {
       return;
     }
 
-    const heartbeatPath = path.join(workspaceDir, HEARTBEAT_FILENAME);
+    const heartbeatPath = path.join(homeDir, HEARTBEAT_FILENAME);
     let content = "";
     try {
       content = await fs.readFile(heartbeatPath, "utf-8");

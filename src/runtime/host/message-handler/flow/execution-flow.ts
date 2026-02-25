@@ -74,6 +74,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     sessionKey: string;
     agentId: string;
     message: unknown;
+    promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }) => deps.ensureChannelContext(params);
   const resolveReasoningLevel = (params: {
     sessionMetadata: { reasoningLevel?: "off" | "on" | "stream" } | undefined;

@@ -70,11 +70,18 @@ describe("Home", () => {
 });
 
 describe("Workspace", () => {
-  test("ensureWorkspace should create directory and TOOLS.md", async () => {
+  test("ensureWorkspace should create directory and default workspace files", async () => {
     await ensureWorkspace(TEST_WORKSPACE);
 
     const stats = await fs.stat(TEST_WORKSPACE);
     expect(stats.isDirectory()).toBe(true);
+
+    const workPath = path.join(TEST_WORKSPACE, WORKSPACE_FILES.WORK);
+    const workExists = await fs
+      .access(workPath)
+      .then(() => true)
+      .catch(() => false);
+    expect(workExists).toBe(true);
 
     const toolsPath = path.join(TEST_WORKSPACE, WORKSPACE_FILES.TOOLS);
     const exists = await fs
@@ -84,24 +91,35 @@ describe("Workspace", () => {
     expect(exists).toBe(true);
   });
 
-  test("loadWorkspaceFiles should load TOOLS.md content", async () => {
+  test("loadWorkspaceFiles should load WORK.md and TOOLS.md content", async () => {
+    const workPath = path.join(TEST_WORKSPACE, WORKSPACE_FILES.WORK);
+    await fs.writeFile(workPath, "Workspace Rules\n");
     const toolsPath = path.join(TEST_WORKSPACE, WORKSPACE_FILES.TOOLS);
     await fs.writeFile(toolsPath, "My Tools Notes\n");
 
     const files = await loadWorkspaceFiles(TEST_WORKSPACE);
-    expect(files.length).toBe(1);
+    expect(files.length).toBe(2);
+
+    const workFile = files.find((f) => f.name === WORKSPACE_FILES.WORK);
+    expect(workFile?.content).toBe("Workspace Rules\n");
+    expect(workFile?.missing).toBe(false);
 
     const toolsFile = files.find((f) => f.name === WORKSPACE_FILES.TOOLS);
     expect(toolsFile?.content).toBe("My Tools Notes\n");
     expect(toolsFile?.missing).toBe(false);
   });
 
-  test("buildWorkspaceContext should include path and TOOLS.md", async () => {
-    const files = [{ name: "TOOLS.md", path: "TOOLS.md", content: "Tool content", missing: false }];
+  test("buildWorkspaceContext should include path, WORK.md, and TOOLS.md", async () => {
+    const files = [
+      { name: "WORK.md", path: "WORK.md", content: "Work content", missing: false },
+      { name: "TOOLS.md", path: "TOOLS.md", content: "Tool content", missing: false },
+    ];
 
     const context = buildWorkspaceContext(files, "/path/to/workspace");
     expect(context).toContain("# Workspace");
     expect(context).toContain("Path: /path/to/workspace");
+    expect(context).toContain("## WORK.md");
+    expect(context).toContain("Work content");
     expect(context).toContain("## TOOLS.md");
     expect(context).toContain("Tool content");
   });

@@ -21,8 +21,18 @@ export function createMessageCommandHandlerMap(params: {
     onNew: (params: {
       sessionKey: string;
       agentId: string;
+      message: InboundMessage;
       channel: ChannelPlugin;
       peerId: string;
+      args: string;
+    }) => Promise<void>;
+    onReset: (params: {
+      sessionKey: string;
+      agentId: string;
+      message: InboundMessage;
+      channel: ChannelPlugin;
+      peerId: string;
+      args: string;
     }) => Promise<void>;
     onModels: (params: {
       sessionKey: string;
@@ -50,6 +60,12 @@ export function createMessageCommandHandlerMap(params: {
       peerId: string;
     }) => Promise<void>;
     onContext: (params: {
+      sessionKey: string;
+      agentId: string;
+      channel: ChannelPlugin;
+      peerId: string;
+    }) => Promise<void>;
+    onPromptDigest: (params: {
       sessionKey: string;
       agentId: string;
       channel: ChannelPlugin;
@@ -105,8 +121,11 @@ export function createMessageCommandHandlerMap(params: {
     onStatus: async ({ sessionKey, agentId, message, peerId }) => {
       await deps.onStatus({ sessionKey, agentId, message, channel, peerId });
     },
-    onNew: async ({ sessionKey, agentId, peerId }) => {
-      await deps.onNew({ sessionKey, agentId, channel, peerId });
+    onNew: async ({ sessionKey, agentId, message, peerId, args }) => {
+      await deps.onNew({ sessionKey, agentId, message, channel, peerId, args });
+    },
+    onReset: async ({ sessionKey, agentId, message, peerId, args }) => {
+      await deps.onReset({ sessionKey, agentId, message, channel, peerId, args });
     },
     onModels: async ({ sessionKey, agentId, peerId }) => {
       await deps.onModels({ sessionKey, agentId, channel, peerId });
@@ -125,6 +144,9 @@ export function createMessageCommandHandlerMap(params: {
     },
     onContext: async ({ sessionKey, agentId, peerId }) => {
       await deps.onContext({ sessionKey, agentId, channel, peerId });
+    },
+    onPromptDigest: async ({ sessionKey, agentId, peerId }) => {
+      await deps.onPromptDigest({ sessionKey, agentId, channel, peerId });
     },
     onThink: async ({ sessionKey, agentId, peerId, args }) => {
       await deps.onThink({ sessionKey, agentId, channel, peerId, args });
