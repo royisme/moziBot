@@ -95,6 +95,9 @@ Notes:
 
 - When `browser.defaultProfile` is not set and only one profile exists, the tool uses that profile automatically.
 - The relay remains loopback-only and requires `browser.relay.authToken` when enabled.
+- Target selection prefers the last active tab per profile when `targetId` is not provided.
+- `targetId` accepts a full id or a unique prefix; ambiguous prefixes raise an error.
+- `navigate` waits briefly for `document.readyState=complete` (up to ~8s or `timeoutMs`).
 
 ## Verification
 

@@ -10,6 +10,12 @@ import {
   resolveRelayAuthTokenForPort,
 } from "../../runtime/browser/extension-relay-auth";
 import { detectSuspiciousPatterns, wrapExternalContent } from "../../security/external-content";
+import {
+  normalizeTargetId,
+  pickDefaultTarget,
+  resolveTargetIdFromTargets,
+  type BrowserTarget,
+} from "./browser-targets";
 
 type BrowserDriver = "extension" | "cdp";
 
@@ -97,26 +103,19 @@ type BrowserToolResult = {
 
 type ExtensionStatus = { connected: boolean };
 
-type CdpListTarget = {
-  id?: string;
-  targetId?: string;
-  type?: string;
-  title?: string;
-  url?: string;
-  webSocketDebuggerUrl?: string;
-};
-
 type SelectedTarget = {
   targetId: string;
-  target: CdpListTarget;
+  target: BrowserTarget;
   wsUrl: string;
   headers?: Record<string, string>;
 };
 
 const DEFAULT_STATUS_TIMEOUT_MS = 2000;
 const DEFAULT_ACTION_TIMEOUT_MS = 15000;
+const DEFAULT_NAVIGATE_READY_TIMEOUT_MS = 8000;
 const DEFAULT_SCREENSHOT_FORMAT = "png";
 const SCREENSHOT_DIR = path.join(process.cwd(), "data", "browser");
+const lastTargetByProfile = new Map<string, string>();
 
 function resolveBrowserProfile(
   config: MoziConfig,
@@ -151,7 +150,7 @@ function resolveBaseUrl(cdpUrl: string): string {
   return cdpUrl.trim().replace(/\/$/, "");
 }
 
-function resolveWsUrl(baseUrl: string, target?: CdpListTarget): string {
+function resolveWsUrl(baseUrl: string, target?: BrowserTarget): string {
   const fromTarget = target?.webSocketDebuggerUrl?.trim();
   if (fromTarget) {
     return fromTarget;
@@ -160,23 +159,11 @@ function resolveWsUrl(baseUrl: string, target?: CdpListTarget): string {
   return `${wsBase}/cdp`;
 }
 
-function normalizeTargetId(target: CdpListTarget): string | undefined {
-  return target.id ?? target.targetId;
-}
-
-function selectTarget(targets: CdpListTarget[], targetId?: string): CdpListTarget {
-  if (targets.length === 0) {
-    throw new Error("No browser tabs available.");
-  }
-  if (targetId) {
-    const match = targets.find((target) => normalizeTargetId(target) === targetId);
-    if (!match) {
-      throw new Error(`Target not found: ${targetId}`);
-    }
-    return match;
-  }
-  const page = targets.find((target) => (target.type ?? "page") === "page");
-  return page ?? targets[0];
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
 }
 
 async function fetchJson<T>(
@@ -405,6 +392,7 @@ class CdpClient {
 async function resolveTargetForAction(opts: {
   config: MoziConfig;
   profile: BrowserProfile;
+  profileName: string;
   baseUrl: string;
   timeoutMs: number;
   targetId?: string;
@@ -422,15 +410,41 @@ async function resolveTargetForAction(opts: {
     }
   }
 
-  const targets = await fetchJson<CdpListTarget[]>(`${opts.baseUrl}/json/list`, {
+  const targets = await fetchJson<BrowserTarget[]>(`${opts.baseUrl}/json/list`, {
     headers,
     timeoutMs: opts.timeoutMs,
   });
-  const target = selectTarget(targets, opts.targetId);
+  if (targets.length === 0) {
+    throw new Error("No browser tabs available.");
+  }
+
+  let target: BrowserTarget | null = null;
+  if (opts.targetId) {
+    const resolved = resolveTargetIdFromTargets(opts.targetId, targets);
+    if (resolved.ok) {
+      target =
+        targets.find((candidate) => normalizeTargetId(candidate) === resolved.targetId) ?? null;
+    } else if (resolved.reason === "ambiguous") {
+      throw new Error("Ambiguous target id prefix.");
+    }
+    if (!target && targets.length === 1) {
+      target = targets[0] ?? null;
+    }
+    if (!target) {
+      throw new Error("Target not found.");
+    }
+  } else {
+    target = pickDefaultTarget(targets, lastTargetByProfile.get(opts.profileName));
+    if (!target) {
+      throw new Error("Target not found.");
+    }
+  }
+
   const resolvedTargetId = normalizeTargetId(target);
   if (!resolvedTargetId) {
     throw new Error("Target id missing from /json/list response.");
   }
+  lastTargetByProfile.set(opts.profileName, resolvedTargetId);
   return {
     targetId: resolvedTargetId,
     target,
@@ -462,6 +476,39 @@ function parseEvalError(result: unknown): string | null {
     return null;
   }
   return details.text || details.exception?.description || "Runtime.evaluate failed";
+}
+
+async function waitForDocumentReady(
+  client: CdpClient,
+  timeoutMs: number,
+): Promise<{ state: string; waitedMs: number; timedOut: boolean }> {
+  const start = Date.now();
+  const deadline = start + Math.max(0, timeoutMs);
+  let lastState = "unknown";
+  while (Date.now() < deadline) {
+    try {
+      const evalResult = await client.send(
+        "Runtime.evaluate",
+        { expression: "document.readyState", returnByValue: true },
+        Math.min(1000, timeoutMs),
+      );
+      const evalError = parseEvalError(evalResult);
+      if (!evalError) {
+        const record = evalResult as { result?: { value?: string } };
+        const state = record.result?.value;
+        if (state) {
+          lastState = state;
+          if (state === "complete") {
+            return { state, waitedMs: Date.now() - start, timedOut: false };
+          }
+        }
+      }
+    } catch {
+      // Ignore transient evaluate failures while the page is still loading.
+    }
+    await sleep(120);
+  }
+  return { state: lastState, waitedMs: Date.now() - start, timedOut: true };
 }
 
 export async function runBrowserTool(
@@ -579,6 +626,7 @@ export async function runBrowserTool(
     const selected = await resolveTargetForAction({
       config,
       profile,
+      profileName: name,
       baseUrl,
       timeoutMs,
       targetId: params.targetId,
@@ -606,6 +654,8 @@ export async function runBrowserTool(
             throw new Error("url is required");
           }
           const result = await client.send("Page.navigate", { url }, timeoutMs);
+          const waitMs = Math.min(DEFAULT_NAVIGATE_READY_TIMEOUT_MS, timeoutMs);
+          const readyState = await waitForDocumentReady(client, waitMs);
           const payload = {
             ok: true,
             action: "navigate",
@@ -613,6 +663,9 @@ export async function runBrowserTool(
             targetId: selected.targetId,
             url,
             result,
+            readyState: readyState.state,
+            waitedMs: readyState.waitedMs,
+            timedOut: readyState.timedOut,
           };
           return wrapBrowserPayload("navigate", payload, {
             includeWarning: false,
