@@ -233,7 +233,17 @@ describe("LocalDesktopPlugin", () => {
   });
 
   it("exposes widget config endpoint without auth", async () => {
-    const plugin = new LocalDesktopPlugin({ host: "127.0.0.1", port: 0, authToken: "local-token" });
+    const plugin = new LocalDesktopPlugin({
+      host: "127.0.0.1",
+      port: 0,
+      authToken: "local-token",
+      widget: {
+        uiMode: "text",
+        voiceInputMode: "vad",
+        voiceOutputEnabled: false,
+        textOutputEnabled: true,
+      },
+    });
     plugins.push(plugin);
     await plugin.connect();
     const port = plugin.getPort();
@@ -246,11 +256,19 @@ describe("LocalDesktopPlugin", () => {
       port: number;
       peerId: string;
       authToken?: string;
+      mode?: string;
+      voiceInputMode?: string;
+      voiceOutputEnabled?: boolean;
+      textOutputEnabled?: boolean;
     };
     expect(json.enabled).toBe(true);
     expect(json.host).toBe("127.0.0.1");
     expect(json.peerId).toBe("desktop-default");
     expect(json.authToken).toBe("local-token");
+    expect(json.mode).toBe("text");
+    expect(json.voiceInputMode).toBe("vad");
+    expect(json.voiceOutputEnabled).toBe(false);
+    expect(json.textOutputEnabled).toBe(true);
   });
 
   it("rejects unauthorized websocket audio upgrade", async () => {

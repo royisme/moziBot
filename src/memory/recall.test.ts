@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { applyRecallPostProcessing } from "./recall";
 import type { MemorySearchResult } from "./types";
+import { applyRecallPostProcessing } from "./recall";
 
 const NOW = new Date(Date.UTC(2026, 1, 10));
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,7 +24,9 @@ afterEach(async () => {
   );
 });
 
-function makeResult(params: Partial<MemorySearchResult> & { path: string; score: number }): MemorySearchResult {
+function makeResult(
+  params: Partial<MemorySearchResult> & { path: string; score: number },
+): MemorySearchResult {
   return {
     path: params.path,
     startLine: params.startLine ?? 1,
@@ -277,8 +279,8 @@ describe("applyRecallPostProcessing", () => {
       const logPath = path.join(dir, "data", "metrics", "memory-recall.jsonl");
       const content = await fs.readFile(logPath, "utf-8");
       expect(content.length).toBeGreaterThan(0);
-      expect(content).toContain("\"memory_recall_metrics\"");
-      expect(content).toContain("\"metrics\"");
+      expect(content).toContain('"memory_recall_metrics"');
+      expect(content).toContain('"metrics"');
     } finally {
       process.chdir(originalCwd);
     }

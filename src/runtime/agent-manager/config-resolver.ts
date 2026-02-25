@@ -46,6 +46,7 @@ export const DEFAULT_TOOL_NAMES = [
   "grep",
   "find",
   "ls",
+  "browser",
   "memory_search",
   "memory_get",
   "sessions_list",

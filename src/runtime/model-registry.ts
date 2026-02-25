@@ -1,7 +1,7 @@
 import type { MoziConfig } from "../config";
 import type { ModelDefinition, ModelRef, ModelSpec, ProviderConfig } from "./types";
-import { ProviderRegistry } from "./provider-registry";
 import { listCliBackendModels } from "./cli-backends";
+import { ProviderRegistry } from "./provider-registry";
 
 export class ModelRegistry {
   private config: MoziConfig;

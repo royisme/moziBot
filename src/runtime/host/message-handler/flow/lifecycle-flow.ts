@@ -1,14 +1,14 @@
-import type { LifecycleFlow } from "../contract";
-import {
-  resolveTemporalLifecyclePolicy,
-  shouldRotateSessionForTemporalPolicy,
-} from "../lifecycle/temporal";
 import type { InboundMessage } from "../../../adapters/channels/types";
+import type { LifecycleFlow } from "../contract";
 import {
   resolveSessionResetPolicy,
   resolveSessionType,
   shouldRotateSessionForResetPolicy,
 } from "../lifecycle/reset-policy";
+import {
+  resolveTemporalLifecyclePolicy,
+  shouldRotateSessionForTemporalPolicy,
+} from "../lifecycle/temporal";
 
 /**
  * Lifecycle Flow Implementation

@@ -24,7 +24,7 @@ export class MoziClient {
   private config: MoziClientConfig;
   private eventSource: EventSource | null = null;
   private ws: WebSocket | null = null;
-  private listeners = new Map<string, Set<Function>>();
+  private listeners: { [K in keyof MoziClientEvents]?: Set<Listener<K>> } = {};
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private wsReconnectAttempt = 0;
   private sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -38,25 +38,25 @@ export class MoziClient {
   }
 
   on<K extends keyof MoziClientEvents>(event: K, fn: Listener<K>): void {
-    if (!this.listeners.has(event)) {
-      this.listeners.set(event, new Set());
+    if (!this.listeners[event]) {
+      this.listeners[event] = new Set();
     }
-    this.listeners.get(event)!.add(fn);
+    this.listeners[event]!.add(fn);
   }
 
   off<K extends keyof MoziClientEvents>(event: K, fn: Listener<K>): void {
-    this.listeners.get(event)?.delete(fn);
+    this.listeners[event]?.delete(fn);
   }
 
   private emit<K extends keyof MoziClientEvents>(
     event: K,
     ...args: Parameters<MoziClientEvents[K]>
   ): void {
-    const fns = this.listeners.get(event);
+    const fns = this.listeners[event];
     if (!fns) return;
     for (const fn of fns) {
       try {
-        (fn as Function)(...args);
+        fn(...args);
       } catch {
         // listener error; swallow
       }
@@ -182,7 +182,7 @@ export class MoziClient {
     this.eventSource = null;
     this.ws?.close(1000, "client_shutdown");
     this.ws = null;
-    this.listeners.clear();
+    this.listeners = {};
   }
 
   private wsSend(data: Record<string, unknown>): void {

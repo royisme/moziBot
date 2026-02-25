@@ -224,10 +224,7 @@ export async function performSessionReset(params: {
   }
 
   agentManager.resetSession(sessionKey, agentId);
-  logger?.info?.(
-    { sessionKey, agentId, reason },
-    "Session reset completed (segment rotated)",
-  );
+  logger?.info?.({ sessionKey, agentId, reason }, "Session reset completed (segment rotated)");
 }
 
 export async function handleRestartCommand(params: {

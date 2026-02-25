@@ -137,10 +137,11 @@ describe("runExecutionFlow", () => {
     hookMocks.runner.runMessageSending.mockResolvedValue({ cancel: true });
     const ctx = createContext();
     const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
     await runExecutionFlow(ctx, deps, createBundle());
 
-    expect(deps.dispatchReply).not.toHaveBeenCalled();
+    expect(dispatchReply).not.toHaveBeenCalled();
     expect(hookMocks.runner.runMessageSent).not.toHaveBeenCalled();
   });
 });

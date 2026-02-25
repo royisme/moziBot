@@ -423,10 +423,12 @@ describe("MessageHandler commands", () => {
   it("uses reset-greeting output as-is without regex fallback", async () => {
     let capturedResetPrompt = "";
     let capturedPromptMode: string | undefined;
-    runPromptWithFallback.mockImplementation(async (params: { text?: string; promptMode?: string }) => {
-      capturedResetPrompt = params.text ?? "";
-      capturedPromptMode = params.promptMode;
-    });
+    runPromptWithFallback.mockImplementation(
+      async (params: { text?: string; promptMode?: string }) => {
+        capturedResetPrompt = params.text ?? "";
+        capturedPromptMode = params.promptMode;
+      },
+    );
     const h = handler as unknown as {
       agentManager: {
         getAgent: (

@@ -14,6 +14,13 @@ export interface LocalDesktopPluginConfig {
   port?: number;
   authToken?: string;
   allowOrigins?: string[];
+  widget?: {
+    mode?: "auto" | "on" | "off";
+    uiMode?: "voice" | "text";
+    voiceInputMode?: "ptt" | "vad";
+    voiceOutputEnabled?: boolean;
+    textOutputEnabled?: boolean;
+  };
   voice?: MoziConfig["voice"];
 }
 
@@ -23,6 +30,10 @@ type LocalWidgetConfigPayload = {
   port: number;
   peerId: string;
   authToken?: string;
+  mode?: "voice" | "text";
+  voiceInputMode?: "ptt" | "vad";
+  voiceOutputEnabled?: boolean;
+  textOutputEnabled?: boolean;
 };
 
 type EventPhase = "idle" | "listening" | "thinking" | "speaking" | "executing" | "error";
@@ -699,12 +710,21 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
   }
 
   private getWidgetConfigPayload(): LocalWidgetConfigPayload {
+    const widget = this.config.widget;
+    const mode = widget?.uiMode ?? "voice";
+    const voiceInputMode = widget?.voiceInputMode ?? "ptt";
+    const voiceOutputEnabled = widget?.voiceOutputEnabled ?? true;
+    const textOutputEnabled = widget?.textOutputEnabled ?? true;
     return {
       enabled: this.config.enabled !== false,
       host: "127.0.0.1",
       port: this.getPort() ?? this.config.port ?? 3987,
       peerId: "desktop-default",
       authToken: this.config.authToken,
+      mode,
+      voiceInputMode,
+      voiceOutputEnabled,
+      textOutputEnabled,
     };
   }
 }

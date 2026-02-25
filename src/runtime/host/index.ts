@@ -11,6 +11,10 @@ import { DiscordPlugin } from "../adapters/channels/discord/plugin";
 import { LocalDesktopPlugin } from "../adapters/channels/local-desktop/plugin";
 import { ChannelRegistry } from "../adapters/channels/registry";
 import { TelegramPlugin } from "../adapters/channels/telegram/plugin";
+import {
+  ensureChromeExtensionRelayServer,
+  stopAllChromeExtensionRelays,
+} from "../browser/extension-relay";
 import { RuntimeKernel } from "../core/kernel";
 import { bootstrapSandboxes } from "../sandbox/bootstrap";
 import { ConfigManager } from "./config-manager";
@@ -86,6 +90,12 @@ export class RuntimeHost {
           "Sandbox auto-bootstrap failed during config reload; continuing with existing runtime.",
         );
       });
+      void this.startBrowserRelayIfNeeded(config).catch((error) => {
+        logger.warn(
+          { err: error },
+          "Browser relay init failed during config reload; continuing with existing runtime.",
+        );
+      });
       void this.scheduleSafeMessageHandlerReload(config).catch((error) => {
         logger.warn(
           { err: error },
@@ -127,6 +137,7 @@ export class RuntimeHost {
     const loadedConfig = this.configManager.getAll();
     configureLogger(loadedConfig.logging?.level);
     await this.runAutoSandboxBootstrap(loadedConfig);
+    await this.startBrowserRelayIfNeeded(loadedConfig);
 
     // 4. Initialize database
     try {
@@ -273,6 +284,26 @@ export class RuntimeHost {
     };
 
     await tryDrain();
+  }
+
+  private async startBrowserRelayIfNeeded(config: MoziConfig): Promise<void> {
+    const browser = config.browser;
+    if (!browser?.relay?.enabled) {
+      return;
+    }
+    const defaultProfile = browser.defaultProfile;
+    if (!defaultProfile) {
+      return;
+    }
+    const profile = browser.profiles?.[defaultProfile];
+    if (!profile || profile.driver !== "extension") {
+      return;
+    }
+    await ensureChromeExtensionRelayServer({
+      cdpUrl: profile.cdpUrl,
+      config,
+      bindHost: browser.relay?.bindHost,
+    });
   }
 
   private async runSandboxProbe(reason: "startup" | "reload"): Promise<void> {
@@ -428,6 +459,7 @@ export class RuntimeHost {
           port: localDesktopConfig?.port,
           authToken: localDesktopConfig?.authToken,
           allowOrigins: localDesktopConfig?.allowOrigins,
+          widget: localDesktopConfig?.widget,
           voice: config.voice,
         });
 
@@ -618,6 +650,11 @@ export class RuntimeHost {
     }
     if (this.messageHandler) {
       await this.messageHandler.shutdownExtensions();
+    }
+    try {
+      await stopAllChromeExtensionRelays();
+    } catch (error) {
+      logger.warn({ err: error }, "Failed to stop browser relay servers; continuing shutdown.");
     }
     if (this.reloadDrainTimer) {
       clearTimeout(this.reloadDrainTimer);

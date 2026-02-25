@@ -130,6 +130,59 @@ mozi runtime start
 - If Telegram is enabled but no messages are handled, verify `TELEGRAM_BOT_TOKEN` and `channels.telegram.enabled`.
 - If memory appears empty, start with builtin backend and place markdown notes under `~/.mozi/home/mozi/memory/`.
 
+## 6.5) Browser Relay (Optional)
+
+Enable browser automation via Chrome extension relay (existing tabs) or local CDP.
+
+1. Set a relay auth token in config (used to derive the relay token):
+
+```jsonc
+{
+  "browser": {
+    "relay": {
+      "authToken": "REPLACE_WITH_REAL_TOKEN",
+    },
+  },
+}
+```
+
+2. Add browser profiles:
+
+```jsonc
+{
+  "browser": {
+    "enabled": true,
+    "relay": {
+      "enabled": true,
+      "bindHost": "127.0.0.1",
+      "port": 9222,
+      "authToken": "REPLACE_WITH_REAL_TOKEN",
+    },
+    "profiles": {
+      "chrome": {
+        "driver": "extension",
+        "cdpUrl": "http://127.0.0.1:9222",
+      },
+      "local": {
+        "driver": "cdp",
+        "cdpUrl": "http://127.0.0.1:9223",
+      },
+    },
+    "defaultProfile": "chrome",
+  },
+}
+```
+
+3. Load the browser relay extension (dev/unpacked):
+
+- Chrome → `chrome://extensions` → enable “Developer mode”
+- “Load unpacked” → select `assets/browser-extension`
+- Open extension Options and set:
+  - Relay port (default `9222`)
+  - Gateway token (the same token from config)
+
+4. Click the extension icon on a tab to attach. Then the `browser` tool can list tabs.
+
 ## 7) Where to go next
 
 - Memory internals: `docs/MODULES/memory.md`

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionKey } from "./session-key";
 import type { InboundMessage } from "../adapters/channels/types";
+import { buildSessionKey } from "./session-key";
 
 const baseMessage: InboundMessage = {
   id: "m1",

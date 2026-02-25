@@ -3,6 +3,7 @@ import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
+import type { PromptMode } from "../agent-manager/prompt-builder";
 import type { OrchestratorDeps } from "./message-handler/contract";
 import type { SessionManager } from "./sessions/manager";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
@@ -27,7 +28,6 @@ import {
   type InteractionPhase as _unusedInteractionPhase,
   type PhasePayload as _unusedPhasePayload,
 } from "./message-handler/services/interaction-lifecycle";
-import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } from "./message-handler/services/status-reaction";
 import { flushMemoryWithLifecycle as flushMemoryWithLifecycleService } from "./message-handler/services/memory-flush";
 import {
   resolveSessionContext as resolveSessionContextService,
@@ -35,7 +35,6 @@ import {
 } from "./message-handler/services/message-router";
 import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
-import type { PromptMode } from "../agent-manager/prompt-builder";
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
@@ -44,9 +43,11 @@ import {
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
   shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
+import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } from "./message-handler/services/status-reaction";
 import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler/services/streaming";
 import { RuntimeRouter } from "./router";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { createBrowserTools } from "./tools/browser";
 import { createSessionTools } from "./tools/sessions";
 
 /**
@@ -151,13 +152,16 @@ export class MessageHandler {
     );
     this.agentManager.setSubagentRegistry(this.subagents);
     if (deps?.sessionManager && deps?.subAgentRegistry) {
-      this.agentManager.setToolProvider((params) =>
-        createSessionTools({
+      this.agentManager.setToolProvider((params) => [
+        ...createSessionTools({
           sessionManager: deps.sessionManager!,
           subAgentRegistry: deps.subAgentRegistry!,
           currentSessionKey: params.sessionKey,
         }),
-      );
+        ...createBrowserTools({
+          getConfig: () => this.config,
+        }),
+      ]);
     }
   }
 

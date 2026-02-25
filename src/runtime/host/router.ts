@@ -14,7 +14,11 @@ export class RuntimeRouter {
   resolve(message: InboundMessage, defaultAgentId: string): ResolvedRoute {
     const channelId = message.channel;
     const sessionCfg = this.config.session as
-      | { dmScope?: ResolvedRoute["dmScope"]; mainKey?: string; identityLinks?: Record<string, string[]> }
+      | {
+          dmScope?: ResolvedRoute["dmScope"];
+          mainKey?: string;
+          identityLinks?: Record<string, string[]>;
+        }
       | undefined;
     const channels = this.config.channels as
       | (Record<string, unknown> & {

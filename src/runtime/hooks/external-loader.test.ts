@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { MoziConfig } from "../../config";
-import { clearRuntimeHooks, getRuntimeHookRunner } from "./index";
 import { loadExternalHooks } from "./external-loader";
+import { clearRuntimeHooks, getRuntimeHookRunner } from "./index";
 
 function createConfig(paths: string[]): MoziConfig {
   return {

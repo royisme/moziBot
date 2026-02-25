@@ -15,10 +15,7 @@ export interface ResolvedSessionResetPolicy {
   idleMinutes?: number;
 }
 
-export function resolveSessionType(params: {
-  peerType?: string;
-  threadId?: unknown;
-}): SessionType {
+export function resolveSessionType(params: { peerType?: string; threadId?: unknown }): SessionType {
   if (params.threadId !== undefined && params.threadId !== null && params.threadId !== "") {
     return "thread";
   }
@@ -105,8 +102,7 @@ export function shouldRotateSessionForResetPolicy(
 
   const lastActivityMs = session.updatedAt || session.createdAt;
   const idleMinutes = policy.idleMinutes ?? 0;
-  const idleExpired =
-    idleMinutes > 0 ? nowMs - lastActivityMs > idleMinutes * 60 * 1000 : false;
+  const idleExpired = idleMinutes > 0 ? nowMs - lastActivityMs > idleMinutes * 60 * 1000 : false;
 
   if (policy.mode === "idle") {
     return idleExpired;

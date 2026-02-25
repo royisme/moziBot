@@ -16,6 +16,44 @@ Implementations:
 - `discord/plugin.ts`
 - `local-desktop/plugin.ts`
 
+## Local Desktop Widget
+
+The local desktop channel exposes a lightweight widget endpoint used by the desktop UI.
+
+Startup control:
+
+- `channels.localDesktop.widget.mode`: `auto | on | off` (drives whether the widget server should start)
+- `MOZI_WIDGET_MODE` env var can override startup behavior
+
+UI configuration (served via `GET /widget-config`):
+
+```jsonc
+{
+  "channels": {
+    "localDesktop": {
+      "widget": {
+        "uiMode": "voice",
+        "voiceInputMode": "ptt",
+        "voiceOutputEnabled": true,
+        "textOutputEnabled": true,
+      },
+    },
+  },
+}
+```
+
+Fields:
+
+- `uiMode`: `voice | text` (default: `voice`)
+- `voiceInputMode`: `ptt | vad` (default: `ptt`)
+- `voiceOutputEnabled`: boolean (default: `true`)
+- `textOutputEnabled`: boolean (default: `true`)
+
+Notes:
+
+- `widget.mode` controls startup only; it is separate from `widget.uiMode`.
+- The widget can also override values via `VITE_WIDGET_*` env vars on the frontend.
+
 ## Channel Contract
 
 All channel plugins must implement `ChannelPlugin`:
@@ -42,9 +80,9 @@ via `setStatusReaction`. Telegram/Discord enable this via config:
           "thinking": "🤔",
           "tool": "🔥",
           "done": "👍",
-          "error": "😱"
-        }
-      }
+          "error": "😱",
+        },
+      },
     },
     "discord": {
       "statusReactions": {
@@ -54,11 +92,11 @@ via `setStatusReaction`. Telegram/Discord enable this via config:
           "thinking": "🤔",
           "tool": "🔥",
           "done": "👍",
-          "error": "😱"
-        }
-      }
-    }
-  }
+          "error": "😱",
+        },
+      },
+    },
+  },
 }
 ```
 
@@ -77,12 +115,12 @@ Discord guilds can optionally enforce role allowlists and route to agents by rol
           "allowRoles": ["role-id-1", "role-id-2"],
           "roleRouting": {
             "role-id-1": { "agentId": "dev-pm" },
-            "role-id-2": { "agentId": "dev-arch" }
-          }
-        }
-      }
-    }
-  }
+            "role-id-2": { "agentId": "dev-arch" },
+          },
+        },
+      },
+    },
+  },
 }
 ```
 

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionStore } from "../session-store";
 import { compactSession } from "./context-metrics";
 

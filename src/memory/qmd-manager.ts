@@ -318,7 +318,10 @@ export class QmdMemoryManager implements MemorySearchManager {
     collectionNames: string[],
     command: "query" | "search" | "vsearch",
   ): Promise<ReturnType<typeof parseQueryResults>> {
-    const bestByKey = new Map<string, { entry: ReturnType<typeof parseQueryResults>[number]; order: number }>();
+    const bestByKey = new Map<
+      string,
+      { entry: ReturnType<typeof parseQueryResults>[number]; order: number }
+    >();
     let order = 0;
     for (const collectionName of collectionNames) {
       const args = this.buildSearchArgs(command, query, limit);
@@ -340,9 +343,10 @@ export class QmdMemoryManager implements MemorySearchManager {
         }
         const existing = bestByKey.get(key);
         const existingScore =
-          typeof existing?.entry.score === "number" ? existing.entry.score : Number.NEGATIVE_INFINITY;
-        const nextScore =
-          typeof entry.score === "number" ? entry.score : Number.NEGATIVE_INFINITY;
+          typeof existing?.entry.score === "number"
+            ? existing.entry.score
+            : Number.NEGATIVE_INFINITY;
+        const nextScore = typeof entry.score === "number" ? entry.score : Number.NEGATIVE_INFINITY;
         if (!existing || nextScore > existingScore) {
           bestByKey.set(key, { entry, order });
         }

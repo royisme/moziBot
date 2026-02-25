@@ -2,16 +2,8 @@ import { createHash } from "node:crypto";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { SandboxConfig } from "../sandbox/types";
-import {
-  checkBootstrapState,
-  loadHomeFiles,
-  type BootstrapState,
-  type HomeFile,
-} from "../../agents/home";
-import {
-  loadWorkspaceFiles,
-  type WorkspaceFile,
-} from "../../agents/workspace";
+import { checkBootstrapState, loadHomeFiles, type BootstrapState } from "../../agents/home";
+import { loadWorkspaceFiles } from "../../agents/workspace";
 import { sanitizePromptLiteral } from "../../security/prompt-literal";
 import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
 
@@ -69,10 +61,7 @@ export function buildSandboxPrompt(params: {
   return lines.join("\n");
 }
 
-export function buildRuntimePathsPrompt(params: {
-  homeDir: string;
-  workspaceDir: string;
-}): string {
+export function buildRuntimePathsPrompt(params: { homeDir: string; workspaceDir: string }): string {
   const safeHomeDir = sanitizePromptLiteral(params.homeDir);
   const safeWorkspaceDir = sanitizePromptLiteral(params.workspaceDir);
   const lines = [
@@ -230,9 +219,7 @@ function buildContextFileSection(params: {
     return { section: null, remainingTotalChars: params.remainingTotalChars };
   }
 
-  let body = file.missing
-    ? `[MISSING] Expected at: ${file.path}`
-    : file.content.trim();
+  let body = file.missing ? `[MISSING] Expected at: ${file.path}` : file.content.trim();
 
   if (!body) {
     recordSkipped(file.missing ? "missing" : "empty");

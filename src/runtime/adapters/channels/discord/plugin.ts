@@ -284,9 +284,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
     try {
       const encoded = normalizeDiscordReactionEmoji(emoji);
-      await this.client.rest.put(
-        Routes.channelMessageOwnReaction(peerId, messageId, encoded),
-      );
+      await this.client.rest.put(Routes.channelMessageOwnReaction(peerId, messageId, encoded));
     } catch (error) {
       logger.warn(
         { error, peerId, messageId, emoji, status },
@@ -343,10 +341,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
     if (peerType === "dm" && this.config.dmPolicy === "allowlist") {
       if (!isSenderAllowed(this.config.allowFrom, author.id, author.username)) {
-        logger.info(
-          { channelId, senderId: author.id },
-          "Discord DM dropped by dmPolicy=allowlist",
-        );
+        logger.info({ channelId, senderId: author.id }, "Discord DM dropped by dmPolicy=allowlist");
         return;
       }
     }
@@ -367,7 +362,10 @@ export class DiscordPlugin extends BaseChannelPlugin {
         }
       }
 
-      if (groupPolicy === "allowlist" && !isSenderAllowed(effectiveAllowFrom, author.id, author.username)) {
+      if (
+        groupPolicy === "allowlist" &&
+        !isSenderAllowed(effectiveAllowFrom, author.id, author.username)
+      ) {
         logger.info(
           { channelId, guildId, senderId: author.id },
           "Discord group message dropped by groupPolicy=allowlist",

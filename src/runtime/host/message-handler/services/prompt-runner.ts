@@ -1,10 +1,10 @@
+import { agentEvents } from "../../../../infra/agent-events";
+import { getRuntimeHookRunner } from "../../../hooks";
 import {
   handleAgentStreamEvent,
   type AgentSessionEvent,
   type StreamingCallback,
 } from "./streaming";
-import { agentEvents } from "../../../../infra/agent-events";
-import { getRuntimeHookRunner } from "../../../hooks";
 
 /**
  * Prompt Runner and Active Run Bookkeeping Service
@@ -70,7 +70,7 @@ function redactSensitiveText(text: string): string {
     .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
     .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-<redacted>")
     .replace(/(Bearer\\s+)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
-    .replace(/(\"(?:apiKey|token|authToken|botToken)\"\\s*:\\s*\")[^\"]+(\"\\s*)/gi, "$1<redacted>$2");
+    .replace(/("(?:apiKey|token|authToken|botToken)"\\s*:\\s*")[^"]+("\\s*)/gi, "$1<redacted>$2");
 }
 
 /**
@@ -348,9 +348,7 @@ export async function runPromptWithFallback(params: {
                 attempt,
                 status: "success",
                 durationMs: Math.max(0, Date.now() - attemptStartedAt),
-                outputText: accumulatedText
-                  ? redactSensitiveText(accumulatedText)
-                  : undefined,
+                outputText: accumulatedText ? redactSensitiveText(accumulatedText) : undefined,
               },
               {
                 sessionKey,

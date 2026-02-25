@@ -1,5 +1,9 @@
 import type { ChannelRegistry } from "../adapters/channels/registry";
-import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../adapters/channels/types";
+import type {
+  OutboundMessage,
+  StatusReaction,
+  StatusReactionPayload,
+} from "../adapters/channels/types";
 import type { RuntimeDeliveryReceipt, RuntimeEgress } from "./contracts";
 
 export class ChannelRuntimeEgress implements RuntimeEgress {

@@ -18,12 +18,6 @@ vi.mock("./qmd/qmd-client", async () => {
 vi.mock("./qmd/doc-resolver", () => {
   return {
     QmdDocResolver: class {
-      constructor(
-        _indexPath: string,
-        _workspaceDir: string,
-        _collectionRoots: Map<string, { path: string }>,
-        _sources: Set<string>,
-      ) {}
       async resolveDocLocation(docid?: string) {
         if (!docid) {
           return null;
@@ -131,9 +125,7 @@ describe("QmdMemoryManager search behavior", () => {
     });
     await manager.close();
 
-    const searchCalls = vi
-      .mocked(runQmd)
-      .mock.calls.filter((call) => call[0].args[0] === "search");
+    const searchCalls = vi.mocked(runQmd).mock.calls.filter((call) => call[0].args[0] === "search");
     expect(searchCalls).toHaveLength(2);
     expect(searchCalls[0]?.[0].args).toContain("alpha");
     expect(searchCalls[1]?.[0].args).toContain("bravo");

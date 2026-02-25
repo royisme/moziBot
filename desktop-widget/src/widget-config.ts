@@ -1,4 +1,6 @@
 export type AvatarMode = "live2d" | "orb";
+export type WidgetMode = "voice" | "text";
+export type VoiceInputMode = "ptt" | "vad";
 
 export type AvatarConfig = {
   mode: AvatarMode;
@@ -12,6 +14,10 @@ export type WidgetRuntimeConfig = {
   port: number;
   authToken?: string;
   peerId: string;
+  mode: WidgetMode;
+  voiceInputMode: VoiceInputMode;
+  voiceOutputEnabled: boolean;
+  textOutputEnabled: boolean;
   avatar: AvatarConfig;
 };
 
@@ -22,6 +28,10 @@ const DEFAULTS: WidgetRuntimeConfig = {
   host: "127.0.0.1",
   port: 3987,
   peerId: "desktop-default",
+  mode: "voice",
+  voiceInputMode: "ptt",
+  voiceOutputEnabled: true,
+  textOutputEnabled: true,
   avatar: { mode: "live2d", modelPath: DEFAULT_MODEL_PATH },
 };
 
@@ -31,6 +41,10 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
   const envPort = normalizePort(import.meta.env.VITE_WIDGET_PORT);
   const envToken = normalizeToken(import.meta.env.VITE_WIDGET_TOKEN);
   const envPeerId = normalizePeerId(import.meta.env.VITE_WIDGET_PEER_ID);
+  const envMode = normalizeWidgetMode(import.meta.env.VITE_WIDGET_MODE);
+  const envVoiceInputMode = normalizeVoiceInputMode(import.meta.env.VITE_WIDGET_VOICE_INPUT_MODE);
+  const envVoiceOutput = parseBool(import.meta.env.VITE_WIDGET_VOICE_OUTPUT);
+  const envTextOutput = parseBool(import.meta.env.VITE_WIDGET_TEXT_OUTPUT);
 
   let runtimeConfig: Partial<WidgetRuntimeConfig> = {};
   try {
@@ -50,12 +64,27 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
   const runtimePort = normalizePort(runtimeConfig.port);
   const runtimeToken = normalizeToken(runtimeConfig.authToken);
   const runtimePeerId = normalizePeerId(runtimeConfig.peerId);
+  const runtimeMode = normalizeWidgetMode(runtimeConfig.mode);
+  const runtimeVoiceInputMode = normalizeVoiceInputMode(runtimeConfig.voiceInputMode);
+  const runtimeVoiceOutput =
+    typeof runtimeConfig.voiceOutputEnabled === "boolean"
+      ? runtimeConfig.voiceOutputEnabled
+      : undefined;
+  const runtimeTextOutput =
+    typeof runtimeConfig.textOutputEnabled === "boolean"
+      ? runtimeConfig.textOutputEnabled
+      : undefined;
 
   const enabled = envEnabled ?? runtimeEnabled ?? DEFAULTS.enabled;
   const host = envHost ?? runtimeHost ?? DEFAULTS.host;
   const port = envPort ?? runtimePort ?? DEFAULTS.port;
   const authToken = envToken ?? runtimeToken;
   const peerId = envPeerId ?? runtimePeerId ?? DEFAULTS.peerId;
+  const mode = envMode ?? runtimeMode ?? DEFAULTS.mode;
+  const voiceInputMode = envVoiceInputMode ?? runtimeVoiceInputMode ?? DEFAULTS.voiceInputMode;
+  const voiceOutputEnabled =
+    envVoiceOutput ?? runtimeVoiceOutput ?? (mode === "voice" ? true : false);
+  const textOutputEnabled = envTextOutput ?? runtimeTextOutput ?? DEFAULTS.textOutputEnabled;
   const avatar = resolveAvatarConfig(
     import.meta.env.VITE_AVATAR_MODE,
     import.meta.env.VITE_AVATAR_MODEL_PATH,
@@ -69,6 +98,10 @@ export async function loadWidgetConfig(): Promise<WidgetRuntimeConfig> {
     port,
     authToken,
     peerId,
+    mode,
+    voiceInputMode,
+    voiceOutputEnabled,
+    textOutputEnabled,
     avatar,
   };
 }
@@ -168,6 +201,28 @@ function normalizeAvatarMode(input: unknown): AvatarMode | undefined {
   }
   const trimmed = input.trim().toLowerCase();
   if (trimmed === "live2d" || trimmed === "orb") {
+    return trimmed;
+  }
+  return undefined;
+}
+
+function normalizeWidgetMode(input: unknown): WidgetMode | undefined {
+  if (typeof input !== "string") {
+    return undefined;
+  }
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === "voice" || trimmed === "text") {
+    return trimmed;
+  }
+  return undefined;
+}
+
+function normalizeVoiceInputMode(input: unknown): VoiceInputMode | undefined {
+  if (typeof input !== "string") {
+    return undefined;
+  }
+  const trimmed = input.trim().toLowerCase();
+  if (trimmed === "ptt" || trimmed === "vad") {
     return trimmed;
   }
   return undefined;

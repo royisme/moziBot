@@ -73,7 +73,9 @@ export class OrbRenderer implements AvatarRenderer {
   }
 
   setPhase(phase: Phase): void {
-    const normalized = (Object.keys(PHASE_STYLE).includes(phase) ? phase : "idle") as Phase;
+    const normalized: Phase = Object.prototype.hasOwnProperty.call(PHASE_STYLE, phase)
+      ? phase
+      : "idle";
     this.currentPhase = normalized;
     const style = PHASE_STYLE[normalized];
     this.orbMat?.color.setHex(style.color);

@@ -18,10 +18,15 @@ read_when:
 # @heartbeat prompt=Read HEARTBEAT.md and execute only listed tasks. Reply HEARTBEAT_OK when no action is needed.
 
 # Context injected into the heartbeat prompt:
+
 # HEARTBEAT_CONTEXT_BEGIN
+
 # SESSION_LAST_ACTIVITY_MS=1700000000000
+
 # SESSION_LAST_ACTIVITY_ISO=2023-11-14T22:13:20.000Z
+
 # HEARTBEAT_CONTEXT_END
+
 # Use this to decide when to send a check-in (e.g., idle > 8h).
 
 ## Rules

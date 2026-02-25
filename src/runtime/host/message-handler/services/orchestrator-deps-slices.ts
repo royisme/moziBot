@@ -17,11 +17,11 @@ import {
   type InteractionPhase,
   type PhasePayload,
 } from "./interaction-lifecycle";
-import { emitStatusReactionSafely as emitStatusReactionSafelyService } from "./status-reaction";
 import { resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator-session";
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
 import { dispatchReply } from "./reply-dispatcher";
 import { shouldSuppressHeartbeatReply, shouldSuppressSilentReply } from "./reply-finalizer";
+import { emitStatusReactionSafely as emitStatusReactionSafelyService } from "./status-reaction";
 import { StreamingBuffer } from "./streaming";
 
 export interface BuilderLogger {

@@ -86,14 +86,17 @@ describe("runPromptWithFallback agent events", () => {
   });
 
   it("emits llm_input and llm_output hooks for successful runs", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) =>
-      name === "llm_input" || name === "llm_output",
+    hookMocks.runner.hasHooks.mockImplementation(
+      (name: string) => name === "llm_input" || name === "llm_output",
     );
 
     const agent: PromptAgent = {
       prompt: vi.fn(async () => {}),
       subscribe: (next) => {
-        next({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "ok" } });
+        next({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "ok" },
+        });
         return () => undefined;
       },
     };

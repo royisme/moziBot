@@ -1,754 +1,22 @@
 {
   "$defs": {
     "__schema0": {
-      "enum": [
-        "openai-responses",
-        "openai-completions",
-        "openai-codex-responses",
-        "anthropic-messages",
-        "google-generative-ai",
-        "google-gemini-cli",
-        "cli-backend"
-      ],
       "type": "string"
     },
     "__schema1": {
-      "items": {
-        "anyOf": [
-          {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
             "type": "string"
           },
-          {
-            "type": "number"
-          }
-        ]
-      },
-      "type": "array"
+          "type": "array"
+        }
+      ]
     },
     "__schema10": {
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "every": {
-          "type": "string"
-        },
-        "prompt": {
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema11": {
-      "additionalProperties": false,
-      "properties": {
-        "control": {
-          "additionalProperties": false,
-          "properties": {
-            "fallback": {
-              "items": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "model": {
-              "minLength": 1,
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "semantic": {
-          "additionalProperties": false,
-          "properties": {
-            "debounceSeconds": {
-              "maximum": 9007199254740991,
-              "minimum": 0,
-              "type": "integer"
-            },
-            "enabled": {
-              "type": "boolean"
-            },
-            "reversible": {
-              "type": "boolean"
-            },
-            "threshold": {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            }
-          },
-          "type": "object"
-        },
-        "temporal": {
-          "additionalProperties": false,
-          "properties": {
-            "activeWindowHours": {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer"
-            },
-            "dayBoundaryRollover": {
-              "type": "boolean"
-            },
-            "enabled": {
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "type": "object"
-    },
-    "__schema12": {
-      "enum": ["off", "minimal", "low", "medium", "high", "xhigh"],
-      "type": "string"
-    },
-    "__schema13": {
-      "additionalProperties": false,
-      "properties": {
-        "reasoningLevel": {
-          "enum": ["off", "on", "stream"],
-          "type": "string"
-        },
-        "showThinking": {
-          "type": "boolean"
-        },
-        "showToolCalls": {
-          "enum": ["off", "summary"],
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema14": {
-      "additionalProperties": {
-        "additionalProperties": false,
-        "properties": {
-          "args": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "command": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "imageArg": {
-            "type": "string"
-          },
-          "imageMode": {
-            "enum": ["repeat", "append"],
-            "type": "string"
-          },
-          "input": {
-            "enum": ["arg", "stdin"],
-            "type": "string"
-          },
-          "maxPromptArgChars": {
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991,
-            "type": "integer"
-          },
-          "modelAliases": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            },
-            "type": "object"
-          },
-          "modelArg": {
-            "type": "string"
-          },
-          "models": {
-            "items": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "output": {
-            "$ref": "#/$defs/__schema15"
-          },
-          "resumeArgs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "resumeOutput": {
-            "$ref": "#/$defs/__schema15"
-          },
-          "serialize": {
-            "type": "boolean"
-          },
-          "sessionArg": {
-            "type": "string"
-          },
-          "sessionArgs": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "sessionIdFields": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "sessionMode": {
-            "enum": ["always", "existing", "none"],
-            "type": "string"
-          },
-          "systemPromptArg": {
-            "type": "string"
-          },
-          "systemPromptWhen": {
-            "enum": ["first", "always", "never"],
-            "type": "string"
-          }
-        },
-        "required": ["command"],
-        "type": "object"
-      },
-      "propertyNames": {
-        "type": "string"
-      },
-      "type": "object"
-    },
-    "__schema15": {
-      "enum": ["json", "jsonl", "text"],
-      "type": "string"
-    },
-    "__schema16": {
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "hardClearPlaceholder": {
-          "type": "string"
-        },
-        "hardClearRatio": {
-          "type": "number"
-        },
-        "keepLastAssistants": {
-          "type": "number"
-        },
-        "minPrunableChars": {
-          "type": "number"
-        },
-        "protectedTools": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "softTrim": {
-          "additionalProperties": false,
-          "properties": {
-            "headChars": {
-              "type": "number"
-            },
-            "maxChars": {
-              "type": "number"
-            },
-            "tailChars": {
-              "type": "number"
-            }
-          },
-          "type": "object"
-        },
-        "softTrimRatio": {
-          "type": "number"
-        }
-      },
-      "type": "object"
-    },
-    "__schema17": {
-      "additionalProperties": false,
-      "properties": {
-        "cliBackends": {
-          "$ref": "#/$defs/__schema14"
-        },
-        "contextPruning": {
-          "$ref": "#/$defs/__schema16"
-        },
-        "exec": {
-          "$ref": "#/$defs/__schema9"
-        },
-        "heartbeat": {
-          "$ref": "#/$defs/__schema10"
-        },
-        "home": {
-          "type": "string"
-        },
-        "imageModel": {
-          "$ref": "#/$defs/__schema6"
-        },
-        "lifecycle": {
-          "$ref": "#/$defs/__schema11"
-        },
-        "main": {
-          "type": "boolean"
-        },
-        "model": {
-          "$ref": "#/$defs/__schema6"
-        },
-        "name": {
-          "type": "string"
-        },
-        "output": {
-          "$ref": "#/$defs/__schema13"
-        },
-        "sandbox": {
-          "$ref": "#/$defs/__schema8"
-        },
-        "skills": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "subagents": {
-          "$ref": "#/$defs/__schema7"
-        },
-        "systemPrompt": {
-          "type": "string"
-        },
-        "thinking": {
-          "$ref": "#/$defs/__schema12"
-        },
-        "timeoutSeconds": {
-          "exclusiveMinimum": 0,
-          "type": "number"
-        },
-        "tools": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "workspace": {
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema18": {
-      "additionalProperties": false,
-      "properties": {
-        "atHour": {
-          "maximum": 23,
-          "minimum": 0,
-          "type": "integer"
-        },
-        "idleMinutes": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        },
-        "mode": {
-          "enum": ["daily", "idle", "disabled"],
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema19": {
-      "enum": ["local-only", "remote-only", "local-first"],
-      "type": "string"
-    },
-    "__schema2": {
-      "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
-      "type": "string"
-    },
-    "__schema20": {
-      "additionalProperties": false,
-      "properties": {
-        "binPath": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "language": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "modelPath": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "provider": {
-          "const": "whisper.cpp",
-          "type": "string"
-        },
-        "threads": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        },
-        "timeoutMs": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        },
-        "useCoreML": {
-          "type": "boolean"
-        },
-        "useMetal": {
-          "type": "boolean"
-        }
-      },
-      "required": ["provider", "modelPath"],
-      "type": "object"
-    },
-    "__schema21": {
-      "additionalProperties": false,
-      "properties": {
-        "apiKey": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "endpoint": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "headers": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "model": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "provider": {
-          "enum": ["openai", "groq", "deepgram", "custom"],
-          "type": "string"
-        },
-        "timeoutMs": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        }
-      },
-      "required": ["provider"],
-      "type": "object"
-    },
-    "__schema22": {
-      "enum": ["provider-only", "fallback-chain"],
-      "type": "string"
-    },
-    "__schema23": {
-      "maximum": 10000,
-      "minimum": 50,
-      "type": "integer"
-    },
-    "__schema24": {
-      "items": {
-        "enum": ["edge", "openai", "elevenlabs"],
-        "type": "string"
-      },
-      "type": "array"
-    },
-    "__schema25": {
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "format": {
-          "enum": ["audio-24khz-48kbitrate-mono-mp3", "riff-24khz-16bit-mono-pcm"],
-          "type": "string"
-        },
-        "pitch": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "rate": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "voice": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema26": {
-      "additionalProperties": false,
-      "properties": {
-        "apiKey": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "format": {
-          "enum": ["mp3", "wav"],
-          "type": "string"
-        },
-        "model": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "timeoutMs": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        },
-        "voice": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "__schema27": {
-      "additionalProperties": false,
-      "properties": {
-        "apiKey": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "applyTextNormalization": {
-          "enum": ["auto", "on", "off"],
-          "type": "string"
-        },
-        "enabled": {
-          "type": "boolean"
-        },
-        "format": {
-          "enum": ["mp3_22050_32", "pcm_16000"],
-          "type": "string"
-        },
-        "languageCode": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "modelId": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "timeoutMs": {
-          "exclusiveMinimum": 0,
-          "maximum": 9007199254740991,
-          "type": "integer"
-        },
-        "voiceId": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "voiceSettings": {
-          "additionalProperties": false,
-          "properties": {
-            "similarityBoost": {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            "speed": {
-              "exclusiveMinimum": 0,
-              "type": "number"
-            },
-            "stability": {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            "style": {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            "useSpeakerBoost": {
-              "type": "boolean"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "type": "object"
-    },
-    "__schema28": {
-      "type": "boolean"
-    },
-    "__schema29": {
-      "maximum": 1,
-      "minimum": 0,
-      "type": "number"
-    },
-    "__schema3": {
-      "enum": ["open", "allowlist"],
-      "type": "string"
-    },
-    "__schema30": {
-      "maximum": 1,
-      "minimum": 0,
-      "type": "number"
-    },
-    "__schema31": {
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991,
-      "type": "integer"
-    },
-    "__schema32": {
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991,
-      "type": "integer"
-    },
-    "__schema33": {
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991,
-      "type": "integer"
-    },
-    "__schema34": {
-      "additionalProperties": false,
-      "properties": {
-        "color": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "effect": {
-          "enum": ["idle", "pulse", "orbit", "glow", "wave"],
-          "type": "string"
-        },
-        "intensity": {
-          "maximum": 1,
-          "minimum": 0,
-          "type": "number"
-        }
-      },
-      "type": "object"
-    },
-    "__schema35": {
-      "additionalProperties": false,
-      "properties": {
-        "jobs": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "enabled": {
-                "type": "boolean"
-              },
-              "id": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "payload": {
-                "additionalProperties": false,
-                "properties": {
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "channel": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": ["systemEvent", "agentTurn", "sendMessage"],
-                    "type": "string"
-                  },
-                  "message": {
-                    "type": "string"
-                  },
-                  "sessionKey": {
-                    "type": "string"
-                  },
-                  "target": {
-                    "type": "string"
-                  },
-                  "text": {
-                    "type": "string"
-                  }
-                },
-                "required": ["kind"],
-                "type": "object"
-              },
-              "schedule": {
-                "oneOf": [
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "atMs": {
-                        "maximum": 9007199254740991,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "kind": {
-                        "const": "at",
-                        "type": "string"
-                      }
-                    },
-                    "required": ["kind", "atMs"],
-                    "type": "object"
-                  },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "anchorMs": {
-                        "maximum": 9007199254740991,
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "everyMs": {
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991,
-                        "type": "integer"
-                      },
-                      "kind": {
-                        "const": "every",
-                        "type": "string"
-                      }
-                    },
-                    "required": ["kind", "everyMs"],
-                    "type": "object"
-                  },
-                  {
-                    "additionalProperties": false,
-                    "properties": {
-                      "expr": {
-                        "minLength": 1,
-                        "type": "string"
-                      },
-                      "kind": {
-                        "const": "cron",
-                        "type": "string"
-                      },
-                      "tz": {
-                        "minLength": 1,
-                        "type": "string"
-                      }
-                    },
-                    "required": ["kind", "expr"],
-                    "type": "object"
-                  }
-                ]
-              }
-            },
-            "required": ["id", "schedule", "payload"],
-            "type": "object"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "__schema4": {
       "additionalProperties": false,
       "properties": {
         "historyLimit": {
@@ -759,44 +27,167 @@
       },
       "type": "object"
     },
-    "__schema5": {
+    "__schema11": {
+      "additionalProperties": false,
+      "properties": {
+        "emojis": {
+          "additionalProperties": false,
+          "properties": {
+            "done": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "error": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "queued": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "thinking": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "tool": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "__schema12": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": ["fatal", "error", "warn", "info", "debug", "trace"],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema13": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultProfile": {
+          "$ref": "#/$defs/__schema16"
+        },
+        "enabled": {
+          "$ref": "#/$defs/__schema14"
+        },
+        "profiles": {
+          "$ref": "#/$defs/__schema15"
+        },
+        "relay": {
+          "$ref": "#/$defs/__schema17"
+        }
+      },
+      "type": "object"
+    },
+    "__schema14": {
+      "type": "boolean"
+    },
+    "__schema15": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "cdpUrl": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "driver": {
+            "enum": ["extension", "cdp"],
+            "type": "string"
+          }
+        },
+        "required": ["driver", "cdpUrl"],
+        "type": "object"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "__schema16": {
+      "type": "string"
+    },
+    "__schema17": {
+      "additionalProperties": false,
+      "properties": {
+        "authToken": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "bindHost": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "port": {
+          "exclusiveMinimum": 0,
+          "maximum": 65535,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "__schema18": {
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema31"
+      },
+      "properties": {
+        "defaults": {
+          "$ref": "#/$defs/__schema19"
+        }
+      },
+      "type": "object"
+    },
+    "__schema19": {
       "additionalProperties": false,
       "properties": {
         "cliBackends": {
-          "$ref": "#/$defs/__schema14"
+          "$ref": "#/$defs/__schema28"
         },
         "contextPruning": {
-          "$ref": "#/$defs/__schema16"
+          "$ref": "#/$defs/__schema30"
         },
         "contextTokens": {
           "type": "number"
         },
         "exec": {
-          "$ref": "#/$defs/__schema9"
+          "$ref": "#/$defs/__schema23"
         },
         "heartbeat": {
-          "$ref": "#/$defs/__schema10"
+          "$ref": "#/$defs/__schema24"
         },
         "imageModel": {
-          "$ref": "#/$defs/__schema6"
+          "$ref": "#/$defs/__schema20"
         },
         "lifecycle": {
-          "$ref": "#/$defs/__schema11"
+          "$ref": "#/$defs/__schema25"
         },
         "model": {
-          "$ref": "#/$defs/__schema6"
+          "$ref": "#/$defs/__schema20"
         },
         "output": {
-          "$ref": "#/$defs/__schema13"
+          "$ref": "#/$defs/__schema27"
         },
         "sandbox": {
-          "$ref": "#/$defs/__schema8"
+          "$ref": "#/$defs/__schema22"
         },
         "subagents": {
-          "$ref": "#/$defs/__schema7"
+          "$ref": "#/$defs/__schema21"
         },
         "thinking": {
-          "$ref": "#/$defs/__schema12"
+          "$ref": "#/$defs/__schema26"
         },
         "timeoutSeconds": {
           "exclusiveMinimum": 0,
@@ -811,7 +202,19 @@
       },
       "type": "object"
     },
-    "__schema6": {
+    "__schema2": {
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema20": {
       "anyOf": [
         {
           "minLength": 1,
@@ -835,7 +238,7 @@
         }
       ]
     },
-    "__schema7": {
+    "__schema21": {
       "additionalProperties": false,
       "properties": {
         "allow": {
@@ -851,7 +254,7 @@
       },
       "type": "object"
     },
-    "__schema8": {
+    "__schema22": {
       "additionalProperties": false,
       "properties": {
         "apple": {
@@ -956,7 +359,7 @@
       },
       "type": "object"
     },
-    "__schema9": {
+    "__schema23": {
       "additionalProperties": false,
       "properties": {
         "allowedSecrets": {
@@ -973,284 +376,397 @@
         }
       },
       "type": "object"
-    }
-  },
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
-  "properties": {
-    "$include": {
-      "anyOf": [
-        {
+    },
+    "__schema24": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "every": {
           "type": "string"
         },
-        {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      ]
-    },
-    "$schema": {
-      "type": "string"
-    },
-    "agents": {
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema17"
-      },
-      "properties": {
-        "defaults": {
-          "$ref": "#/$defs/__schema5"
+        "prompt": {
+          "type": "string"
         }
       },
       "type": "object"
     },
-    "channels": {
+    "__schema25": {
       "additionalProperties": false,
       "properties": {
-        "discord": {
+        "control": {
           "additionalProperties": false,
           "properties": {
-            "agent": {
-              "type": "string"
-            },
-            "agentId": {
-              "type": "string"
-            },
-            "allowedChannels": {
+            "fallback": {
               "items": {
+                "minLength": 1,
                 "type": "string"
               },
               "type": "array"
             },
-            "allowedGuilds": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "allowFrom": {
-              "$ref": "#/$defs/__schema1"
-            },
-            "botToken": {
+            "model": {
+              "minLength": 1,
               "type": "string"
-            },
-            "dmHistoryLimit": {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer"
-            },
-            "dmPolicy": {
-              "$ref": "#/$defs/__schema3"
-            },
-            "dms": {
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema4"
-              },
-              "propertyNames": {
-                "type": "string"
-              },
-              "type": "object"
-            },
-            "dmScope": {
-              "$ref": "#/$defs/__schema2"
-            },
-            "enabled": {
-              "type": "boolean"
-            },
-            "groupPolicy": {
-              "$ref": "#/$defs/__schema3"
-            },
-            "guilds": {
-              "additionalProperties": {
-                "additionalProperties": false,
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "allowFrom": {
-                    "$ref": "#/$defs/__schema1"
-                  },
-                  "requireMention": {
-                    "type": "boolean"
-                  }
-                },
-                "type": "object"
-              },
-              "propertyNames": {
-                "type": "string"
-              },
-              "type": "object"
             }
           },
           "type": "object"
         },
+        "semantic": {
+          "additionalProperties": false,
+          "properties": {
+            "debounceSeconds": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "reversible": {
+              "type": "boolean"
+            },
+            "threshold": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "temporal": {
+          "additionalProperties": false,
+          "properties": {
+            "activeWindowHours": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dayBoundaryRollover": {
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "__schema26": {
+      "enum": ["off", "minimal", "low", "medium", "high", "xhigh"],
+      "type": "string"
+    },
+    "__schema27": {
+      "additionalProperties": false,
+      "properties": {
+        "reasoningLevel": {
+          "enum": ["off", "on", "stream"],
+          "type": "string"
+        },
+        "showThinking": {
+          "type": "boolean"
+        },
+        "showToolCalls": {
+          "enum": ["off", "summary"],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema28": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "command": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "imageArg": {
+            "type": "string"
+          },
+          "imageMode": {
+            "enum": ["repeat", "append"],
+            "type": "string"
+          },
+          "input": {
+            "enum": ["arg", "stdin"],
+            "type": "string"
+          },
+          "maxPromptArgChars": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "modelAliases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "modelArg": {
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output": {
+            "$ref": "#/$defs/__schema29"
+          },
+          "resumeArgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resumeOutput": {
+            "$ref": "#/$defs/__schema29"
+          },
+          "serialize": {
+            "type": "boolean"
+          },
+          "sessionArg": {
+            "type": "string"
+          },
+          "sessionArgs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sessionIdFields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sessionMode": {
+            "enum": ["always", "existing", "none"],
+            "type": "string"
+          },
+          "systemPromptArg": {
+            "type": "string"
+          },
+          "systemPromptWhen": {
+            "enum": ["first", "always", "never"],
+            "type": "string"
+          }
+        },
+        "required": ["command"],
+        "type": "object"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "__schema29": {
+      "enum": ["json", "jsonl", "text"],
+      "type": "string"
+    },
+    "__schema3": {
+      "additionalProperties": false,
+      "properties": {
+        "baseDir": {
+          "type": "string"
+        },
+        "logs": {
+          "type": "string"
+        },
+        "sessions": {
+          "type": "string"
+        },
+        "skills": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema30": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "hardClearPlaceholder": {
+          "type": "string"
+        },
+        "hardClearRatio": {
+          "type": "number"
+        },
+        "keepLastAssistants": {
+          "type": "number"
+        },
+        "minPrunableChars": {
+          "type": "number"
+        },
+        "protectedTools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "softTrim": {
+          "additionalProperties": false,
+          "properties": {
+            "headChars": {
+              "type": "number"
+            },
+            "maxChars": {
+              "type": "number"
+            },
+            "tailChars": {
+              "type": "number"
+            }
+          },
+          "type": "object"
+        },
+        "softTrimRatio": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "__schema31": {
+      "additionalProperties": false,
+      "properties": {
+        "cliBackends": {
+          "$ref": "#/$defs/__schema28"
+        },
+        "contextPruning": {
+          "$ref": "#/$defs/__schema30"
+        },
+        "exec": {
+          "$ref": "#/$defs/__schema23"
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/__schema24"
+        },
+        "home": {
+          "type": "string"
+        },
+        "imageModel": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/__schema25"
+        },
+        "main": {
+          "type": "boolean"
+        },
+        "model": {
+          "$ref": "#/$defs/__schema20"
+        },
+        "name": {
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/__schema27"
+        },
+        "sandbox": {
+          "$ref": "#/$defs/__schema22"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subagents": {
+          "$ref": "#/$defs/__schema21"
+        },
+        "systemPrompt": {
+          "type": "string"
+        },
+        "thinking": {
+          "$ref": "#/$defs/__schema26"
+        },
+        "timeoutSeconds": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema32": {
+      "additionalProperties": false,
+      "properties": {
         "dmScope": {
           "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
           "type": "string"
         },
-        "localDesktop": {
-          "additionalProperties": false,
-          "properties": {
-            "allowOrigins": {
-              "items": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "authToken": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "enabled": {
-              "type": "boolean"
-            },
-            "host": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "port": {
-              "exclusiveMinimum": 0,
-              "maximum": 65535,
-              "type": "integer"
-            },
-            "widget": {
-              "additionalProperties": false,
-              "properties": {
-                "mode": {
-                  "enum": ["auto", "on", "off"],
+        "identityLinks": {
+          "additionalProperties": {
+            "items": {
+              "anyOf": [
+                {
                   "type": "string"
+                },
+                {
+                  "type": "number"
                 }
-              },
-              "type": "object"
-            }
+              ]
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "type": "string"
           },
           "type": "object"
         },
-        "routing": {
-          "properties": {
-            "dmAgent": {
-              "type": "string"
-            },
-            "dmAgentId": {
-              "type": "string"
-            },
-            "groupAgent": {
-              "type": "string"
-            },
-            "groupAgentId": {
-              "type": "string"
-            }
+        "mainKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "reset": {
+          "$ref": "#/$defs/__schema33"
+        },
+        "resetByChannel": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema33"
+          },
+          "propertyNames": {
+            "type": "string"
           },
           "type": "object"
         },
-        "telegram": {
+        "resetByType": {
           "additionalProperties": false,
           "properties": {
-            "agent": {
-              "type": "string"
+            "direct": {
+              "$ref": "#/$defs/__schema33"
             },
-            "agentId": {
-              "type": "string"
+            "group": {
+              "$ref": "#/$defs/__schema33"
             },
-            "allowedChats": {
-              "$ref": "#/$defs/__schema1"
-            },
-            "allowFrom": {
-              "$ref": "#/$defs/__schema1"
-            },
-            "botToken": {
-              "type": "string"
-            },
-            "dmHistoryLimit": {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer"
-            },
-            "dmPolicy": {
-              "$ref": "#/$defs/__schema3"
-            },
-            "dms": {
-              "additionalProperties": {
-                "$ref": "#/$defs/__schema4"
-              },
-              "propertyNames": {
-                "type": "string"
-              },
-              "type": "object"
-            },
-            "dmScope": {
-              "$ref": "#/$defs/__schema2"
-            },
-            "enabled": {
-              "type": "boolean"
-            },
-            "groupPolicy": {
-              "$ref": "#/$defs/__schema3"
-            },
-            "groups": {
-              "additionalProperties": {
-                "additionalProperties": false,
-                "properties": {
-                  "agent": {
-                    "type": "string"
-                  },
-                  "agentId": {
-                    "type": "string"
-                  },
-                  "allowFrom": {
-                    "$ref": "#/$defs/__schema1"
-                  },
-                  "requireMention": {
-                    "type": "boolean"
-                  }
-                },
-                "type": "object"
-              },
-              "propertyNames": {
-                "type": "string"
-              },
-              "type": "object"
-            },
-            "polling": {
-              "additionalProperties": false,
-              "properties": {
-                "maxRetryTimeMs": {
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991,
-                  "type": "integer"
-                },
-                "retryInterval": {
-                  "anyOf": [
-                    {
-                      "enum": ["exponential", "quadratic"],
-                      "type": "string"
-                    },
-                    {
-                      "exclusiveMinimum": 0,
-                      "maximum": 9007199254740991,
-                      "type": "integer"
-                    }
-                  ]
-                },
-                "silentRunnerErrors": {
-                  "type": "boolean"
-                },
-                "timeoutSeconds": {
-                  "exclusiveMinimum": 0,
-                  "maximum": 60,
-                  "type": "integer"
-                }
-              },
-              "type": "object"
-            },
-            "streamMode": {
-              "enum": ["off", "partial", "full"],
-              "type": "string"
+            "thread": {
+              "$ref": "#/$defs/__schema33"
             }
           },
           "type": "object"
@@ -1258,149 +774,27 @@
       },
       "type": "object"
     },
-    "cron": {
-      "$ref": "#/$defs/__schema35"
-    },
-    "extensions": {
+    "__schema33": {
       "additionalProperties": false,
       "properties": {
-        "allow": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "atHour": {
+          "maximum": 23,
+          "minimum": 0,
+          "type": "integer"
         },
-        "deny": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "idleMinutes": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
         },
-        "enabled": {
-          "type": "boolean"
-        },
-        "entries": {
-          "additionalProperties": {
-            "additionalProperties": false,
-            "properties": {
-              "config": {
-                "additionalProperties": {},
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "enabled": {
-                "type": "boolean"
-              }
-            },
-            "type": "object"
-          },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "installs": {
-          "additionalProperties": {
-            "additionalProperties": false,
-            "properties": {
-              "installedAt": {
-                "type": "string"
-              },
-              "source": {
-                "enum": ["npm", "path", "archive", "git"],
-                "type": "string"
-              },
-              "spec": {
-                "type": "string"
-              }
-            },
-            "required": ["source", "spec"],
-            "type": "object"
-          },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "load": {
-          "additionalProperties": false,
-          "properties": {
-            "paths": {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            }
-          },
-          "type": "object"
-        },
-        "mcpServers": {
-          "additionalProperties": {
-            "additionalProperties": false,
-            "properties": {
-              "args": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "command": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "env": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "propertyNames": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              "timeout": {
-                "maximum": 120000,
-                "minimum": 1000,
-                "type": "integer"
-              }
-            },
-            "required": ["command"],
-            "type": "object"
-          },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "policy": {
-          "additionalProperties": false,
-          "properties": {
-            "capabilities": {
-              "default": "warn",
-              "enum": ["warn", "enforce"],
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "type": "object"
-    },
-    "logging": {
-      "additionalProperties": false,
-      "properties": {
-        "level": {
-          "enum": ["fatal", "error", "warn", "info", "debug", "trace"],
+        "mode": {
+          "enum": ["daily", "idle", "disabled"],
           "type": "string"
         }
       },
       "type": "object"
     },
-    "memory": {
+    "__schema34": {
       "additionalProperties": false,
       "properties": {
         "backend": {
@@ -1543,6 +937,59 @@
               },
               "type": "array"
             },
+            "recall": {
+              "additionalProperties": false,
+              "properties": {
+                "metrics": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "sampleRate": {
+                      "default": 1,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                },
+                "mmr": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "lambda": {
+                      "default": 0.7,
+                      "maximum": 1,
+                      "minimum": 0,
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                },
+                "temporalDecay": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "halfLifeDays": {
+                      "default": 30,
+                      "exclusiveMinimum": 0,
+                      "type": "number"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
             "reliability": {
               "additionalProperties": false,
               "properties": {
@@ -1655,19 +1102,242 @@
       },
       "type": "object"
     },
-    "meta": {
+    "__schema35": {
       "additionalProperties": false,
       "properties": {
-        "createdAt": {
-          "type": "string"
+        "allowBundled": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
-        "version": {
+        "dirs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "install": {
+          "additionalProperties": false,
+          "properties": {
+            "nodeManager": {
+              "enum": ["npm", "pnpm", "yarn"],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "installDir": {
           "type": "string"
         }
       },
       "type": "object"
     },
-    "models": {
+    "__schema36": {
+      "additionalProperties": false,
+      "properties": {
+        "stt": {
+          "additionalProperties": false,
+          "properties": {
+            "local": {
+              "$ref": "#/$defs/__schema38"
+            },
+            "remote": {
+              "$ref": "#/$defs/__schema39"
+            },
+            "strategy": {
+              "$ref": "#/$defs/__schema37"
+            }
+          },
+          "type": "object"
+        },
+        "tts": {
+          "additionalProperties": false,
+          "properties": {
+            "edge": {
+              "$ref": "#/$defs/__schema43"
+            },
+            "elevenlabs": {
+              "$ref": "#/$defs/__schema45"
+            },
+            "maxChars": {
+              "$ref": "#/$defs/__schema41"
+            },
+            "openai": {
+              "$ref": "#/$defs/__schema44"
+            },
+            "providerOrder": {
+              "$ref": "#/$defs/__schema42"
+            },
+            "strategy": {
+              "$ref": "#/$defs/__schema40"
+            }
+          },
+          "type": "object"
+        },
+        "ui": {
+          "additionalProperties": false,
+          "properties": {
+            "phaseMapping": {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "$ref": "#/$defs/__schema52"
+                },
+                "executing": {
+                  "$ref": "#/$defs/__schema52"
+                },
+                "idle": {
+                  "$ref": "#/$defs/__schema52"
+                },
+                "listening": {
+                  "$ref": "#/$defs/__schema52"
+                },
+                "speaking": {
+                  "$ref": "#/$defs/__schema52"
+                },
+                "thinking": {
+                  "$ref": "#/$defs/__schema52"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "vad": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "$ref": "#/$defs/__schema46"
+            },
+            "endThreshold": {
+              "$ref": "#/$defs/__schema48"
+            },
+            "maxSpeechMs": {
+              "$ref": "#/$defs/__schema51"
+            },
+            "minSpeechMs": {
+              "$ref": "#/$defs/__schema50"
+            },
+            "silenceMs": {
+              "$ref": "#/$defs/__schema49"
+            },
+            "startThreshold": {
+              "$ref": "#/$defs/__schema47"
+            }
+          },
+          "type": "object"
+        },
+        "wake": {
+          "additionalProperties": false,
+          "properties": {
+            "activationMode": {
+              "enum": ["click", "wake-word", "hybrid"],
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "keywords": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "sensitivity": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "__schema37": {
+      "enum": ["local-only", "remote-only", "local-first"],
+      "type": "string"
+    },
+    "__schema38": {
+      "additionalProperties": false,
+      "properties": {
+        "binPath": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "language": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "modelPath": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "const": "whisper.cpp",
+          "type": "string"
+        },
+        "threads": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "useCoreML": {
+          "type": "boolean"
+        },
+        "useMetal": {
+          "type": "boolean"
+        }
+      },
+      "required": ["provider", "modelPath"],
+      "type": "object"
+    },
+    "__schema39": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "endpoint": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "model": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "enum": ["openai", "groq", "deepgram", "custom"],
+          "type": "string"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": ["provider"],
+      "type": "object"
+    },
+    "__schema4": {
       "additionalProperties": false,
       "properties": {
         "mode": {
@@ -1687,7 +1357,7 @@
             "additionalProperties": false,
             "properties": {
               "api": {
-                "$ref": "#/$defs/__schema0"
+                "$ref": "#/$defs/__schema5"
               },
               "apiKey": {
                 "type": "string"
@@ -1732,7 +1402,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "api": {
-                      "$ref": "#/$defs/__schema0"
+                      "$ref": "#/$defs/__schema5"
                     },
                     "compat": {
                       "additionalProperties": false,
@@ -1830,28 +1500,203 @@
       },
       "type": "object"
     },
-    "paths": {
+    "__schema40": {
+      "enum": ["provider-only", "fallback-chain"],
+      "type": "string"
+    },
+    "__schema41": {
+      "maximum": 10000,
+      "minimum": 50,
+      "type": "integer"
+    },
+    "__schema42": {
+      "items": {
+        "enum": ["edge", "openai", "elevenlabs"],
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "__schema43": {
       "additionalProperties": false,
       "properties": {
-        "baseDir": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "format": {
+          "enum": ["audio-24khz-48kbitrate-mono-mp3", "riff-24khz-16bit-mono-pcm"],
           "type": "string"
         },
-        "logs": {
+        "pitch": {
+          "minLength": 1,
           "type": "string"
         },
-        "sessions": {
+        "rate": {
+          "minLength": 1,
           "type": "string"
         },
-        "skills": {
-          "type": "string"
-        },
-        "workspace": {
+        "voice": {
+          "minLength": 1,
           "type": "string"
         }
       },
       "type": "object"
     },
-    "runtime": {
+    "__schema44": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "format": {
+          "enum": ["mp3", "wav"],
+          "type": "string"
+        },
+        "model": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "voice": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "__schema45": {
+      "additionalProperties": false,
+      "properties": {
+        "apiKey": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "applyTextNormalization": {
+          "enum": ["auto", "on", "off"],
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "format": {
+          "enum": ["mp3_22050_32", "pcm_16000"],
+          "type": "string"
+        },
+        "languageCode": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "modelId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "timeoutMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "voiceId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "voiceSettings": {
+          "additionalProperties": false,
+          "properties": {
+            "similarityBoost": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "speed": {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            "stability": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "style": {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "useSpeakerBoost": {
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "__schema46": {
+      "type": "boolean"
+    },
+    "__schema47": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "__schema48": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "__schema49": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "__schema5": {
+      "enum": [
+        "openai-responses",
+        "openai-completions",
+        "openai-codex-responses",
+        "anthropic-messages",
+        "google-generative-ai",
+        "google-gemini-cli",
+        "cli-backend"
+      ],
+      "type": "string"
+    },
+    "__schema50": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "__schema51": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "__schema52": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "effect": {
+          "enum": ["idle", "pulse", "orbit", "glow", "wave"],
+          "type": "string"
+        },
+        "intensity": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "__schema53": {
       "additionalProperties": false,
       "properties": {
         "auth": {
@@ -1876,7 +1721,7 @@
           "type": "object"
         },
         "cron": {
-          "$ref": "#/$defs/__schema35"
+          "$ref": "#/$defs/__schema54"
         },
         "hooks": {
           "additionalProperties": false,
@@ -1919,162 +1764,410 @@
       },
       "type": "object"
     },
-    "session": {
+    "__schema54": {
       "additionalProperties": false,
       "properties": {
-        "dmScope": {
-          "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
-          "type": "string"
-        },
-        "identityLinks": {
-          "additionalProperties": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
+        "jobs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "id": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "payload": {
+                "additionalProperties": false,
+                "properties": {
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "channel": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": ["systemEvent", "agentTurn", "sendMessage"],
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "sessionKey": {
+                    "type": "string"
+                  },
+                  "target": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
                 },
-                {
-                  "type": "number"
-                }
-              ]
+                "required": ["kind"],
+                "type": "object"
+              },
+              "schedule": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atMs": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "const": "at",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "atMs"],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "anchorMs": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "everyMs": {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "type": "integer"
+                      },
+                      "kind": {
+                        "const": "every",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "everyMs"],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "expr": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "cron",
+                        "type": "string"
+                      },
+                      "tz": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind", "expr"],
+                    "type": "object"
+                  }
+                ]
+              }
             },
-            "type": "array"
+            "required": ["id", "schedule", "payload"],
+            "type": "object"
           },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "mainKey": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "reset": {
-          "$ref": "#/$defs/__schema18"
-        },
-        "resetByChannel": {
-          "additionalProperties": {
-            "$ref": "#/$defs/__schema18"
-          },
-          "propertyNames": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "resetByType": {
-          "additionalProperties": false,
-          "properties": {
-            "direct": {
-              "$ref": "#/$defs/__schema18"
-            },
-            "group": {
-              "$ref": "#/$defs/__schema18"
-            },
-            "thread": {
-              "$ref": "#/$defs/__schema18"
-            }
-          },
-          "type": "object"
+          "type": "array"
         }
       },
       "type": "object"
     },
-    "skills": {
+    "__schema55": {
+      "$ref": "#/$defs/__schema54"
+    },
+    "__schema56": {
       "additionalProperties": false,
       "properties": {
-        "allowBundled": {
+        "allow": {
           "items": {
             "type": "string"
           },
           "type": "array"
         },
-        "dirs": {
+        "deny": {
           "items": {
             "type": "string"
           },
           "type": "array"
         },
-        "install": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "entries": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "config": {
+                "additionalProperties": {},
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "installs": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "installedAt": {
+                "type": "string"
+              },
+              "source": {
+                "enum": ["npm", "path", "archive", "git"],
+                "type": "string"
+              },
+              "spec": {
+                "type": "string"
+              }
+            },
+            "required": ["source", "spec"],
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "load": {
           "additionalProperties": false,
           "properties": {
-            "nodeManager": {
-              "enum": ["npm", "pnpm", "yarn"],
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "mcpServers": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "args": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "command": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "env": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "propertyNames": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "timeout": {
+                "maximum": 120000,
+                "minimum": 1000,
+                "type": "integer"
+              }
+            },
+            "required": ["command"],
+            "type": "object"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "policy": {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "default": "warn",
+              "enum": ["warn", "enforce"],
               "type": "string"
             }
           },
           "type": "object"
-        },
-        "installDir": {
-          "type": "string"
         }
       },
       "type": "object"
     },
-    "voice": {
+    "__schema6": {
       "additionalProperties": false,
       "properties": {
-        "stt": {
+        "discord": {
           "additionalProperties": false,
           "properties": {
-            "local": {
-              "$ref": "#/$defs/__schema20"
+            "agent": {
+              "type": "string"
             },
-            "remote": {
-              "$ref": "#/$defs/__schema21"
+            "agentId": {
+              "type": "string"
             },
-            "strategy": {
-              "$ref": "#/$defs/__schema19"
+            "allowedChannels": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "allowedGuilds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "allowFrom": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "botToken": {
+              "type": "string"
+            },
+            "dmHistoryLimit": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dmPolicy": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "dms": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema10"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "dmScope": {
+              "$ref": "#/$defs/__schema8"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "groupPolicy": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "guilds": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "allowFrom": {
+                    "$ref": "#/$defs/__schema7"
+                  },
+                  "allowRoles": {
+                    "$ref": "#/$defs/__schema7"
+                  },
+                  "requireMention": {
+                    "type": "boolean"
+                  },
+                  "roleRouting": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "agent": {
+                          "type": "string"
+                        },
+                        "agentId": {
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "statusReactions": {
+              "$ref": "#/$defs/__schema11"
             }
           },
           "type": "object"
         },
-        "tts": {
-          "additionalProperties": false,
-          "properties": {
-            "edge": {
-              "$ref": "#/$defs/__schema25"
-            },
-            "elevenlabs": {
-              "$ref": "#/$defs/__schema27"
-            },
-            "maxChars": {
-              "$ref": "#/$defs/__schema23"
-            },
-            "openai": {
-              "$ref": "#/$defs/__schema26"
-            },
-            "providerOrder": {
-              "$ref": "#/$defs/__schema24"
-            },
-            "strategy": {
-              "$ref": "#/$defs/__schema22"
-            }
-          },
-          "type": "object"
+        "dmScope": {
+          "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
+          "type": "string"
         },
-        "ui": {
+        "localDesktop": {
           "additionalProperties": false,
           "properties": {
-            "phaseMapping": {
+            "allowOrigins": {
+              "items": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "authToken": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "host": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "port": {
+              "exclusiveMinimum": 0,
+              "maximum": 65535,
+              "type": "integer"
+            },
+            "widget": {
               "additionalProperties": false,
               "properties": {
-                "error": {
-                  "$ref": "#/$defs/__schema34"
+                "mode": {
+                  "enum": ["auto", "on", "off"],
+                  "type": "string"
                 },
-                "executing": {
-                  "$ref": "#/$defs/__schema34"
+                "textOutputEnabled": {
+                  "type": "boolean"
                 },
-                "idle": {
-                  "$ref": "#/$defs/__schema34"
+                "uiMode": {
+                  "enum": ["voice", "text"],
+                  "type": "string"
                 },
-                "listening": {
-                  "$ref": "#/$defs/__schema34"
+                "voiceInputMode": {
+                  "enum": ["ptt", "vad"],
+                  "type": "string"
                 },
-                "speaking": {
-                  "$ref": "#/$defs/__schema34"
-                },
-                "thinking": {
-                  "$ref": "#/$defs/__schema34"
+                "voiceOutputEnabled": {
+                  "type": "boolean"
                 }
               },
               "type": "object"
@@ -2082,57 +2175,208 @@
           },
           "type": "object"
         },
-        "vad": {
-          "additionalProperties": false,
+        "routing": {
           "properties": {
-            "enabled": {
-              "$ref": "#/$defs/__schema28"
+            "dmAgent": {
+              "type": "string"
             },
-            "endThreshold": {
-              "$ref": "#/$defs/__schema30"
+            "dmAgentId": {
+              "type": "string"
             },
-            "maxSpeechMs": {
-              "$ref": "#/$defs/__schema33"
+            "groupAgent": {
+              "type": "string"
             },
-            "minSpeechMs": {
-              "$ref": "#/$defs/__schema32"
-            },
-            "silenceMs": {
-              "$ref": "#/$defs/__schema31"
-            },
-            "startThreshold": {
-              "$ref": "#/$defs/__schema29"
+            "groupAgentId": {
+              "type": "string"
             }
           },
           "type": "object"
         },
-        "wake": {
+        "telegram": {
           "additionalProperties": false,
           "properties": {
-            "activationMode": {
-              "enum": ["click", "wake-word", "hybrid"],
+            "agent": {
               "type": "string"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "allowedChats": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "allowFrom": {
+              "$ref": "#/$defs/__schema7"
+            },
+            "botToken": {
+              "type": "string"
+            },
+            "dmHistoryLimit": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "dmPolicy": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "dms": {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema10"
+              },
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "dmScope": {
+              "$ref": "#/$defs/__schema8"
             },
             "enabled": {
               "type": "boolean"
             },
-            "keywords": {
-              "items": {
-                "minLength": 1,
+            "groupPolicy": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "groups": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "agentId": {
+                    "type": "string"
+                  },
+                  "allowFrom": {
+                    "$ref": "#/$defs/__schema7"
+                  },
+                  "requireMention": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              },
+              "propertyNames": {
                 "type": "string"
               },
-              "type": "array"
+              "type": "object"
             },
-            "sensitivity": {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
+            "polling": {
+              "additionalProperties": false,
+              "properties": {
+                "maxRetryTimeMs": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "retryInterval": {
+                  "anyOf": [
+                    {
+                      "enum": ["exponential", "quadratic"],
+                      "type": "string"
+                    },
+                    {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "silentRunnerErrors": {
+                  "type": "boolean"
+                },
+                "timeoutSeconds": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 60,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "statusReactions": {
+              "$ref": "#/$defs/__schema11"
+            },
+            "streamMode": {
+              "enum": ["off", "partial", "full"],
+              "type": "string"
             }
           },
           "type": "object"
         }
       },
       "type": "object"
+    },
+    "__schema7": {
+      "items": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "type": "array"
+    },
+    "__schema8": {
+      "enum": ["main", "per-peer", "per-channel-peer", "per-account-channel-peer"],
+      "type": "string"
+    },
+    "__schema9": {
+      "enum": ["open", "allowlist"],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$include": {
+      "$ref": "#/$defs/__schema1"
+    },
+    "$schema": {
+      "$ref": "#/$defs/__schema0"
+    },
+    "agents": {
+      "$ref": "#/$defs/__schema18"
+    },
+    "browser": {
+      "$ref": "#/$defs/__schema13"
+    },
+    "channels": {
+      "$ref": "#/$defs/__schema6"
+    },
+    "cron": {
+      "$ref": "#/$defs/__schema55"
+    },
+    "extensions": {
+      "$ref": "#/$defs/__schema56"
+    },
+    "logging": {
+      "$ref": "#/$defs/__schema12"
+    },
+    "memory": {
+      "$ref": "#/$defs/__schema34"
+    },
+    "meta": {
+      "$ref": "#/$defs/__schema2"
+    },
+    "models": {
+      "$ref": "#/$defs/__schema4"
+    },
+    "paths": {
+      "$ref": "#/$defs/__schema3"
+    },
+    "runtime": {
+      "$ref": "#/$defs/__schema53"
+    },
+    "session": {
+      "$ref": "#/$defs/__schema32"
+    },
+    "skills": {
+      "$ref": "#/$defs/__schema35"
+    },
+    "voice": {
+      "$ref": "#/$defs/__schema36"
     }
   },
   "type": "object",

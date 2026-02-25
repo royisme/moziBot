@@ -3,6 +3,7 @@ import { Bot } from "grammy";
 import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
+import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
 import { handleMessage, handleCallback } from "./handlers";
 import {
@@ -11,7 +12,6 @@ import {
   isRecoverableTelegramNetworkError,
 } from "./network-errors";
 import { sendMessage, reactToMessage, deleteMsg, editMsg } from "./send";
-import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import { TypingManager } from "./typing";
 
 interface StatusReactionsConfig {

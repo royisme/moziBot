@@ -22,11 +22,6 @@ import { SkillLoader } from "../agents/skills/loader";
 import { type ExtensionRegistry } from "../extensions";
 import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
-import {
-  configureCliBackends,
-  ensureCliBackendProviderRegistered,
-  listCliBackendModelDefinitions,
-} from "./cli-backends";
 import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
 import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
 // Extracted modules
@@ -73,6 +68,11 @@ import {
   resetSession as resetSessionState,
 } from "./agent-manager/runtime-state";
 import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
+import {
+  configureCliBackends,
+  ensureCliBackendProviderRegistered,
+  listCliBackendModelDefinitions,
+} from "./cli-backends";
 import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
 import { ModelRegistry } from "./model-registry";

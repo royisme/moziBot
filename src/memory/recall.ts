@@ -117,7 +117,11 @@ export async function applyRecallPostProcessing(params: {
 
 async function applyTemporalDecay(
   results: MemorySearchResult[],
-  params: { now: Date; halfLifeDays: number; resolveAbsolutePath?: (relPath: string) => string | null },
+  params: {
+    now: Date;
+    halfLifeDays: number;
+    resolveAbsolutePath?: (relPath: string) => string | null;
+  },
 ): Promise<{
   results: MemorySearchResult[];
   evergreen: number;
@@ -236,11 +240,9 @@ function applyMmr(results: MemorySearchResult[], lambda: number): MemorySearchRe
     let bestIndex = 0;
     let bestScore = Number.NEGATIVE_INFINITY;
     for (let i = 0; i < remaining.length; i += 1) {
-      const candidate = remaining[i]!;
+      const candidate = remaining[i];
       const maxSimilarity = selected.length
-        ? Math.max(
-            ...selected.map((pick) => jaccardSimilarity(candidate.tokens, pick.tokens)),
-          )
+        ? Math.max(...selected.map((pick) => jaccardSimilarity(candidate.tokens, pick.tokens)))
         : 0;
       const score = lambda * candidate.relevance - (1 - lambda) * maxSimilarity;
       if (score > bestScore) {

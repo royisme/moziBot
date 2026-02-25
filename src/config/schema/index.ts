@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentsSchema } from "./agents";
+import { BrowserConfigSchema } from "./browser";
 import { ChannelsSchema } from "./channels";
 import { ExtensionsConfigSchema } from "./extensions";
 import { LoggingSchema } from "./logging";
@@ -21,6 +22,7 @@ export const MoziConfigSchema = z
     models: ModelsSchema.optional(),
     channels: ChannelsSchema.optional(),
     logging: LoggingSchema.optional(),
+    browser: BrowserConfigSchema.optional(),
     agents: AgentsSchema.optional(),
     session: SessionConfigSchema.optional(),
     memory: MemoryConfigSchema.optional(),
@@ -31,6 +33,27 @@ export const MoziConfigSchema = z
     cron: RuntimeCronConfigSchema.optional(),
     extensions: ExtensionsConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, ctx) => {
+    const browser = config.browser;
+    if (!browser) {
+      return;
+    }
+    const profiles = browser.profiles ?? {};
+    const hasExtensionProfile = Object.values(profiles).some(
+      (profile) => profile?.driver === "extension",
+    );
+    if (!browser.relay?.enabled || !hasExtensionProfile) {
+      return;
+    }
+    const token = browser.relay?.authToken?.trim();
+    if (!token) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["browser", "relay", "authToken"],
+        message: "browser.relay.authToken is required when browser relay is enabled",
+      });
+    }
+  });
 
 export type MoziConfig = z.infer<typeof MoziConfigSchema>;

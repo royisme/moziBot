@@ -144,10 +144,7 @@ export class FallbackMemoryManager implements MemorySearchManager {
     return true;
   }
 
-  private shouldFallbackOnLowRecall(
-    results: MemorySearchResult[],
-    opts?: SearchOptions,
-  ): boolean {
+  private shouldFallbackOnLowRecall(results: MemorySearchResult[], opts?: SearchOptions): boolean {
     const requested = opts?.maxResults;
     if (requested !== undefined && requested <= 0) {
       return false;
@@ -174,8 +171,7 @@ export class FallbackMemoryManager implements MemorySearchManager {
     fallback: MemorySearchResult[],
     opts?: SearchOptions,
   ): MemorySearchResult[] {
-    const limit =
-      opts?.maxResults ?? Math.max(primary.length, fallback.length);
+    const limit = opts?.maxResults ?? Math.max(primary.length, fallback.length);
     const seen = new Set<string>();
     const merged: MemorySearchResult[] = [];
     const push = (entry: MemorySearchResult) => {

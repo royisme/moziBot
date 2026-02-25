@@ -167,4 +167,50 @@ describe("Channels schema", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("accepts local desktop widget ui config", () => {
+    const result = MoziConfigSchema.safeParse({
+      channels: {
+        localDesktop: {
+          widget: {
+            mode: "auto",
+            uiMode: "voice",
+            voiceInputMode: "ptt",
+            voiceOutputEnabled: true,
+            textOutputEnabled: false,
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid local desktop widget ui mode", () => {
+    const result = MoziConfigSchema.safeParse({
+      channels: {
+        localDesktop: {
+          widget: {
+            uiMode: "chat",
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects invalid local desktop voice input mode", () => {
+    const result = MoziConfigSchema.safeParse({
+      channels: {
+        localDesktop: {
+          widget: {
+            voiceInputMode: "always",
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

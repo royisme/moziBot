@@ -279,7 +279,7 @@ export async function handlePromptDigestCommand(params: {
   peerId: string;
   agentManager: AgentManager;
 }): Promise<void> {
-  const { sessionKey, agentId, channel, peerId, agentManager } = params;
+  const { sessionKey, channel, peerId, agentManager } = params;
   const promptMetadata = agentManager.getPromptMetadata(sessionKey);
   if (!promptMetadata) {
     await channel.send(peerId, { text: "No active session." });

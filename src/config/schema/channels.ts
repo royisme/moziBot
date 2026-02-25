@@ -120,6 +120,10 @@ export const LocalDesktopConfigSchema = z
     widget: z
       .object({
         mode: z.enum(["auto", "on", "off"]).optional(),
+        uiMode: z.enum(["voice", "text"]).optional(),
+        voiceInputMode: z.enum(["ptt", "vad"]).optional(),
+        voiceOutputEnabled: z.boolean().optional(),
+        textOutputEnabled: z.boolean().optional(),
       })
       .strict()
       .optional(),

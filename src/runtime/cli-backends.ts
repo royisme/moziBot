@@ -1,8 +1,3 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { execa } from "execa";
 import {
   AssistantMessageEventStream,
   registerApiProvider,
@@ -11,6 +6,11 @@ import {
   type Context,
   type StreamOptions,
 } from "@mariozechner/pi-ai";
+import { execa } from "execa";
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { MoziConfig } from "../config";
 import type { ModelDefinition, ModelSpec } from "./types";
 import { logger } from "../logger";
@@ -49,7 +49,14 @@ const DEFAULT_CLI_BACKENDS: CliBackendMap = {
   "claude-cli": {
     command: "claude",
     args: ["-p", "--output-format", "json", "--dangerously-skip-permissions"],
-    resumeArgs: ["-p", "--output-format", "json", "--dangerously-skip-permissions", "--resume", "{sessionId}"],
+    resumeArgs: [
+      "-p",
+      "--output-format",
+      "json",
+      "--dangerously-skip-permissions",
+      "--resume",
+      "{sessionId}",
+    ],
     output: "json",
     resumeOutput: "json",
     input: "arg",
@@ -64,7 +71,16 @@ const DEFAULT_CLI_BACKENDS: CliBackendMap = {
   "codex-cli": {
     command: "codex",
     args: ["exec", "--json", "--color", "never", "--sandbox", "read-only", "--skip-git-repo-check"],
-    resumeArgs: ["exec", "resume", "{sessionId}", "--color", "never", "--sandbox", "read-only", "--skip-git-repo-check"],
+    resumeArgs: [
+      "exec",
+      "resume",
+      "{sessionId}",
+      "--color",
+      "never",
+      "--sandbox",
+      "read-only",
+      "--skip-git-repo-check",
+    ],
     output: "jsonl",
     resumeOutput: "text",
     input: "arg",
@@ -205,13 +221,23 @@ function storeBackendSessionId(backendId: string, sessionKey: string, sessionId:
   map.set(sessionKey, sessionId);
 }
 
-function enqueueBackend<T>(backendId: string, task: () => Promise<T>, serialize: boolean): Promise<T> {
+function enqueueBackend<T>(
+  backendId: string,
+  task: () => Promise<T>,
+  serialize: boolean,
+): Promise<T> {
   if (!serialize) {
     return task();
   }
   const prev = backendQueues.get(backendId) ?? Promise.resolve();
   const next = prev.then(task, task);
-  backendQueues.set(backendId, next.then(() => undefined, () => undefined));
+  backendQueues.set(
+    backendId,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
   return next;
 }
 
@@ -266,7 +292,10 @@ function resolveModelAlias(backend: CliBackendConfig, modelId: string): string {
   return aliases[modelId] || modelId;
 }
 
-function buildAssistantMessage(model: { api: string; provider: string; id: string }, text: string): AssistantMessage {
+function buildAssistantMessage(
+  model: { api: string; provider: string; id: string },
+  text: string,
+): AssistantMessage {
   return {
     role: "assistant",
     content: [{ type: "text", text }],
@@ -334,7 +363,10 @@ function collectImages(context: Context): Array<{ data: string; mimeType?: strin
   return images;
 }
 
-function parseJsonOutput(payload: unknown, sessionIdFields: string[]): { text: string; sessionId?: string } {
+function parseJsonOutput(
+  payload: unknown,
+  sessionIdFields: string[],
+): { text: string; sessionId?: string } {
   if (!payload || typeof payload !== "object") {
     return { text: "" };
   }
@@ -367,7 +399,10 @@ function parseJsonOutput(payload: unknown, sessionIdFields: string[]): { text: s
   return { text, sessionId };
 }
 
-function parseJsonlOutput(text: string, sessionIdFields: string[]): { text: string; sessionId?: string } {
+function parseJsonlOutput(
+  text: string,
+  sessionIdFields: string[],
+): { text: string; sessionId?: string } {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);
   let sessionId: string | undefined;
   let accumulated = "";
@@ -460,9 +495,10 @@ async function executeCli(params: {
   const prompt = renderContextPrompt(context, includeSystemPrompt && !backend.systemPromptArg);
   const inputMode = backend.input ?? DEFAULT_INPUT;
 
-  const args = (shouldResume ? backend.resumeArgs : backend.args)?.map((arg) =>
-    activeSessionId ? arg.replace("{sessionId}", activeSessionId) : arg,
-  ) ?? [];
+  const args =
+    (shouldResume ? backend.resumeArgs : backend.args)?.map((arg) =>
+      activeSessionId ? arg.replace("{sessionId}", activeSessionId) : arg,
+    ) ?? [];
 
   if (backend.modelArg) {
     const resolvedModel = resolveModelAlias(backend, modelId);
@@ -530,7 +566,8 @@ async function executeCli(params: {
         const stderr = execResult.stderr || "";
 
         if (execResult.exitCode !== 0) {
-          const err = stderr.trim() || stdout.trim() || `CLI exited with code ${execResult.exitCode}`;
+          const err =
+            stderr.trim() || stdout.trim() || `CLI exited with code ${execResult.exitCode}`;
           throw new Error(err);
         }
 
@@ -565,7 +602,7 @@ async function executeCli(params: {
 
 function streamCliBackend(model: Model, context: Context, options?: StreamOptions) {
   const stream = new AssistantMessageEventStream();
-  (async () => {
+  void (async () => {
     const backend = getBackend(model.provider);
     if (!backend) {
       const errorMessage = `CLI backend not configured for provider: ${model.provider}`;

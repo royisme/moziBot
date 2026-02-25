@@ -55,6 +55,30 @@ Recommended baseline for a new user config:
 4. Keep `extensions.policy.capabilities: "warn"` for first rollout, then switch to `"enforce"` after extension manifests are fully declared.
 5. Add `mcpServers` entries only for servers you actually use, keeping each one `enabled: false` until validated.
 
+## Browser Configuration
+
+`src/config/schema/browser.ts` defines browser relay and CDP profile settings:
+
+- `browser.enabled` - master switch (defaults to enabled when unset).
+- `browser.defaultProfile` - profile name used when the browser tool is called without an explicit profile.
+- `browser.profiles.<name>` - profile definition:
+  - `driver`: `extension` (Chrome extension relay) or `cdp` (direct CDP).
+  - `cdpUrl`: loopback HTTP URL (e.g. `http://127.0.0.1:9222`).
+- `browser.relay.enabled` - whether the local relay server can be started for extension profiles.
+- `browser.relay.bindHost` - loopback bind host (`127.0.0.1` / `::1` / `localhost`).
+- `browser.relay.port` - relay port. When set, extension profiles must match this port in `cdpUrl`.
+
+Notes:
+
+- Extension relay is **loopback-only** and requires a relay auth token.
+- Direct CDP profiles are currently restricted to loopback URLs for safety.
+
+## Relay Auth (Browser Relay)
+
+`browser.relay.authToken` is required when `browser.relay.enabled=true` and any profile uses `driver=extension`.
+
+The relay token is derived via HMAC (`sha256`) using the relay auth token plus the relay port.
+
 ## Session Lifecycle Config (agents)
 
 ## Agent Model Config (current)
