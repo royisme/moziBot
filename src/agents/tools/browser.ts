@@ -33,6 +33,19 @@ const ScreenshotOptionsSchema = z
   })
   .strict();
 
+const WaitForSchema = z
+  .object({
+    selector: z.string().min(1).optional(),
+    selectorState: z.enum(["attached", "visible"]).optional(),
+    text: z.string().min(1).optional(),
+    textGone: z.string().min(1).optional(),
+    url: z.string().min(1).optional(),
+    loadState: z.enum(["interactive", "complete"]).optional(),
+    timeMs: z.number().int().min(0).optional(),
+    timeoutMs: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const browserToolSchema = z
   .object({
     action: z.enum(["status", "tabs", "navigate", "evaluate", "screenshot", "click", "type"]),
@@ -46,6 +59,7 @@ export const browserToolSchema = z
     x: z.number().optional(),
     y: z.number().optional(),
     screenshot: ScreenshotOptionsSchema.optional(),
+    waitFor: WaitForSchema.optional(),
   })
   .superRefine((data, ctx) => {
     const selector = data.selector?.trim();
@@ -53,6 +67,7 @@ export const browserToolSchema = z
     const expression = data.expression?.trim();
     const text = data.text;
     const hasCoords = Number.isFinite(data.x) && Number.isFinite(data.y);
+    const waitFor = data.waitFor;
 
     if (data.action === "navigate" && !url) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "url is required" });
@@ -88,6 +103,39 @@ export const browserToolSchema = z
         });
       }
     }
+
+    if (waitFor) {
+      if (data.action === "status" || data.action === "tabs") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["waitFor"],
+          message: "waitFor is not supported for status/tabs",
+        });
+      }
+      const hasWaitCondition = Boolean(
+        waitFor.selector ||
+        waitFor.text ||
+        waitFor.textGone ||
+        waitFor.url ||
+        waitFor.loadState ||
+        waitFor.timeMs !== undefined,
+      );
+      if (!hasWaitCondition) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["waitFor"],
+          message:
+            "waitFor requires at least one condition (selector/text/textGone/url/loadState/timeMs)",
+        });
+      }
+      if (waitFor.selectorState && !waitFor.selector) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["waitFor", "selectorState"],
+          message: "waitFor.selectorState requires waitFor.selector",
+        });
+      }
+    }
   });
 
 export type BrowserToolParams = z.infer<typeof browserToolSchema>;
@@ -95,6 +143,8 @@ export type BrowserToolParams = z.infer<typeof browserToolSchema>;
 export type BrowserToolContext = {
   getConfig: () => MoziConfig;
 };
+
+type WaitForOptions = z.infer<typeof WaitForSchema>;
 
 type BrowserToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -108,6 +158,25 @@ type SelectedTarget = {
   target: BrowserTarget;
   wsUrl: string;
   headers?: Record<string, string>;
+};
+
+type WaitForEvalResult = {
+  ok: boolean;
+  readyState?: string;
+  readyStateOk?: boolean;
+  url?: string;
+  urlMatch?: boolean;
+  selectorFound?: boolean;
+  selectorVisible?: boolean;
+  textPresent?: boolean;
+  textGone?: boolean;
+};
+
+type WaitForResult = {
+  ok: boolean;
+  waitedMs: number;
+  timedOut: boolean;
+  state?: WaitForEvalResult;
 };
 
 const DEFAULT_STATUS_TIMEOUT_MS = 2000;
@@ -389,6 +458,33 @@ class CdpClient {
   }
 }
 
+async function createBlankTarget(opts: {
+  baseUrl: string;
+  headers?: Record<string, string>;
+  timeoutMs: number;
+}): Promise<void> {
+  const version = await fetchJson<{ webSocketDebuggerUrl?: string }>(
+    `${opts.baseUrl}/json/version`,
+    {
+      headers: opts.headers,
+      timeoutMs: opts.timeoutMs,
+    },
+  );
+  const wsUrl = version.webSocketDebuggerUrl?.trim();
+  if (!wsUrl) {
+    throw new Error("Browser websocket is unavailable for Target.createTarget.");
+  }
+  const client = await CdpClient.connect(wsUrl, {
+    headers: opts.headers,
+    timeoutMs: opts.timeoutMs,
+  });
+  try {
+    await client.send("Target.createTarget", { url: "about:blank" }, opts.timeoutMs);
+  } finally {
+    await client.close();
+  }
+}
+
 async function resolveTargetForAction(opts: {
   config: MoziConfig;
   profile: BrowserProfile;
@@ -410,12 +506,25 @@ async function resolveTargetForAction(opts: {
     }
   }
 
-  const targets = await fetchJson<BrowserTarget[]>(`${opts.baseUrl}/json/list`, {
+  let targets = await fetchJson<BrowserTarget[]>(`${opts.baseUrl}/json/list`, {
     headers,
     timeoutMs: opts.timeoutMs,
   });
   if (targets.length === 0) {
-    throw new Error("No browser tabs available.");
+    if (opts.profile.driver === "extension") {
+      throw new Error(
+        "Relay is running but no tab is attached. Click the browser extension icon to attach.",
+      );
+    }
+    await createBlankTarget({ baseUrl: opts.baseUrl, headers, timeoutMs: opts.timeoutMs });
+    await sleep(200);
+    targets = await fetchJson<BrowserTarget[]>(`${opts.baseUrl}/json/list`, {
+      headers,
+      timeoutMs: opts.timeoutMs,
+    });
+    if (targets.length === 0) {
+      throw new Error("No browser tabs available.");
+    }
   }
 
   let target: BrowserTarget | null = null;
@@ -478,6 +587,116 @@ function parseEvalError(result: unknown): string | null {
   return details.text || details.exception?.description || "Runtime.evaluate failed";
 }
 
+function buildWaitForScript(waitFor: WaitForOptions): string {
+  const selector = waitFor.selector ? JSON.stringify(waitFor.selector) : "null";
+  const selectorState = JSON.stringify(waitFor.selectorState ?? "visible");
+  const text = waitFor.text ? JSON.stringify(waitFor.text) : "null";
+  const textGone = waitFor.textGone ? JSON.stringify(waitFor.textGone) : "null";
+  const url = waitFor.url ? JSON.stringify(waitFor.url) : "null";
+  const loadState = waitFor.loadState ? JSON.stringify(waitFor.loadState) : "null";
+
+  return `(() => {
+  const result = { ok: true, readyState: document.readyState, url: location.href };
+  const selector = ${selector};
+  const selectorState = ${selectorState};
+  if (selector) {
+    const el = document.querySelector(selector);
+    const found = Boolean(el);
+    result.selectorFound = found;
+    if (!found) {
+      result.ok = false;
+    } else if (selectorState === "visible") {
+      const style = el ? window.getComputedStyle(el) : null;
+      const rect = el ? el.getBoundingClientRect() : null;
+      const visible = Boolean(
+        el &&
+          rect &&
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style &&
+          style.visibility !== "hidden" &&
+          style.display !== "none" &&
+          style.opacity !== "0"
+      );
+      result.selectorVisible = visible;
+      if (!visible) {
+        result.ok = false;
+      }
+    }
+  }
+
+  const textNeedle = ${text};
+  const textGoneNeedle = ${textGone};
+  if (textNeedle || textGoneNeedle) {
+    const bodyText = document.body?.innerText || "";
+    if (textNeedle) {
+      const present = bodyText.includes(textNeedle);
+      result.textPresent = present;
+      if (!present) {
+        result.ok = false;
+      }
+    }
+    if (textGoneNeedle) {
+      const gone = !bodyText.includes(textGoneNeedle);
+      result.textGone = gone;
+      if (!gone) {
+        result.ok = false;
+      }
+    }
+  }
+
+  const urlNeedle = ${url};
+  if (urlNeedle) {
+    const match = String(location.href || "").includes(urlNeedle);
+    result.urlMatch = match;
+    if (!match) {
+      result.ok = false;
+    }
+  }
+
+  const desiredLoad = ${loadState};
+  if (desiredLoad) {
+    const ready = document.readyState;
+    const ok =
+      desiredLoad === "interactive"
+        ? ready === "interactive" || ready === "complete"
+        : ready === "complete";
+    result.readyState = ready;
+    result.readyStateOk = ok;
+    if (!ok) {
+      result.ok = false;
+    }
+  }
+
+  return result;
+})()`;
+}
+
+function formatWaitForFailure(state?: WaitForEvalResult): string {
+  if (!state) {
+    return "condition not met";
+  }
+  const parts: string[] = [];
+  if (state.selectorFound === false) {
+    parts.push("selector not found");
+  } else if (state.selectorVisible === false) {
+    parts.push("selector not visible");
+  }
+  if (state.textPresent === false) {
+    parts.push("text not found");
+  }
+  if (state.textGone === false) {
+    parts.push("text still present");
+  }
+  if (state.urlMatch === false) {
+    parts.push("url not matched");
+  }
+  if (state.readyStateOk === false) {
+    parts.push(`readyState=${state.readyState ?? "unknown"}`);
+  }
+  return parts.join(", ") || "condition not met";
+}
+
 async function waitForDocumentReady(
   client: CdpClient,
   timeoutMs: number,
@@ -509,6 +728,45 @@ async function waitForDocumentReady(
     await sleep(120);
   }
   return { state: lastState, waitedMs: Date.now() - start, timedOut: true };
+}
+
+async function waitForConditions(
+  client: CdpClient,
+  waitFor: WaitForOptions,
+  timeoutMs: number,
+): Promise<WaitForResult> {
+  const start = Date.now();
+  if (waitFor.timeMs && waitFor.timeMs > 0) {
+    await sleep(waitFor.timeMs);
+  }
+
+  const waitTimeoutMs = waitFor.timeoutMs ?? timeoutMs;
+  const deadline = start + Math.max(0, waitTimeoutMs);
+  const script = buildWaitForScript(waitFor);
+  let lastState: WaitForEvalResult | undefined;
+
+  while (Date.now() < deadline) {
+    const evalResult = await client.send(
+      "Runtime.evaluate",
+      { expression: script, returnByValue: true, awaitPromise: false },
+      Math.min(1000, waitTimeoutMs),
+    );
+    const evalError = parseEvalError(evalResult);
+    if (evalError) {
+      throw new Error(evalError);
+    }
+    const record = evalResult as { result?: { value?: WaitForEvalResult } };
+    const state = record.result?.value;
+    if (state) {
+      lastState = state;
+      if (state.ok) {
+        return { ok: true, waitedMs: Date.now() - start, timedOut: false, state };
+      }
+    }
+    await sleep(150);
+  }
+
+  return { ok: false, waitedMs: Date.now() - start, timedOut: true, state: lastState };
 }
 
 export async function runBrowserTool(
@@ -646,6 +904,17 @@ export async function runBrowserTool(
       await client.send("Runtime.enable", undefined, timeoutMs);
       await client.send("Page.enable", undefined, timeoutMs);
       await client.send("Page.bringToFront", undefined, timeoutMs).catch(() => undefined);
+      const applyWaitFor = async (): Promise<WaitForResult | null> => {
+        if (!params.waitFor) {
+          return null;
+        }
+        const result = await waitForConditions(client, params.waitFor, timeoutMs);
+        if (!result.ok) {
+          const detail = formatWaitForFailure(result.state);
+          throw new Error(detail ? `waitFor timed out (${detail})` : "waitFor timed out");
+        }
+        return result;
+      };
 
       switch (params.action) {
         case "navigate": {
@@ -656,6 +925,7 @@ export async function runBrowserTool(
           const result = await client.send("Page.navigate", { url }, timeoutMs);
           const waitMs = Math.min(DEFAULT_NAVIGATE_READY_TIMEOUT_MS, timeoutMs);
           const readyState = await waitForDocumentReady(client, waitMs);
+          const waitForResult = await applyWaitFor();
           const payload = {
             ok: true,
             action: "navigate",
@@ -666,6 +936,9 @@ export async function runBrowserTool(
             readyState: readyState.state,
             waitedMs: readyState.waitedMs,
             timedOut: readyState.timedOut,
+            waitFor: waitForResult
+              ? { waitedMs: waitForResult.waitedMs, state: waitForResult.state }
+              : undefined,
           };
           return wrapBrowserPayload("navigate", payload, {
             includeWarning: false,
@@ -689,6 +962,7 @@ export async function runBrowserTool(
           const record = evalResult as {
             result?: { value?: unknown; type?: string; subtype?: string; description?: string };
           };
+          const waitForResult = await applyWaitFor();
           const payload = {
             ok: true,
             action: "evaluate",
@@ -698,6 +972,9 @@ export async function runBrowserTool(
             type: record.result?.type,
             subtype: record.result?.subtype,
             description: record.result?.description,
+            waitFor: waitForResult
+              ? { waitedMs: waitForResult.waitedMs, state: waitForResult.state }
+              : undefined,
           };
           return wrapBrowserPayload("evaluate", payload, {
             metadata: { profile: name, targetId: selected.targetId },
@@ -706,6 +983,7 @@ export async function runBrowserTool(
         case "screenshot": {
           const format = params.screenshot?.format ?? DEFAULT_SCREENSHOT_FORMAT;
           const quality = params.screenshot?.quality;
+          const waitForResult = await applyWaitFor();
           const result = await client.send(
             "Page.captureScreenshot",
             {
@@ -732,6 +1010,9 @@ export async function runBrowserTool(
             path: filePath,
             format,
             bytes: buffer.byteLength,
+            waitFor: waitForResult
+              ? { waitedMs: waitForResult.waitedMs, state: waitForResult.state }
+              : undefined,
           };
           return wrapBrowserPayload("screenshot", payload, {
             includeWarning: false,
@@ -780,6 +1061,7 @@ export async function runBrowserTool(
             { type: "mouseReleased", x, y, button: "left", clickCount: 1 },
             timeoutMs,
           );
+          const waitForResult = await applyWaitFor();
           const payload = {
             ok: true,
             action: "click",
@@ -788,6 +1070,9 @@ export async function runBrowserTool(
             selector: selector ?? undefined,
             x,
             y,
+            waitFor: waitForResult
+              ? { waitedMs: waitForResult.waitedMs, state: waitForResult.state }
+              : undefined,
           };
           return wrapBrowserPayload("click", payload, {
             includeWarning: false,
@@ -817,6 +1102,7 @@ export async function runBrowserTool(
             }
           }
           await client.send("Input.insertText", { text }, timeoutMs);
+          const waitForResult = await applyWaitFor();
           const payload = {
             ok: true,
             action: "type",
@@ -824,6 +1110,9 @@ export async function runBrowserTool(
             targetId: selected.targetId,
             selector: selector ?? undefined,
             textLength: text.length,
+            waitFor: waitForResult
+              ? { waitedMs: waitForResult.waitedMs, state: waitForResult.state }
+              : undefined,
           };
           return wrapBrowserPayload("type", payload, {
             includeWarning: false,

@@ -31,6 +31,18 @@ const BrowserToolParameters = Type.Object({
       quality: Type.Optional(Type.Number()),
     }),
   ),
+  waitFor: Type.Optional(
+    Type.Object({
+      selector: Type.Optional(Type.String()),
+      selectorState: Type.Optional(Type.Union([Type.Literal("attached"), Type.Literal("visible")])),
+      text: Type.Optional(Type.String()),
+      textGone: Type.Optional(Type.String()),
+      url: Type.Optional(Type.String()),
+      loadState: Type.Optional(Type.Union([Type.Literal("interactive"), Type.Literal("complete")])),
+      timeMs: Type.Optional(Type.Number()),
+      timeoutMs: Type.Optional(Type.Number()),
+    }),
+  ),
 });
 
 export function createBrowserTools(ctx: BrowserToolContext): AgentTool[] {

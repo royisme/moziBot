@@ -42,4 +42,41 @@ describe("browser tool schema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("rejects waitFor on status", () => {
+    const result = browserToolSchema.safeParse({
+      action: "status",
+      waitFor: { timeMs: 10 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty waitFor", () => {
+    const result = browserToolSchema.safeParse({
+      action: "click",
+      x: 1,
+      y: 1,
+      waitFor: {},
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("requires selector when selectorState is set", () => {
+    const result = browserToolSchema.safeParse({
+      action: "click",
+      x: 1,
+      y: 1,
+      waitFor: { selectorState: "visible", timeMs: 1 },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts waitFor selector", () => {
+    const result = browserToolSchema.safeParse({
+      action: "navigate",
+      url: "https://example.com",
+      waitFor: { selector: "#app" },
+    });
+    expect(result.success).toBe(true);
+  });
 });

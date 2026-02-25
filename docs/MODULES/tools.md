@@ -98,6 +98,8 @@ Notes:
 - Target selection prefers the last active tab per profile when `targetId` is not provided.
 - `targetId` accepts a full id or a unique prefix; ambiguous prefixes raise an error.
 - `navigate` waits briefly for `document.readyState=complete` (up to ~8s or `timeoutMs`).
+- For local CDP profiles, if no tabs exist the tool will create an `about:blank` tab automatically.
+- `waitFor` can be provided on actions (except `status`/`tabs`) to wait on `selector` (with optional `selectorState=attached|visible`, default `visible`), `text`, `textGone`, `url` (substring match), `loadState` (`interactive` or `complete`), and/or `timeMs` (fixed sleep).
 
 ## Verification
 
