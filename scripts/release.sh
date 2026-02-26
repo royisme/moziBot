@@ -43,12 +43,31 @@ NOTE_LINE="- ${NOTE:-Released version ${VERSION}.}"
 # Generate draft from git commits
 DRAFT=$(bash scripts/changelog-draft.sh "${VERSION}")
 
-# Insert release section after Unreleased
-perl -0777 -i -pe "s/## \[Unreleased\]\n\n(?:- .*\n)*/## [Unreleased]\n\n- N/A\n\n${DRAFT}/" CHANGELOG.md
+DRAFT_FILE=$(mktemp)
+printf "%s" "$DRAFT" > "$DRAFT_FILE"
 
-# If a manual note is provided, add it to Changes
-if [[ -n "$NOTE" ]]; then
-  perl -0777 -i -pe "s/### Changes\n\n/### Changes\n\n${NOTE_LINE}\n/" CHANGELOG.md
-fi
+export DRAFT_FILE NOTE NOTE_LINE
+
+node <<'NODE'
+const fs = require("fs");
+const changelogPath = "CHANGELOG.md";
+const draftPath = process.env.DRAFT_FILE;
+const note = process.env.NOTE;
+const noteLine = process.env.NOTE_LINE;
+
+const draftRaw = fs.readFileSync(draftPath, "utf8");
+const draft = note ? draftRaw.replace("### Changes\n\n", `### Changes\n\n${noteLine}\n`) : draftRaw;
+const data = fs.readFileSync(changelogPath, "utf8");
+
+const pattern = /## \[Unreleased\]\n\n(?:- .*\n)*/;
+if (!pattern.test(data)) {
+  throw new Error("CHANGELOG.md missing [Unreleased] section.");
+}
+
+const updated = data.replace(pattern, `## [Unreleased]\n\n- N/A\n\n${draft}`);
+fs.writeFileSync(changelogPath, updated);
+NODE
+
+rm -f "$DRAFT_FILE"
 
 echo "Release prep complete: ${VERSION} (${DATE})"

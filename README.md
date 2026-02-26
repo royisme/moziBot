@@ -171,6 +171,20 @@ If `mozi` is globally installed or linked to your PATH, this is equivalent:
 mozi runtime start
 ```
 
+### Skills
+
+List configured skill directories and loaded skills:
+
+```bash
+mozi skills
+```
+
+Show eligibility, missing requirements, and install hints:
+
+```bash
+mozi skills --status
+```
+
 ## Architecture
 
 Mozi uses a modular architecture with a deliberately compact scope:

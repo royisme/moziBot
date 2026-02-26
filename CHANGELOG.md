@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [1.3.0] - 2026-02-26
+
+### Changes
+
+- feat: improve skills and channel adapters (70f6308)
+- feat: add browser waitfor and auto tab (c7b2643)
+- feat: add browser target resilience (07db9f7)
+- feat: add basic browser actions (071f569)
+- feat: deliver task1 updates (da43a79)
+- fix(prompt): stabilize reset greeting and add digest (2b40e4a)
+- feat: enhance heartbeat context (a109008)
+- feat: align runtime defaults and routing (aadc962)
+- feat(memory): add low-recall fallback (4f9c574)
+- feat(memory): add qmd searchMode fan-out (3ebdc4d)
+- feat(runtime): expand hook coverage for messaging and compaction (d76fd5a)
+- fix(runtime): store model registry config (f431a20)
+- feat(runtime): load external hooks from config (9e87d80)
+- feat(discord): add access control policies (58bafd0)
+- feat(memory): add preflush threshold and cooldown (1a3aae5)
+- feat(runtime): add cli backends for local codex/claude (6d58583)
+- feat(runtime): unify lifecycle and session reset (eff351e)
+
+### Fixes
+
+- N/A
+
 ## [1.2.0] - 2026-02-18
 
 ### Added
