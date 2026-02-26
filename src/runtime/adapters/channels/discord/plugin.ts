@@ -1,7 +1,16 @@
-import { Client, MessageCreateListener, ReadyListener } from "@buape/carbon";
+import {
+  Client,
+  type MessagePayloadFile,
+  type MessagePayloadObject,
+  MessageCreateListener,
+  ReadyListener,
+  serializePayload,
+} from "@buape/carbon";
 import { GatewayIntents, GatewayPlugin } from "@buape/carbon/gateway";
 import { Routes, type APIAttachment, type APIEmbed } from "discord-api-types/v10";
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type {
   InboundMessage,
   MediaAttachment,
@@ -10,6 +19,7 @@ import type {
   StatusReactionPayload,
 } from "../types";
 import { logger } from "../../../../logger";
+import { chunkTextWithMode, getChannelTextLimit } from "../../../../utils/text-chunk";
 import { BaseChannelPlugin } from "../plugin";
 import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import {
@@ -25,6 +35,8 @@ import {
 
 const READY_TIMEOUT_MS = 20_000;
 const MAX_GATEWAY_RECONNECT_ATTEMPTS = 20;
+const DISCORD_SUPPRESS_NOTIFICATIONS_FLAG = 1 << 12;
+const DISCORD_TEXT_LIMIT = getChannelTextLimit("discord");
 
 type CarbonMessageCreateEvent = Parameters<MessageCreateListener["handle"]>[0];
 type CarbonReadyEvent = Parameters<ReadyListener["handle"]>[0];
@@ -228,37 +240,49 @@ export class DiscordPlugin extends BaseChannelPlugin {
       throw new Error("Discord client is not connected");
     }
 
-    const mediaUrls = (message.media ?? [])
-      .map((item) => item.url)
-      .filter((url): url is string => !!url);
-    if ((message.media ?? []).some((item) => !item.url)) {
-      logger.warn(
-        "Discord plugin currently supports media URLs only; unsupported attachment skipped",
-      );
-    }
+    const media = message.media ?? [];
+    const { files, urls } = await resolveOutboundFiles(media);
 
-    const content = [message.text?.trim() ?? "", ...mediaUrls].filter(Boolean).join("\n").trim();
-    if (!content) {
+    const baseText = resolveOutboundText(message, media);
+    const content = [baseText, ...urls].filter(Boolean).join("\n").trim();
+    if (!content && files.length === 0) {
       throw new Error("Discord outbound message is empty");
     }
 
-    const body: {
-      content: string;
-      message_reference?: { message_id: string; fail_if_not_exists: boolean };
-    } = { content };
+    const chunks = content ? chunkTextWithMode(content, DISCORD_TEXT_LIMIT, "paragraph") : [""];
+    const flags = message.silent ? DISCORD_SUPPRESS_NOTIFICATIONS_FLAG : undefined;
+    let lastId = "unknown";
 
-    if (message.replyToId) {
-      body.message_reference = {
-        message_id: message.replyToId,
-        fail_if_not_exists: false,
-      };
+    for (const [index, chunk] of chunks.entries()) {
+      const isFirst = index === 0;
+      const payload: MessagePayloadObject = {};
+      if (chunk.trim()) {
+        payload.content = chunk;
+      }
+      if (flags !== undefined) {
+        payload.flags = flags;
+      }
+      if (isFirst && files.length > 0) {
+        payload.files = files;
+      }
+
+      const body = serializePayload(payload);
+      if (isFirst && message.replyToId) {
+        (
+          body as { message_reference?: { message_id: string; fail_if_not_exists: boolean } }
+        ).message_reference = {
+          message_id: message.replyToId,
+          fail_if_not_exists: false,
+        };
+      }
+
+      const sent = (await this.client.rest.post(Routes.channelMessages(peerId), {
+        body,
+      })) as { id?: string };
+      lastId = sent.id ?? lastId;
     }
 
-    const sent = (await this.client.rest.post(Routes.channelMessages(peerId), {
-      body,
-    })) as { id?: string };
-
-    return sent.id ?? "unknown";
+    return lastId;
   }
 
   async setStatusReaction(
@@ -551,6 +575,56 @@ function normalizeDiscordReactionEmoji(raw: string): string {
     ? `${customMatch[1]}:${customMatch[2]}`
     : trimmed.replace(/[\uFE0E\uFE0F]/g, "");
   return encodeURIComponent(identifier);
+}
+
+function resolveOutboundText(message: OutboundMessage, media: MediaAttachment[]): string {
+  const text = message.text?.trim();
+  if (text) {
+    return text;
+  }
+  const caption = media.find((item) => item.caption?.trim())?.caption?.trim();
+  return caption ?? "";
+}
+
+function toDiscordFileBlob(data: Buffer | Uint8Array, mimeType?: string): Blob {
+  const arrayBuffer = new ArrayBuffer(data.byteLength);
+  new Uint8Array(arrayBuffer).set(data);
+  return new Blob([arrayBuffer], mimeType ? { type: mimeType } : undefined);
+}
+
+async function resolveOutboundFiles(media: MediaAttachment[]): Promise<{
+  files: MessagePayloadFile[];
+  urls: string[];
+}> {
+  const files: MessagePayloadFile[] = [];
+  const urls: string[] = [];
+
+  for (const [index, item] of media.entries()) {
+    if (item.buffer && item.buffer.byteLength > 0) {
+      files.push({
+        name: item.filename ?? `upload-${index + 1}`,
+        data: toDiscordFileBlob(item.buffer, item.mimeType),
+        description: undefined,
+      });
+      continue;
+    }
+    if (item.path) {
+      const data = await fs.readFile(item.path);
+      files.push({
+        name: item.filename ?? path.basename(item.path),
+        data: toDiscordFileBlob(data, item.mimeType),
+        description: undefined,
+      });
+      continue;
+    }
+    if (item.url) {
+      urls.push(item.url);
+      continue;
+    }
+    logger.warn({ mediaIndex: index, mediaType: item.type }, "Discord attachment skipped");
+  }
+
+  return { files, urls };
 }
 
 async function fetchApplicationId(token: string): Promise<string> {

@@ -4,6 +4,58 @@ import type { MoziConfig } from "../../config";
 import { SkillLoader } from "../../agents/skills/loader";
 import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../../extensions";
 
+type SkillLoaderContext = {
+  workspaceDir?: string;
+};
+
+function dedupeDirs(dirs: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const dir of dirs) {
+    if (!dir) {
+      continue;
+    }
+    if (seen.has(dir)) {
+      continue;
+    }
+    seen.add(dir);
+    result.push(dir);
+  }
+  return result;
+}
+
+function resolveSkillDirs(
+  config: MoziConfig,
+  extensionRegistry: ExtensionRegistry,
+  context?: SkillLoaderContext,
+): { dirs: string[]; bundledDir: string } {
+  const bundledDir = path.join(import.meta.dirname, "..", "..", "agents", "skills", "bundled");
+  const baseDir = config.paths?.baseDir || path.join(os.homedir(), ".mozi");
+  const managedDir =
+    config.skills?.installDir ?? config.paths?.skills ?? path.join(baseDir, "skills");
+  const extraDirs = config.skills?.dirs || [];
+  const extSkillDirs = extensionRegistry.collectSkillDirs();
+  const personalAgentsSkillsDir = path.join(os.homedir(), ".agents", "skills");
+  const projectAgentsSkillsDir = context?.workspaceDir
+    ? path.join(context.workspaceDir, ".agents", "skills")
+    : undefined;
+  const workspaceSkillsDir = context?.workspaceDir
+    ? path.join(context.workspaceDir, "skills")
+    : undefined;
+
+  const dirs = dedupeDirs([
+    ...extraDirs,
+    ...extSkillDirs,
+    bundledDir,
+    managedDir,
+    personalAgentsSkillsDir,
+    projectAgentsSkillsDir,
+    workspaceSkillsDir,
+  ]);
+
+  return { dirs, bundledDir };
+}
+
 export function createExtensionRegistry(config: MoziConfig): ExtensionRegistry {
   return loadExtensions(config.extensions);
 }
@@ -12,19 +64,19 @@ export function createSkillLoader(
   config: MoziConfig,
   extensionRegistry: ExtensionRegistry,
 ): SkillLoader {
-  const dirs: string[] = [];
-  const bundledDir = path.join(import.meta.dirname, "..", "..", "agents", "skills", "bundled");
-  dirs.push(bundledDir);
-  const baseDir = config.paths?.baseDir || path.join(os.homedir(), ".mozi");
-  dirs.push(path.join(baseDir, "skills"));
-  const extraDirs = config.skills?.dirs || [];
-  dirs.push(...extraDirs);
-  if (config.paths?.skills) {
-    dirs.push(config.paths.skills);
-  }
-  const extSkillDirs = extensionRegistry.collectSkillDirs();
-  dirs.push(...extSkillDirs);
+  const { dirs, bundledDir } = resolveSkillDirs(config, extensionRegistry);
+  return new SkillLoader(dirs, {
+    bundledDirs: [bundledDir],
+    allowBundled: config.skills?.allowBundled,
+  });
+}
 
+export function createSkillLoaderForContext(
+  config: MoziConfig,
+  extensionRegistry: ExtensionRegistry,
+  context?: SkillLoaderContext,
+): SkillLoader {
+  const { dirs, bundledDir } = resolveSkillDirs(config, extensionRegistry, context);
   return new SkillLoader(dirs, {
     bundledDirs: [bundledDir],
     allowBundled: config.skills?.allowBundled,

@@ -43,6 +43,7 @@ import {
 import {
   createExtensionRegistry,
   createSkillLoader,
+  createSkillLoaderForContext,
   initExtensions,
   rebuildLifecycle,
   shutdownExtensions as shutdownExtensionsLifecycle,
@@ -67,6 +68,7 @@ import {
   disposeRuntimeSession as disposeRuntimeSessionState,
   resetSession as resetSessionState,
 } from "./agent-manager/runtime-state";
+import { applySystemPromptOverrideToSession } from "./agent-manager/system-prompt-override";
 import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
 import {
   configureCliBackends,
@@ -117,6 +119,7 @@ export class AgentManager {
   private channelContextSessions = new Set<string>();
   private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
   private promptToolsBySession = new Map<string, string[]>();
+  private skillLoadersByWorkspace = new Map<string, SkillLoader>();
   private sandboxExecutors = new Map<string, SandboxExecutor>();
   private modelRegistry: ModelRegistry;
   private providerRegistry: ProviderRegistry;
@@ -192,6 +195,20 @@ export class AgentManager {
 
   private initSkillLoader() {
     this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
+    this.skillLoadersByWorkspace.clear();
+  }
+
+  private getSkillLoaderForWorkspace(workspaceDir: string): SkillLoader {
+    const key = path.resolve(workspaceDir);
+    const existing = this.skillLoadersByWorkspace.get(key);
+    if (existing) {
+      return existing;
+    }
+    const loader = createSkillLoaderForContext(this.config, this.extensionRegistry, {
+      workspaceDir: key,
+    });
+    this.skillLoadersByWorkspace.set(key, loader);
+    return loader;
   }
 
   private resolvePiAgentDir(): string {
@@ -286,6 +303,7 @@ export class AgentManager {
     });
     this.extensionRegistry = lifecycle.extensionRegistry;
     this.skillLoader = lifecycle.skillLoader;
+    this.skillLoadersByWorkspace.clear();
     this.syncExternalHooks();
     this.syncExtensionHooks();
     configureCliBackends(this.config);
@@ -467,7 +485,7 @@ export class AgentManager {
       skills: entry?.skills,
       tools,
       sandboxConfig,
-      skillLoader: this.skillLoader,
+      skillLoader: this.getSkillLoaderForWorkspace(workspaceDir),
       skillsIndexSynced: this.skillsIndexSynced,
       mode: promptMode,
       onMetadata: (metadata) => {
@@ -489,7 +507,7 @@ export class AgentManager {
     const channelContext = buildChannelContext(message);
     const nextPrompt = channelContext ? `${basePrompt}\n\n${channelContext}` : basePrompt;
     if (agent.systemPrompt !== nextPrompt) {
-      agent.agent.setSystemPrompt(nextPrompt);
+      applySystemPromptOverrideToSession(agent, nextPrompt);
     }
     this.channelContextSessions.add(sessionKey);
   }
@@ -615,7 +633,7 @@ export class AgentManager {
           resolvePiAgentDir: () => this.resolvePiAgentDir(),
           buildPiModel: (spec) => this.buildPiModel(spec),
           subagents: this.subagents,
-          skillLoader: this.skillLoader,
+          skillLoader: this.getSkillLoaderForWorkspace(params.workspaceDir),
           extensionRegistry: this.extensionRegistry,
           skillsIndexSynced: this.skillsIndexSynced,
           toolProvider: this.toolProvider,
@@ -679,7 +697,7 @@ export class AgentManager {
   }): Promise<string> {
     return buildSystemPrompt({
       ...params,
-      skillLoader: this.skillLoader,
+      skillLoader: this.getSkillLoaderForWorkspace(params.workspaceDir),
       skillsIndexSynced: this.skillsIndexSynced,
     });
   }

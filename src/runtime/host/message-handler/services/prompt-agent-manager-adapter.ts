@@ -10,6 +10,7 @@ export type PromptCoordinatorAgentManager = {
   ): Promise<{
     agent: PromptAgent & { messages: AgentMessage[] };
     modelRef: string;
+    systemPrompt?: string;
   }>;
   getAgentFallbacks(agentId: string): string[];
   setSessionModel(
@@ -42,7 +43,11 @@ export function toPromptCoordinatorAgentManager(
       const resolved = await agentManager.getAgent(sessionKey, agentId, {
         promptMode,
       });
-      return { agent: resolved.agent, modelRef: resolved.modelRef };
+      return {
+        agent: resolved.agent,
+        modelRef: resolved.modelRef,
+        systemPrompt: resolved.systemPrompt,
+      };
     },
     getAgentFallbacks: (agentId) => agentManager.getAgentFallbacks(agentId),
     setSessionModel: async (sessionKey, modelRef, options) =>

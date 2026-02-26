@@ -15,6 +15,7 @@ import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
 import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
+import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
 import { logger } from "../../logger";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
@@ -31,6 +32,7 @@ import {
   resolveHistoryLimit,
 } from "./config-resolver";
 import { buildSystemPrompt, type PromptMode } from "./prompt-builder";
+import { applySystemPromptOverrideToSession } from "./system-prompt-override";
 import { resolveThinkingLevel } from "./thinking-resolver";
 import { buildTools } from "./tool-builder";
 
@@ -67,6 +69,8 @@ export async function createAndInitializeAgentSession(params: {
   onPromptMetadata?: (metadata: import("./prompt-builder").PromptBuildMetadata) => void;
   onToolsResolved?: (toolNames: string[]) => void;
 }): Promise<AgentSession> {
+  await ensureHome(params.homeDir);
+  await autoCompleteBootstrapIfReady(params.homeDir);
   const modelSpec = params.modelRegistry.get(params.modelRef);
   if (!modelSpec) {
     throw new Error(`Model not found: ${params.modelRef}`);
@@ -144,7 +148,7 @@ export async function createAndInitializeAgentSession(params: {
     settingsManager: piSettingsManager,
   });
   const agent = created.session;
-  agent.agent.setSystemPrompt(systemPromptText);
+  applySystemPromptOverrideToSession(agent, systemPromptText);
 
   const session = params.sessions.get(params.sessionKey);
   let persistedContext = Array.isArray(session?.context) ? (session.context as AgentMessage[]) : [];

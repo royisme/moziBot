@@ -18,6 +18,9 @@ export const HOME_FILES = {
   HEARTBEAT: "HEARTBEAT.md",
 } as const;
 
+const HOME_STATE_FILENAME = "home-state.json";
+const HOME_STATE_VERSION = 1;
+
 // Files to load into context (exclude BOOTSTRAP - handled separately)
 export const HOME_CONTEXT_FILES = [
   "AGENTS.md",
@@ -41,6 +44,12 @@ export interface BootstrapState {
   bootstrapContent?: string;
 }
 
+type HomeState = {
+  version: number;
+  bootstrapSeededAt?: string;
+  onboardingCompletedAt?: string;
+};
+
 /**
  * Strip YAML frontmatter from markdown content
  */
@@ -55,10 +64,79 @@ function stripFrontmatter(content: string): string {
   return content.slice(endIndex + 4).replace(/^\s+/, "");
 }
 
+function resolveHomeStatePath(dir: string): string {
+  return path.join(dir, HOME_STATE_FILENAME);
+}
+
+function normalizeHomeState(input: unknown): HomeState {
+  if (!input || typeof input !== "object") {
+    return { version: HOME_STATE_VERSION };
+  }
+  const raw = input as Record<string, unknown>;
+  return {
+    version: HOME_STATE_VERSION,
+    bootstrapSeededAt:
+      typeof raw.bootstrapSeededAt === "string" ? raw.bootstrapSeededAt : undefined,
+    onboardingCompletedAt:
+      typeof raw.onboardingCompletedAt === "string" ? raw.onboardingCompletedAt : undefined,
+  };
+}
+
+async function readHomeState(dir: string): Promise<HomeState> {
+  const statePath = resolveHomeStatePath(dir);
+  try {
+    const raw = await fs.readFile(statePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return normalizeHomeState(parsed);
+  } catch (err) {
+    const anyErr = err as NodeJS.ErrnoException;
+    if (anyErr.code && anyErr.code !== "ENOENT") {
+      logger.warn(`Failed to read home state: ${String(err)}`);
+    }
+    return { version: HOME_STATE_VERSION };
+  }
+}
+
+async function writeHomeState(dir: string, state: HomeState): Promise<void> {
+  const statePath = resolveHomeStatePath(dir);
+  const payload = `${JSON.stringify({ ...state, version: HOME_STATE_VERSION }, null, 2)}\n`;
+  const tmpPath = `${statePath}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  await fs.mkdir(path.dirname(statePath), { recursive: true });
+  try {
+    await fs.writeFile(tmpPath, payload, "utf-8");
+    await fs.rename(tmpPath, statePath);
+  } catch (err) {
+    await fs.unlink(tmpPath).catch(() => {});
+    throw err;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readTemplateContent(filename: string): Promise<string> {
+  const templatePath = path.join(__dirname, "templates", filename);
+  const raw = await fs.readFile(templatePath, "utf-8");
+  return stripFrontmatter(raw);
+}
+
 export async function ensureHome(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
+  const state = await readHomeState(dir);
+  const skipBootstrap = Boolean(state.onboardingCompletedAt);
+  let stateDirty = false;
+  const nowIso = new Date().toISOString();
 
   for (const filename of Object.values(HOME_FILES)) {
+    if (filename === HOME_FILES.BOOTSTRAP && skipBootstrap) {
+      continue;
+    }
     const filePath = path.join(dir, filename);
     try {
       await fs.access(filePath);
@@ -74,7 +152,15 @@ export async function ensureHome(dir: string): Promise<void> {
         logger.warn(`Template not found for ${filename}, creating empty file`);
       }
       await fs.writeFile(filePath, content);
+      if (filename === HOME_FILES.BOOTSTRAP && !state.bootstrapSeededAt) {
+        state.bootstrapSeededAt = nowIso;
+        stateDirty = true;
+      }
     }
+  }
+
+  if (stateDirty) {
+    await writeHomeState(dir, state);
   }
 }
 
@@ -104,6 +190,7 @@ export async function checkBootstrapState(dir: string): Promise<BootstrapState> 
  */
 export async function completeBootstrap(dir: string): Promise<void> {
   const bootstrapPath = path.join(dir, HOME_FILES.BOOTSTRAP);
+  const bootstrapExists = await fileExists(bootstrapPath);
   try {
     await fs.unlink(bootstrapPath);
     logger.info("Bootstrap ritual complete. Deleted BOOTSTRAP.md");
@@ -112,6 +199,70 @@ export async function completeBootstrap(dir: string): Promise<void> {
       throw err;
     }
   }
+
+  const state = await readHomeState(dir);
+  const nowIso = new Date().toISOString();
+  let stateDirty = false;
+  if (bootstrapExists && !state.bootstrapSeededAt) {
+    state.bootstrapSeededAt = nowIso;
+    stateDirty = true;
+  }
+  if (!state.onboardingCompletedAt) {
+    state.onboardingCompletedAt = nowIso;
+    stateDirty = true;
+  }
+  if (stateDirty) {
+    await writeHomeState(dir, state);
+  }
+}
+
+export async function autoCompleteBootstrapIfReady(dir: string): Promise<boolean> {
+  const bootstrapPath = path.join(dir, HOME_FILES.BOOTSTRAP);
+  const bootstrapExists = await fileExists(bootstrapPath);
+  const state = await readHomeState(dir);
+
+  if (state.onboardingCompletedAt) {
+    if (bootstrapExists) {
+      await completeBootstrap(dir);
+    }
+    return false;
+  }
+
+  if (bootstrapExists && !state.bootstrapSeededAt) {
+    state.bootstrapSeededAt = new Date().toISOString();
+    await writeHomeState(dir, state);
+  }
+
+  const [identityTemplate, userTemplate, soulTemplate] = await Promise.all([
+    readTemplateContent(HOME_FILES.IDENTITY),
+    readTemplateContent(HOME_FILES.USER),
+    readTemplateContent(HOME_FILES.SOUL),
+  ]);
+
+  let identityContent = "";
+  let userContent = "";
+  let soulContent = "";
+  try {
+    [identityContent, userContent, soulContent] = await Promise.all([
+      fs.readFile(path.join(dir, HOME_FILES.IDENTITY), "utf-8"),
+      fs.readFile(path.join(dir, HOME_FILES.USER), "utf-8"),
+      fs.readFile(path.join(dir, HOME_FILES.SOUL), "utf-8"),
+    ]);
+  } catch {
+    return false;
+  }
+
+  const completed =
+    identityContent !== identityTemplate &&
+    userContent !== userTemplate &&
+    soulContent !== soulTemplate;
+
+  if (!completed) {
+    return false;
+  }
+
+  await completeBootstrap(dir);
+  return true;
 }
 
 /**

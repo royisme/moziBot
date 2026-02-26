@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DiscordPlugin } from "./plugin";
 
@@ -85,6 +88,7 @@ vi.mock("@buape/carbon", () => ({
   Client: mockState.ClientMock,
   ReadyListener: mockState.MockReadyListener,
   MessageCreateListener: mockState.MockMessageCreateListener,
+  serializePayload: (payload: unknown) => payload,
 }));
 
 vi.mock("@buape/carbon/gateway", () => ({
@@ -175,6 +179,73 @@ describe("DiscordPlugin (carbon)", () => {
         }),
       }),
     );
+  });
+
+  it("chunks long messages and only replies on first chunk", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const longText = "a".repeat(2100);
+    await plugin.send("channel-123", { text: longText, replyToId: "msg-1" });
+
+    expect(client.rest.post).toHaveBeenCalledTimes(2);
+    const firstBody = client.rest.post.mock.calls[0]?.[1]?.body as {
+      content?: string;
+      message_reference?: { message_id: string };
+    };
+    const secondBody = client.rest.post.mock.calls[1]?.[1]?.body as {
+      content?: string;
+      message_reference?: { message_id: string };
+    };
+    expect(firstBody.content?.length ?? 0).toBeLessThanOrEqual(2000);
+    expect(secondBody.content?.length ?? 0).toBeLessThanOrEqual(2000);
+    expect(firstBody.message_reference?.message_id).toBe("msg-1");
+    expect(secondBody.message_reference).toBeUndefined();
+  });
+
+  it("sets silent flag on outbound messages", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    await plugin.send("channel-123", { text: "hello", silent: true });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as { flags?: number };
+    expect(body.flags).toBe(1 << 12);
+  });
+
+  it("sends buffer and path attachments", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "mozi-discord-"));
+    const filePath = path.join(tempDir, "note.txt");
+    await fs.writeFile(filePath, "hello");
+
+    await plugin.send("channel-123", {
+      text: "files",
+      media: [
+        {
+          type: "document",
+          buffer: Buffer.from("buffer"),
+          filename: "buffer.txt",
+        },
+        {
+          type: "document",
+          path: filePath,
+        },
+      ],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string; data?: Blob }>;
+      content?: string;
+    };
+    expect(body.content).toBe("files");
+    expect(body.files?.length).toBe(2);
+    expect(body.files?.[0]?.name).toBe("buffer.txt");
+    expect(body.files?.[1]?.name).toBe("note.txt");
+
+    await fs.rm(tempDir, { recursive: true, force: true });
   });
 
   it("handles inbound message", async () => {

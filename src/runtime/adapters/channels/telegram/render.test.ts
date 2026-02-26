@@ -22,6 +22,19 @@ describe("telegram render", () => {
     expect(rendered).not.toContain("<h1>");
   });
 
+  it("wraps file references to avoid auto-linking", () => {
+    const rendered = markdownToTelegramHtml("Check AGENTS.md and README.md");
+    expect(rendered).toContain("<code>AGENTS.md</code>");
+    expect(rendered).toContain("<code>README.md</code>");
+    expect(rendered).not.toContain("http://agents.md");
+    expect(rendered).not.toContain("http://readme.md");
+  });
+
+  it("keeps explicit links even if url looks like file", () => {
+    const rendered = markdownToTelegramHtml("[docs](http://README.md)");
+    expect(rendered).toContain('<a href="http://README.md">docs</a>');
+  });
+
   it("detects telegram parse errors", () => {
     expect(
       isTelegramParseError({

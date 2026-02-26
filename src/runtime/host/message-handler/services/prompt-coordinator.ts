@@ -24,7 +24,11 @@ interface PromptCoordinatorAgentManager {
   getAgent(
     sessionKey: string,
     agentId: string,
-  ): Promise<{ agent: PromptAgent & { messages: AgentMessage[] }; modelRef: string }>;
+  ): Promise<{
+    agent: PromptAgent & { messages: AgentMessage[] };
+    modelRef: string;
+    systemPrompt?: string;
+  }>;
   getAgentFallbacks(agentId: string): string[];
   setSessionModel(
     sessionKey: string,
@@ -54,6 +58,7 @@ interface PromptCoordinatorLogger {
 }
 
 const LOG_PREVIEW_MAX_CHARS = 400;
+const DEBUG_LOG_PROMPT = process.env.MOZI_DEBUG_LOG_PROMPT === "1";
 
 function findLatestAssistantMessage(messages: AgentMessage[]): AgentMessage | undefined {
   return [...messages]
@@ -121,6 +126,22 @@ export async function runPromptWithCoordinator(params: {
     interruptedSet,
     flushMemory,
   } = params;
+
+  if (DEBUG_LOG_PROMPT) {
+    const current = await agentManager.getAgent(sessionKey, agentId);
+    logger.debug(
+      {
+        sessionKey,
+        agentId,
+        traceId,
+        modelRef: current.modelRef,
+        systemPrompt: current.systemPrompt ?? "",
+        userPromptText: text,
+        messages: current.agent.messages,
+      },
+      "Prompt debug payload",
+    );
+  }
 
   logger.debug(
     {

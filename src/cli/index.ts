@@ -245,6 +245,31 @@ extensionsCmd
     await doctorExtensions();
   });
 
+// Skills management
+const skillsCmd = program.command("skills").description("List available skills");
+
+skillsCmd
+  .command("list")
+  .description("List configured skill directories and loaded skills")
+  .option("-c, --config <path>", "Config file path")
+  .option("--json", "Output machine-readable JSON")
+  .option("-v, --verbose", "Show skill file paths and sources")
+  .option("--status", "Show eligibility, missing requirements, and install hints")
+  .action(async (options) => {
+    const { listSkills } = await import("./commands/skills");
+    await listSkills(options);
+  });
+
+skillsCmd
+  .option("-c, --config <path>", "Config file path")
+  .option("--json", "Output machine-readable JSON")
+  .option("-v, --verbose", "Show skill file paths and sources")
+  .option("--status", "Show eligibility, missing requirements, and install hints")
+  .action(async (options) => {
+    const { listSkills } = await import("./commands/skills");
+    await listSkills(options);
+  });
+
 program.parse();
 
 export { program };

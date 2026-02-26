@@ -73,6 +73,11 @@ export class SkillLoader {
     return this.skills;
   }
 
+  // List configured skill directories (load order)
+  listDirs(): string[] {
+    return [...this.skillsDirs];
+  }
+
   // Filter skills by names
   filter(names: string[]): Skill[] {
     return names
