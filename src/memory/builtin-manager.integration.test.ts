@@ -110,4 +110,16 @@ describe("BuiltinMemoryManager", () => {
       "invalid file type",
     );
   });
+
+  test("falls back safely when FTS query parser rejects special tokens", async () => {
+    await fs.writeFile(
+      path.join(workspaceDir, "memory", "ops.md"),
+      "pre-overflow memory flush keeps context stable",
+    );
+    const manager = new BuiltinMemoryManager({ workspaceDir, dbPath });
+    await manager.sync();
+
+    const results = await manager.search("pre-overflow memory flush");
+    expect(results.some((r) => r.path === "memory/ops.md")).toBe(true);
+  });
 });

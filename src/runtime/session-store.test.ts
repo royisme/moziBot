@@ -27,6 +27,17 @@ describe("SessionStore segmented lifecycle", () => {
     };
   }
 
+  function forceLegacyFormat(store: SessionStore, sessionKey: string): void {
+    store.update(sessionKey, { metadata: { sessionFormat: "legacy" } });
+  }
+
+  it("defaults_to_pi_format", () => {
+    const store = new SessionStore(createConfig());
+    const sessionKey = "agent:mozi:telegram:dm:user-default";
+    const state = store.getOrCreate(sessionKey, "mozi");
+    expect((state.metadata as { sessionFormat?: string } | undefined)?.sessionFormat).toBe("pi");
+  });
+
   it("session_new_hard_cut_creates_segment", () => {
     const store = new SessionStore(createConfig());
     const sessionKey = "agent:mozi:telegram:dm:user1";
@@ -133,11 +144,12 @@ describe("SessionStore segmented lifecycle", () => {
     expect(archivedAfter?.updatedAt).toBe(archivedBeforeUpdatedAt);
   });
 
-  it("semantic_rollover_reversible", () => {
+  it("semantic_rollover_reversible_legacy", () => {
     const store = new SessionStore(createConfig());
     const sessionKey = "agent:mozi:telegram:dm:user5";
 
     store.getOrCreate(sessionKey, "mozi");
+    forceLegacyFormat(store, sessionKey);
     store.update(sessionKey, { context: [{ role: "user", content: "before-rotation" }] });
     const rotated = store.rotateSegment(sessionKey, "mozi");
     const rotatedId = rotated.latestSessionId;
@@ -154,5 +166,25 @@ describe("SessionStore segmented lifecycle", () => {
       { role: "user", content: "before-rotation" },
       { role: "user", content: "after-rotation" },
     ]);
+  });
+
+  it("semantic_rollover_reversible_pi_discards_merge", () => {
+    const store = new SessionStore(createConfig());
+    const sessionKey = "agent:mozi:telegram:dm:user6";
+
+    store.getOrCreate(sessionKey, "mozi");
+    store.update(sessionKey, { context: [{ role: "user", content: "before-rotation" }] });
+    const rotated = store.rotateSegment(sessionKey, "mozi");
+    const rotatedId = rotated.latestSessionId;
+    store.update(sessionKey, { context: [{ role: "user", content: "after-rotation" }] });
+
+    const reverted = store.revertToPreviousSegment(sessionKey, "mozi");
+    expect(reverted).toBeDefined();
+    if (!reverted || !rotatedId) {
+      return;
+    }
+
+    expect(reverted.latestSessionId).not.toBe(rotatedId);
+    expect(reverted.context).toEqual([]);
   });
 });

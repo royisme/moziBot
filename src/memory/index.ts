@@ -10,6 +10,7 @@ import { BuiltinMemoryManager } from "./builtin-manager";
 import { FallbackMemoryManager } from "./fallback-manager";
 import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 import { QmdMemoryManager } from "./qmd-manager";
+import { EmbeddedMemoryManager } from "./embedded/embedded-manager";
 
 const managerCache = new Map<string, MemorySearchManager>();
 const lifecycleCache = new Map<string, MemoryLifecycleOrchestrator>();
@@ -32,6 +33,36 @@ export async function getMemoryManager(
 
   const resolved = resolveMemoryBackendConfig({ cfg: config, agentId });
 
+  if (resolved.backend === "embedded" && resolved.embedded) {
+    try {
+      const embeddedManager = await EmbeddedMemoryManager.create({
+        config,
+        agentId,
+        resolved,
+      });
+      if (embeddedManager) {
+        const fallbackFactory = async (): Promise<MemorySearchManager | null> => {
+          return new BuiltinMemoryManager({
+            workspaceDir: homeDir,
+            dbPath,
+            config: resolved.builtin,
+          });
+        };
+        const manager = new FallbackMemoryManager(
+          { primary: embeddedManager, fallbackFactory },
+          { label: "embedded" },
+          () => {
+            managerCache.delete(cacheKey);
+          },
+        );
+        managerCache.set(cacheKey, manager);
+        return manager;
+      }
+    } catch (err) {
+      logger.warn(`Failed to create embedded manager: ${String(err)}; using builtin`);
+    }
+  }
+
   if (resolved.backend === "qmd" && resolved.qmd) {
     try {
       const qmdManager = await QmdMemoryManager.create({
@@ -47,9 +78,27 @@ export async function getMemoryManager(
             config: resolved.builtin,
           });
         };
-        const manager = new FallbackMemoryManager({ primary: qmdManager, fallbackFactory }, () => {
-          managerCache.delete(cacheKey);
-        });
+        const manager = new FallbackMemoryManager(
+          { primary: qmdManager, fallbackFactory },
+          {
+            label: "qmd",
+            shouldPreempt: (status) => {
+              const qmd = (status.custom?.qmd ?? {}) as {
+                reliability?: { circuitOpen?: boolean; lastFailureReason?: string | null };
+              };
+              if (!qmd.reliability?.circuitOpen) {
+                return { shouldFallback: false };
+              }
+              return {
+                shouldFallback: true,
+                reason: qmd.reliability.lastFailureReason ?? "qmd circuit open",
+              };
+            },
+          },
+          () => {
+            managerCache.delete(cacheKey);
+          },
+        );
         managerCache.set(cacheKey, manager);
         return manager;
       }
@@ -79,7 +128,11 @@ export async function getMemoryLifecycleOrchestrator(
 
   const manager = await getMemoryManager(config, agentId);
   const resolved = resolveMemoryBackendConfig({ cfg: config, agentId });
-  const orchestrator = new MemoryLifecycleOrchestrator(manager, resolved.builtin);
+  const syncConfig =
+    resolved.backend === "embedded" && resolved.embedded
+      ? resolved.embedded.sync
+      : resolved.builtin.sync;
+  const orchestrator = new MemoryLifecycleOrchestrator(manager, syncConfig);
   lifecycleCache.set(cacheKey, orchestrator);
   return orchestrator;
 }

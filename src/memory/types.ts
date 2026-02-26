@@ -28,7 +28,7 @@ export interface ReadFileResult {
 }
 
 export interface MemoryProviderStatus {
-  backend: "builtin" | "qmd";
+  backend: "builtin" | "qmd" | "embedded";
   provider: string;
   model?: string;
   files?: number;
@@ -44,6 +44,8 @@ export interface MemoryProviderStatus {
     enabled: boolean;
     available?: boolean;
     dims?: number;
+    extensionPath?: string;
+    loadError?: string;
   };
   custom?: Record<string, unknown>;
 }

@@ -16,14 +16,29 @@ export class FallbackMemoryManager implements MemorySearchManager {
   private fallback: MemorySearchManager | null = null;
   private primaryFailed = false;
   private lastError?: string;
+  private readonly label: string;
+  private readonly shouldPreempt?: (status: ReturnType<MemorySearchManager["status"]>) => {
+    shouldFallback: boolean;
+    reason?: string;
+  };
 
   constructor(
     private readonly deps: {
       primary: MemorySearchManager;
       fallbackFactory: () => Promise<MemorySearchManager | null>;
     },
+    options?: {
+      label?: string;
+      shouldPreempt?: (status: ReturnType<MemorySearchManager["status"]>) => {
+        shouldFallback: boolean;
+        reason?: string;
+      };
+    },
     private readonly onClose?: () => void,
-  ) {}
+  ) {
+    this.label = options?.label ?? "primary";
+    this.shouldPreempt = options?.shouldPreempt;
+  }
 
   async search(query: string, opts?: SearchOptions): Promise<MemorySearchResult[]> {
     if (!this.primaryFailed && this.shouldPreemptToFallback()) {
@@ -45,7 +60,7 @@ export class FallbackMemoryManager implements MemorySearchManager {
       } catch (err) {
         this.primaryFailed = true;
         this.lastError = err instanceof Error ? err.message : String(err);
-        logger.warn(`qmd memory failed; switching to builtin: ${this.lastError}`);
+        logger.warn(`${this.label} memory failed; switching to builtin: ${this.lastError}`);
         await this.deps.primary.close?.().catch(() => {});
       }
     }
@@ -76,13 +91,13 @@ export class FallbackMemoryManager implements MemorySearchManager {
     if (fallbackStatus) {
       return {
         ...fallbackStatus,
-        fallback: { from: "qmd", reason: this.lastError ?? "unknown" },
+        fallback: { from: this.label, reason: this.lastError ?? "unknown" },
       };
     }
     const primaryStatus = this.deps.primary.status();
     return {
       ...primaryStatus,
-      fallback: { from: "qmd", reason: this.lastError ?? "unknown" },
+      fallback: { from: this.label, reason: this.lastError ?? "unknown" },
     };
   }
 
@@ -132,15 +147,16 @@ export class FallbackMemoryManager implements MemorySearchManager {
   }
 
   private shouldPreemptToFallback(): boolean {
-    const status = this.deps.primary.status();
-    const qmd = (status.custom?.qmd ?? {}) as {
-      reliability?: { circuitOpen?: boolean; lastFailureReason?: string | null };
-    };
-    if (!qmd.reliability?.circuitOpen) {
+    if (!this.shouldPreempt) {
       return false;
     }
-    this.lastError = qmd.reliability.lastFailureReason ?? this.lastError ?? "qmd circuit open";
-    logger.warn(`qmd memory circuit-open; switching to builtin: ${this.lastError}`);
+    const status = this.deps.primary.status();
+    const result = this.shouldPreempt(status);
+    if (!result.shouldFallback) {
+      return false;
+    }
+    this.lastError = result.reason ?? this.lastError ?? `${this.label} unavailable`;
+    logger.warn(`${this.label} memory circuit-open; switching to builtin: ${this.lastError}`);
     return true;
   }
 

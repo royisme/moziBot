@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import type { ResolvedBuiltinMemoryConfig } from "./backend-config";
+import type { ResolvedMemorySyncConfig } from "./backend-config";
 import type { MemorySearchManager } from "./types";
 import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 
@@ -14,19 +14,15 @@ function makeManager(overrides?: Partial<MemorySearchManager>): MemorySearchMana
   };
 }
 
-function makeBuiltinSync(
-  override?: Partial<ResolvedBuiltinMemoryConfig["sync"]>,
-): ResolvedBuiltinMemoryConfig {
+function makeBuiltinSync(override?: Partial<ResolvedMemorySyncConfig>): ResolvedMemorySyncConfig {
   return {
-    sync: {
-      onSessionStart: true,
-      onSearch: true,
-      watch: true,
-      watchDebounceMs: 1500,
-      intervalMinutes: 0,
-      forceOnFlush: true,
-      ...override,
-    },
+    onSessionStart: true,
+    onSearch: true,
+    watch: true,
+    watchDebounceMs: 1500,
+    intervalMinutes: 0,
+    forceOnFlush: true,
+    ...override,
   };
 }
 

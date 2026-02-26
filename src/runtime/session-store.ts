@@ -52,6 +52,36 @@ type TranscriptMessage = {
   message: unknown;
 };
 
+export type SessionFormat = "legacy" | "pi";
+
+const SESSION_FORMAT_METADATA_KEY = "sessionFormat";
+const SESSION_FORMAT_PI = "pi" as const;
+
+function resolveExplicitSessionFormat(
+  metadata?: Record<string, unknown>,
+): SessionFormat | undefined {
+  if (!metadata || !(SESSION_FORMAT_METADATA_KEY in metadata)) {
+    return undefined;
+  }
+  return metadata[SESSION_FORMAT_METADATA_KEY] === SESSION_FORMAT_PI ? "pi" : "legacy";
+}
+
+export function resolveSessionFormat(metadata?: Record<string, unknown>): SessionFormat {
+  if (metadata && metadata[SESSION_FORMAT_METADATA_KEY] === SESSION_FORMAT_PI) {
+    return "pi";
+  }
+  return "legacy";
+}
+
+function withSessionFormat(
+  metadata: Record<string, unknown> | undefined,
+  format: SessionFormat,
+): Record<string, unknown> {
+  const next = metadata ? { ...metadata } : {};
+  next[SESSION_FORMAT_METADATA_KEY] = format;
+  return next;
+}
+
 /**
  * SessionStore responsibilities (persistence boundary):
  * - Persist/restore session metadata and transcript segments.
@@ -99,7 +129,11 @@ export class SessionStore {
     const existingRaw = store[sessionKey];
     const existing = existingRaw ? this.normalizeEntry(existingRaw, agentId) : undefined;
     if (existing) {
-      const transcript = this.readTranscript(existing.latestSessionFile);
+      const format = resolveSessionFormat(existing.metadata);
+      const transcript =
+        format === "legacy"
+          ? this.readTranscript(existing.latestSessionFile)
+          : { messages: [] as unknown[] };
       const state: SessionState = {
         sessionKey,
         agentId: existing.agentId,
@@ -135,7 +169,7 @@ export class SessionStore {
       agentId,
       createdAt: now,
       updatedAt: now,
-      metadata: {},
+      metadata: withSessionFormat({}, "pi"),
       latestSessionId: sessionId,
       latestSessionFile: sessionFile,
       historySessionIds: [],
@@ -148,15 +182,18 @@ export class SessionStore {
     store[sessionKey] = entry;
     this.saveStore(store);
 
-    const header: TranscriptHeader = {
-      type: "session",
-      sessionId,
-      sessionKey,
-      agentId,
-      createdAt: now,
-      metadata: {},
-    };
-    this.writeTranscript(sessionFile, header, []);
+    const format = resolveSessionFormat(entry.metadata);
+    if (format === "legacy") {
+      const header: TranscriptHeader = {
+        type: "session",
+        sessionId,
+        sessionKey,
+        agentId,
+        createdAt: now,
+        metadata: entry.metadata,
+      };
+      this.writeTranscript(sessionFile, header, []);
+    }
 
     const created: SessionState = {
       sessionKey,
@@ -167,6 +204,7 @@ export class SessionStore {
       segments: this.toSessionStateSegments(entry.segments),
       sessionId,
       sessionFile,
+      metadata: entry.metadata,
       createdAt: now,
       updatedAt: now,
       context: [],
@@ -196,6 +234,10 @@ export class SessionStore {
       ? this.normalizeEntry(store[sessionKey], next.agentId)
       : undefined;
 
+    const existingFormat = entry ? resolveSessionFormat(entry.metadata) : undefined;
+    const explicitFormat = resolveExplicitSessionFormat(next.metadata);
+    const nextFormat: SessionFormat = explicitFormat ?? existingFormat ?? "pi";
+
     if (!entry) {
       const segmentId = next.latestSessionId || crypto.randomUUID();
       const segmentFile =
@@ -205,7 +247,7 @@ export class SessionStore {
         createdAt: next.createdAt || now,
         updatedAt: next.updatedAt || now,
         currentModel: next.currentModel,
-        metadata: next.metadata,
+        metadata: withSessionFormat(next.metadata, nextFormat),
         latestSessionId: segmentId,
         latestSessionFile: segmentFile,
         historySessionIds: [],
@@ -223,7 +265,7 @@ export class SessionStore {
       };
     } else {
       entry.currentModel = next.currentModel;
-      entry.metadata = next.metadata;
+      entry.metadata = withSessionFormat(next.metadata, nextFormat);
       entry.createdAt = entry.createdAt || next.createdAt || now;
       entry.updatedAt = next.updatedAt || entry.updatedAt;
       entry.agentId = next.agentId;
@@ -269,7 +311,7 @@ export class SessionStore {
     store[sessionKey] = entry;
     this.saveStore(store);
 
-    if (entry.latestSessionFile) {
+    if (entry.latestSessionFile && nextFormat === "legacy") {
       const latestMeta = entry.segments[entry.latestSessionId];
       const header: TranscriptHeader = {
         type: "session",
@@ -333,6 +375,8 @@ export class SessionStore {
           },
           current.agentId,
         );
+    const format = resolveSessionFormat(existing.metadata);
+    existing.metadata = withSessionFormat(existing.metadata, format);
 
     const previousLatestId = existing.latestSessionId;
     const previousLatest = existing.segments[previousLatestId];
@@ -369,18 +413,20 @@ export class SessionStore {
       };
     }
 
-    const nextHeader: TranscriptHeader = {
-      type: "session",
-      sessionId: nextSessionId,
-      sessionKey,
-      agentId: existing.agentId,
-      createdAt: now,
-      updatedAt: now,
-      prevSessionId: previousLatestId,
-      model: undefined,
-      metadata: existing.metadata,
-    };
-    this.writeTranscript(nextSessionFile, nextHeader, []);
+    if (format === "legacy") {
+      const nextHeader: TranscriptHeader = {
+        type: "session",
+        sessionId: nextSessionId,
+        sessionKey,
+        agentId: existing.agentId,
+        createdAt: now,
+        updatedAt: now,
+        prevSessionId: previousLatestId,
+        model: undefined,
+        metadata: existing.metadata,
+      };
+      this.writeTranscript(nextSessionFile, nextHeader, []);
+    }
 
     store[sessionKey] = existing;
     this.saveStore(store);
@@ -413,6 +459,8 @@ export class SessionStore {
     if (!entry) {
       return undefined;
     }
+    const format = resolveSessionFormat(entry.metadata);
+    entry.metadata = withSessionFormat(entry.metadata, format);
 
     const currentLatestId = entry.latestSessionId;
     const currentLatest = entry.segments[currentLatestId];
@@ -425,9 +473,13 @@ export class SessionStore {
       return undefined;
     }
 
-    const previousTranscript = this.readTranscript(previous.sessionFile);
-    const currentTranscript = this.readTranscript(entry.latestSessionFile);
-    const mergedMessages = [...previousTranscript.messages, ...currentTranscript.messages];
+    const mergedMessages =
+      format === "legacy"
+        ? [
+            ...this.readTranscript(previous.sessionFile).messages,
+            ...this.readTranscript(entry.latestSessionFile).messages,
+          ]
+        : [];
 
     entry.latestSessionId = previousId;
     entry.latestSessionFile = previous.sessionFile;
@@ -450,19 +502,21 @@ export class SessionStore {
       new Set([...(entry.historySessionIds || []), currentLatestId]),
     );
 
-    const header: TranscriptHeader = {
-      type: "session",
-      sessionId: previousId,
-      sessionKey,
-      agentId: entry.agentId,
-      createdAt: previous.createdAt,
-      updatedAt: now,
-      archived: false,
-      prevSessionId: previous.prevSessionId,
-      model: entry.currentModel,
-      metadata: entry.metadata,
-    };
-    this.writeTranscript(previous.sessionFile, header, mergedMessages);
+    if (format === "legacy") {
+      const header: TranscriptHeader = {
+        type: "session",
+        sessionId: previousId,
+        sessionKey,
+        agentId: entry.agentId,
+        createdAt: previous.createdAt,
+        updatedAt: now,
+        archived: false,
+        prevSessionId: previous.prevSessionId,
+        model: entry.currentModel,
+        metadata: entry.metadata,
+      };
+      this.writeTranscript(previous.sessionFile, header, mergedMessages);
+    }
 
     store[sessionKey] = entry;
     this.saveStore(store);
@@ -476,7 +530,7 @@ export class SessionStore {
       segments: this.toSessionStateSegments(entry.segments),
       sessionId: previousId,
       sessionFile: previous.sessionFile,
-      context: mergedMessages,
+      context: format === "legacy" ? mergedMessages : [],
       updatedAt: now,
     };
     this.cache.set(sessionKey, reverted);

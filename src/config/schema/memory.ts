@@ -93,6 +93,90 @@ const MemoryRecallSchema = z
   })
   .strict();
 
+const MemoryEmbeddedProviderSchema = z.enum(["openai", "ollama", "auto"]).default("auto");
+
+const MemoryEmbeddedRemoteSchema = z
+  .object({
+    baseUrl: z.string().optional(),
+    apiKey: z.string().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    timeoutMs: z.number().positive().optional(),
+    batchSize: z.number().positive().optional(),
+  })
+  .strict();
+
+const MemoryEmbeddedVectorSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    extensionPath: z.string().optional(),
+  })
+  .strict();
+
+const MemoryEmbeddedStoreSchema = z
+  .object({
+    path: z.string().optional(),
+    vector: MemoryEmbeddedVectorSchema.optional(),
+  })
+  .strict();
+
+const MemoryEmbeddedChunkingSchema = z
+  .object({
+    tokens: z.number().positive().default(400),
+    overlap: z.number().min(0).default(80),
+  })
+  .strict();
+
+const MemoryEmbeddedSyncSchema = z
+  .object({
+    onSessionStart: z.boolean().default(true),
+    onSearch: z.boolean().default(true),
+    watch: z.boolean().default(true),
+    watchDebounceMs: z.number().default(1500),
+    intervalMinutes: z.number().default(0),
+    forceOnFlush: z.boolean().default(true),
+  })
+  .strict();
+
+const MemoryEmbeddedHybridSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    vectorWeight: z.number().min(0).max(1).default(0.7),
+    textWeight: z.number().min(0).max(1).default(0.3),
+    candidateMultiplier: z.number().min(1).default(4),
+  })
+  .strict();
+
+const MemoryEmbeddedQuerySchema = z
+  .object({
+    maxResults: z.number().default(6),
+    minScore: z.number().min(0).max(1).default(0.35),
+    hybrid: MemoryEmbeddedHybridSchema.optional(),
+  })
+  .strict();
+
+const MemoryEmbeddedCacheSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxEntries: z.number().positive().optional(),
+  })
+  .strict();
+
+const MemoryEmbeddedSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    provider: MemoryEmbeddedProviderSchema.optional(),
+    model: z.string().optional(),
+    remote: MemoryEmbeddedRemoteSchema.optional(),
+    store: MemoryEmbeddedStoreSchema.optional(),
+    chunking: MemoryEmbeddedChunkingSchema.optional(),
+    sync: MemoryEmbeddedSyncSchema.optional(),
+    query: MemoryEmbeddedQuerySchema.optional(),
+    cache: MemoryEmbeddedCacheSchema.optional(),
+    sources: z.array(z.enum(["memory", "sessions"])).optional(),
+    recall: MemoryRecallSchema.optional(),
+  })
+  .strict();
+
 const MemoryQmdSearchModeSchema = z.enum(["query", "search", "vsearch"]).default("search");
 
 const MemoryQmdSchema = z
@@ -142,10 +226,11 @@ const MemoryBuiltinSchema = z
 
 export const MemoryConfigSchema = z
   .object({
-    backend: z.enum(["builtin", "qmd"]).default("builtin"),
+    backend: z.enum(["builtin", "qmd", "embedded"]).default("builtin"),
     citations: z.enum(["auto", "always", "never"]).default("auto"),
     qmd: MemoryQmdSchema.optional(),
     builtin: MemoryBuiltinSchema.optional(),
+    embedded: MemoryEmbeddedSchema.optional(),
     persistence: MemoryPersistenceSchema.optional(),
   })
   .strict();
