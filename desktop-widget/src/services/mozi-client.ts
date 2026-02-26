@@ -24,7 +24,9 @@ export class MoziClient {
   private config: MoziClientConfig;
   private eventSource: EventSource | null = null;
   private ws: WebSocket | null = null;
-  private listeners: { [K in keyof MoziClientEvents]?: Set<Listener<K>> } = {};
+  private listeners: Partial<
+    Record<keyof MoziClientEvents, Set<MoziClientEvents[keyof MoziClientEvents]>>
+  > = {};
   private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private wsReconnectAttempt = 0;
   private sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -37,22 +39,29 @@ export class MoziClient {
     this.config = config;
   }
 
-  on<K extends keyof MoziClientEvents>(event: K, fn: Listener<K>): void {
-    if (!this.listeners[event]) {
-      this.listeners[event] = new Set();
+  private getListeners<K extends keyof MoziClientEvents>(event: K): Set<Listener<K>> {
+    const existing = this.listeners[event] as Set<Listener<K>> | undefined;
+    if (existing) {
+      return existing;
     }
-    this.listeners[event]!.add(fn);
+    const created = new Set<Listener<K>>();
+    this.listeners[event] = created as Set<MoziClientEvents[keyof MoziClientEvents]>;
+    return created;
+  }
+
+  on<K extends keyof MoziClientEvents>(event: K, fn: Listener<K>): void {
+    this.getListeners(event).add(fn);
   }
 
   off<K extends keyof MoziClientEvents>(event: K, fn: Listener<K>): void {
-    this.listeners[event]?.delete(fn);
+    (this.listeners[event] as Set<Listener<K>> | undefined)?.delete(fn);
   }
 
   private emit<K extends keyof MoziClientEvents>(
     event: K,
     ...args: Parameters<MoziClientEvents[K]>
   ): void {
-    const fns = this.listeners[event];
+    const fns = this.listeners[event] as Set<Listener<K>> | undefined;
     if (!fns) return;
     for (const fn of fns) {
       try {

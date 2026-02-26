@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixes
 
-- N/A
+- fix(desktop-widget): repair client event listener typing for build
 
 ## [1.2.0] - 2026-02-18
 
