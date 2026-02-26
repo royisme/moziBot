@@ -1,6 +1,9 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import {
+  CURRENT_SESSION_VERSION,
   createAgentSession,
   type AgentSession,
   ModelRegistry as PiCodingModelRegistry,
@@ -13,10 +16,12 @@ import type { ModelRegistry } from "../model-registry";
 import type { SandboxExecutor } from "../sandbox/executor";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
+import { resolveSessionFormat } from "../session-store";
 import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
 import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
 import { logger } from "../../logger";
+import { emitSessionTranscriptUpdate } from "../../memory/session-transcript-events";
 import {
   CONTEXT_WINDOW_HARD_MIN_TOKENS,
   CONTEXT_WINDOW_WARN_BELOW_TOKENS,
@@ -71,6 +76,10 @@ export async function createAndInitializeAgentSession(params: {
 }): Promise<AgentSession> {
   await ensureHome(params.homeDir);
   await autoCompleteBootstrapIfReady(params.homeDir);
+  const sessionState = params.sessions.getOrCreate(params.sessionKey, params.resolvedId);
+  const sessionFormat = resolveSessionFormat(sessionState.metadata);
+  const sessionFile = sessionState.sessionFile ?? sessionState.latestSessionFile;
+  const sessionId = sessionState.sessionId ?? sessionState.latestSessionId;
   const modelSpec = params.modelRegistry.get(params.modelRef);
   if (!modelSpec) {
     throw new Error(`Model not found: ${params.modelRef}`);
@@ -132,7 +141,14 @@ export async function createAndInitializeAgentSession(params: {
     onMetadata: params.onPromptMetadata,
   });
 
-  const piSessionManager = PiSessionManager.inMemory(params.workspaceDir);
+  const piSessionManager =
+    sessionFormat === "pi" && sessionFile && sessionId
+      ? await openPiSessionManager({
+          sessionFile,
+          sessionId,
+          cwd: params.workspaceDir,
+        })
+      : PiSessionManager.inMemory(params.workspaceDir);
   const piSettingsManager = PiSettingsManager.create(
     params.workspaceDir,
     params.resolvePiAgentDir(),
@@ -148,10 +164,15 @@ export async function createAndInitializeAgentSession(params: {
     settingsManager: piSettingsManager,
   });
   const agent = created.session;
+  if (sessionFormat === "pi") {
+    installSessionTranscriptEmitter(agent.sessionManager);
+  }
   applySystemPromptOverrideToSession(agent, systemPromptText);
 
-  const session = params.sessions.get(params.sessionKey);
-  let persistedContext = Array.isArray(session?.context) ? (session.context as AgentMessage[]) : [];
+  let persistedContext =
+    sessionFormat === "legacy" && Array.isArray(sessionState.context)
+      ? (sessionState.context as AgentMessage[])
+      : (agent.messages as AgentMessage[]);
   if (persistedContext.length > 0) {
     const historyLimit = resolveHistoryLimit(params.config, params.sessionKey);
     if (historyLimit && historyLimit > 0) {
@@ -196,4 +217,63 @@ export async function createAndInitializeAgentSession(params: {
   }
 
   return agent;
+}
+
+async function openPiSessionManager(params: {
+  sessionFile: string;
+  sessionId: string;
+  cwd: string;
+}): Promise<PiSessionManager> {
+  await ensurePiSessionHeader(params);
+  return PiSessionManager.open(params.sessionFile);
+}
+
+async function ensurePiSessionHeader(params: {
+  sessionFile: string;
+  sessionId: string;
+  cwd: string;
+}): Promise<void> {
+  try {
+    const stat = await fs.stat(params.sessionFile);
+    if (stat.size > 0) {
+      return;
+    }
+  } catch {
+    // File missing; we'll create it below.
+  }
+
+  await fs.mkdir(path.dirname(params.sessionFile), { recursive: true });
+  const header = {
+    type: "session",
+    version: CURRENT_SESSION_VERSION,
+    id: params.sessionId,
+    timestamp: new Date().toISOString(),
+    cwd: params.cwd,
+  };
+  await fs.writeFile(params.sessionFile, `${JSON.stringify(header)}\n`, {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+}
+
+const SESSION_EMITTER_MARK = "__moziTranscriptEmitterInstalled";
+
+function installSessionTranscriptEmitter(sessionManager: PiSessionManager): void {
+  const tagged = sessionManager as unknown as Record<string, boolean>;
+  if (tagged[SESSION_EMITTER_MARK]) {
+    return;
+  }
+  tagged[SESSION_EMITTER_MARK] = true;
+
+  const originalAppend = sessionManager.appendMessage.bind(sessionManager);
+  sessionManager.appendMessage = ((message) => {
+    const result = originalAppend(message as never);
+    const sessionFile = (
+      sessionManager as { getSessionFile?: () => string | undefined }
+    ).getSessionFile?.();
+    if (sessionFile) {
+      emitSessionTranscriptUpdate(sessionFile);
+    }
+    return result;
+  }) as PiSessionManager["appendMessage"];
 }

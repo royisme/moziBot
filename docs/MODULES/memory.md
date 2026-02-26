@@ -41,6 +41,10 @@ The `builtin` memory backend supports automated synchronization of local `.md` f
 
 The orchestrator coalesces in-flight sync requests and preserves force-sync requests queued while another sync is running, reducing duplicate work and preventing lifecycle trigger races.
 
+### QMD Session Transcript Updates
+
+When QMD sessions export is enabled, session transcript updates emit in-process events that schedule a debounced QMD sync. This keeps the exported session collection aligned with new transcript entries without relying solely on boot/interval updates.
+
 ### Persistence Layer (`src/storage/`)
 
 - `db.ts` - SQLite schema + data access for sessions/queue/messages/multimodal

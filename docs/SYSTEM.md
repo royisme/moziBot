@@ -163,7 +163,9 @@ Sessions use a segmented lifecycle model:
 - each bucket has one mutable `latest` segment and append-only archived history segments
 - `/new` always rotates via `rotateSegment` to a new segment id; it does not clear in place
 - temporal policy can auto-rotate (`activeWindowHours`, `dayBoundaryRollover`)
-- semantic policy can auto-rotate with debounce and reversible rollback (rollback merges current segment messages back into previous segment)
+- semantic policy can auto-rotate with debounce and reversible rollback (legacy transcripts merge context on rollback; pi transcripts keep segments separate)
+
+Session transcripts for **new** sessions are persisted via pi `SessionManager` (JSONL tree format). `SessionStore` remains the mapping layer and tracks `sessionFormat` metadata (`pi` or `legacy`) without migrating existing transcripts.
 
 ### 3. Context Pruning
 

@@ -19,6 +19,7 @@ import { buildCollectionIndex, ensureCollections } from "./qmd/collections";
 import { QmdDocResolver } from "./qmd/doc-resolver";
 import { resolveReadPath, type CollectionRoot } from "./qmd/path-utils";
 import { runQmd, parseQueryResults } from "./qmd/qmd-client";
+import { onSessionTranscriptUpdate } from "./session-transcript-events";
 import { isScopeAllowed } from "./qmd/scope";
 import {
   exportSessions,
@@ -62,6 +63,10 @@ export class QmdMemoryManager implements MemorySearchManager {
   private readonly sources: Set<"memory" | "sessions">;
   private readonly sessionExporter: SessionExporterConfig | null;
   private readonly docResolver: QmdDocResolver;
+  private dirty = false;
+  private sessionUnsubscribe: (() => void) | null = null;
+  private sessionSyncTimer: NodeJS.Timeout | null = null;
+  private sessionDir: string | null = null;
   private updateTimer: NodeJS.Timeout | null = null;
   private pendingUpdate: Promise<void> | null = null;
   private closed = false;
@@ -138,6 +143,8 @@ export class QmdMemoryManager implements MemorySearchManager {
       env: this.env,
       workspaceDir: this.homeDir,
     });
+
+    this.ensureSessionListener();
 
     if (this.qmd.update.onBoot) {
       await this.runUpdate("boot", true);
@@ -378,11 +385,16 @@ export class QmdMemoryManager implements MemorySearchManager {
     return null;
   }
 
+  markDirty(): void {
+    this.dirty = true;
+  }
+
   async sync(params?: SyncParams): Promise<void> {
     if (params?.progress) {
       params.progress({ completed: 0, total: 1, label: "Updating QMD index…" });
     }
     await this.runUpdate(params?.reason ?? "manual", params?.force);
+    this.dirty = false;
     if (params?.progress) {
       params.progress({ completed: 1, total: 1, label: "QMD index updated" });
     }
@@ -424,7 +436,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       model: "qmd",
       files: counts.totalDocuments,
       chunks: counts.totalDocuments,
-      dirty: false,
+      dirty: this.dirty,
       workspaceDir: this.homeDir,
       dbPath: this.indexPath,
       sources: Array.from(this.sources),
@@ -458,6 +470,14 @@ export class QmdMemoryManager implements MemorySearchManager {
       return;
     }
     this.closed = true;
+    if (this.sessionUnsubscribe) {
+      this.sessionUnsubscribe();
+      this.sessionUnsubscribe = null;
+    }
+    if (this.sessionSyncTimer) {
+      clearTimeout(this.sessionSyncTimer);
+      this.sessionSyncTimer = null;
+    }
     if (this.updateTimer) {
       clearInterval(this.updateTimer);
       this.updateTimer = null;
@@ -565,6 +585,80 @@ export class QmdMemoryManager implements MemorySearchManager {
       return false;
     }
     return Date.now() - this.lastUpdateAt < debounceMs;
+  }
+
+  private ensureSessionListener(): void {
+    if (!this.sessionExporter || this.sessionUnsubscribe || !this.sources.has("sessions")) {
+      return;
+    }
+    this.sessionUnsubscribe = onSessionTranscriptUpdate((update) => {
+      if (this.closed) {
+        return;
+      }
+      if (!this.isSessionFileForAgent(update.sessionFile)) {
+        return;
+      }
+      this.markDirty();
+      this.scheduleSessionSync();
+    });
+  }
+
+  private scheduleSessionSync(): void {
+    if (this.closed) {
+      return;
+    }
+    if (this.sessionSyncTimer) {
+      clearTimeout(this.sessionSyncTimer);
+      this.sessionSyncTimer = null;
+    }
+    const delay = this.computeSessionSyncDelay();
+    this.sessionSyncTimer = setTimeout(() => {
+      this.sessionSyncTimer = null;
+      void this.sync({ reason: "session-transcript" }).catch((err) => {
+        logger.warn(
+          { event: "qmd_session_sync_error", agentId: this.agentId, error: String(err) },
+          `qmd session sync failed: ${String(err)}`,
+        );
+      });
+    }, delay);
+  }
+
+  private computeSessionSyncDelay(): number {
+    const debounceMs = this.qmd.update.debounceMs;
+    if (debounceMs <= 0 || !this.lastUpdateAt) {
+      return 0;
+    }
+    const elapsed = Date.now() - this.lastUpdateAt;
+    return elapsed >= debounceMs ? 0 : debounceMs - elapsed;
+  }
+
+  private isSessionFileForAgent(sessionFile: string): boolean {
+    const dir = this.resolveSessionDir();
+    if (!dir) {
+      return false;
+    }
+    const resolvedDir = path.resolve(dir) + path.sep;
+    const resolvedFile = path.resolve(sessionFile);
+    return resolvedFile.startsWith(resolvedDir);
+  }
+
+  private resolveSessionDir(): string | null {
+    if (this.sessionDir) {
+      return this.sessionDir;
+    }
+    let baseDir = this.config.paths?.sessions;
+    if (!baseDir) {
+      baseDir = path.join(os.tmpdir(), "mozi", "sessions");
+    }
+    if (!path.isAbsolute(baseDir)) {
+      if (this.config.paths?.baseDir) {
+        baseDir = path.resolve(this.config.paths.baseDir, baseDir);
+      } else {
+        baseDir = path.resolve(baseDir);
+      }
+    }
+    this.sessionDir = path.join(baseDir, this.agentId);
+    return this.sessionDir;
   }
 
   private async runQmdWithRetry(args: string[], reason: string, force?: boolean): Promise<void> {
