@@ -20,6 +20,46 @@ if (!pkg.version) {
   process.exit(1);
 }
 
+function resolveTagVersion(): string | null {
+  const refName = process.env.GITHUB_REF_NAME;
+  if (refName) {
+    return normalizeTag(refName);
+  }
+  const ref = process.env.GITHUB_REF;
+  if (!ref) {
+    return null;
+  }
+  const match = ref.match(/refs\/tags\/(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return normalizeTag(match[1]);
+}
+
+function normalizeTag(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const version = trimmed.startsWith("v") ? trimmed.slice(1) : trimmed;
+  const semver =
+    /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version) ??
+    /^(\d+)\.(\d+)\.(\d+)\+([0-9A-Za-z.-]+)$/.exec(version);
+  if (!semver) {
+    return null;
+  }
+  return version;
+}
+
+const tagVersion = resolveTagVersion();
+if (tagVersion && tagVersion !== pkg.version) {
+  console.error(
+    `release-check: tag version ${tagVersion} does not match package.json ${pkg.version}.`,
+  );
+  console.error("release-check: run scripts/release.sh or sync package.json before tagging.");
+  process.exit(1);
+}
+
 const binPath = pkg.bin?.mozi;
 if (!binPath) {
   console.error("release-check: package.json bin.mozi is missing.");
