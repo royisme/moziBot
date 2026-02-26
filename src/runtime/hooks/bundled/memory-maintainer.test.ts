@@ -10,6 +10,24 @@ import {
   resetMemoryMaintainerHooksForTests,
 } from "./memory-maintainer";
 
+async function waitForMemoryFiles(dir: string, timeoutMs = 2000): Promise<string[]> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const files = await fs.readdir(dir);
+      if (files.length > 0) {
+        return files;
+      }
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`Timed out waiting for session memory snapshot in ${dir}`);
+}
+
 function createConfig(baseDir: string, homeDir: string): MoziConfig {
   return {
     paths: {
@@ -119,5 +137,40 @@ describe("memory maintainer bundled hooks", () => {
     expect(memoryText).toContain("Reason: new");
     expect(memoryText).toContain("Need remember project decision");
     expect(memoryText).toContain("Decision captured and agreed");
+  });
+
+  it("writes session memory snapshot when hook is enabled", async () => {
+    const cfg = createConfig(tempDir, homeDir);
+    cfg.hooks = {
+      sessionMemory: {
+        llmSlug: false,
+      },
+    };
+    configureMemoryMaintainerHooks(cfg);
+    const runner = getRuntimeHookRunner();
+
+    const messages: AgentMessage[] = [
+      { role: "user", content: "We decided to ship feature A" } as AgentMessage,
+      { role: "assistant", content: "Captured the decision for release notes" } as AgentMessage,
+    ];
+
+    await runner.runBeforeReset(
+      {
+        reason: "new",
+        messages,
+      },
+      {
+        sessionKey: "agent:mozi:telegram:dm:chat-1",
+        agentId: "mozi",
+      },
+    );
+
+    const memoryDir = path.join(cfg.agents?.mozi?.workspace ?? "", "memory");
+    const files = await waitForMemoryFiles(memoryDir);
+    expect(files.length).toBe(1);
+    const content = await fs.readFile(path.join(memoryDir, files[0] ?? ""), "utf-8");
+    expect(content).toContain("Session Key");
+    expect(content).toContain("user: We decided to ship feature A");
+    expect(content).toContain("assistant: Captured the decision for release notes");
   });
 });

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { logger } from "../logger";
+import { resolveTemplatePath } from "./templates";
 
 /**
  * Workspace = User's working directory
@@ -29,9 +30,12 @@ export async function ensureWorkspace(dir: string): Promise<void> {
     await fs.access(workPath);
   } catch {
     logger.info("Creating default WORK.md in workspace");
-    const templatePath = path.join(__dirname, "templates", "WORK.md");
+    const templatePath = resolveTemplatePath("WORK.md");
     let content = "# WORK.md\n\nDocument your project rules here.\n";
     try {
+      if (!templatePath) {
+        throw new Error("templates_not_found");
+      }
       const raw = await fs.readFile(templatePath, "utf-8");
       // Strip frontmatter
       content = raw.replace(/^---[\s\S]*?---\s*/, "");
@@ -47,9 +51,12 @@ export async function ensureWorkspace(dir: string): Promise<void> {
     await fs.access(toolsPath);
   } catch {
     logger.info("Creating default TOOLS.md in workspace");
-    const templatePath = path.join(__dirname, "templates", "TOOLS.md");
+    const templatePath = resolveTemplatePath("TOOLS.md");
     let content = "# TOOLS.md\n\nDocument your tools and scripts here.\n";
     try {
+      if (!templatePath) {
+        throw new Error("templates_not_found");
+      }
       const raw = await fs.readFile(templatePath, "utf-8");
       // Strip frontmatter
       content = raw.replace(/^---[\s\S]*?---\s*/, "");

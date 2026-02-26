@@ -79,6 +79,12 @@ export interface OrchestratorDeps {
     message: unknown;
     channelId: string;
   }): Promise<boolean>;
+  interruptSession(sessionKey: string, reason?: string): Promise<boolean>;
+  performSessionReset(params: {
+    sessionKey: string;
+    agentId: string;
+    reason: "new" | "reset";
+  }): Promise<void>;
 
   // Lifecycle Helpers
   resetSession(sessionKey: string, agentId: string): void;

@@ -4,6 +4,7 @@ import {
   type CommandDispatchContext,
   dispatchParsedCommand,
 } from "../services/command-handlers";
+import { RESET_SESSION_GREETING_PROMPT } from "../services/reset-greeting-prompt";
 
 /**
  * Type guard for ParsedCommand structure.
@@ -70,6 +71,15 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
       return "abort";
     }
 
+    if (rawCommand.name === "new" || rawCommand.name === "reset") {
+      const reason = rawCommand.name === "new" ? "new" : "reset";
+      const args = rawCommand.args.trim();
+      await deps.interruptSession(sessionKey, "Session reset command");
+      await deps.performSessionReset({ sessionKey, agentId, reason });
+      state.text = args || RESET_SESSION_GREETING_PROMPT;
+      return "continue";
+    }
+
     // 3. Obtain injected command handler map and channel from deps
     const handlerMap = getHandlerMap();
     const channel = getChannel(payload);
@@ -110,8 +120,8 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
     }
 
     return "continue";
-  } catch {
-    // TODO: Connect to centralized error flow
-    return "abort";
+  } catch (error) {
+    deps.logger?.error?.({ traceId: ctx.traceId, error }, "Command flow failed");
+    throw error;
   }
 };

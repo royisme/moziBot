@@ -39,6 +39,8 @@ function createDeps(): OrchestratorDeps {
     ),
     getChannel: vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") })),
     dispatchExtensionCommand: vi.fn(async () => false),
+    interruptSession: vi.fn(async () => false),
+    performSessionReset: vi.fn(async () => {}),
     resetSession: vi.fn(),
     getSessionTimestamps: vi.fn(
       () =>
@@ -55,6 +57,7 @@ function createDeps(): OrchestratorDeps {
     ensureChannelContext: vi.fn(async () => {}),
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
+    emitStatusSafely: vi.fn(async () => {}),
     createStreamingBuffer: vi.fn(() => ({
       append: vi.fn(),
       initialize: vi.fn(async () => {}),

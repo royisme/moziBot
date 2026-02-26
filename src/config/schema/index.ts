@@ -3,6 +3,7 @@ import { AgentsSchema } from "./agents";
 import { BrowserConfigSchema } from "./browser";
 import { ChannelsSchema } from "./channels";
 import { ExtensionsConfigSchema } from "./extensions";
+import { HooksConfigSchema } from "./hooks";
 import { LoggingSchema } from "./logging";
 import { MemoryConfigSchema } from "./memory";
 import { MetaSchema } from "./meta";
@@ -29,6 +30,7 @@ export const MoziConfigSchema = z
     skills: SkillsConfigSchema.optional(),
     voice: VoiceConfigSchema.optional(),
     runtime: RuntimeConfigSchema.optional(),
+    hooks: HooksConfigSchema.optional(),
     // Legacy compatibility: top-level cron block (prefer runtime.cron)
     cron: RuntimeCronConfigSchema.optional(),
     extensions: ExtensionsConfigSchema.optional(),

@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import pc from "picocolors";
+import { resolveTemplatesDir } from "../../agents/templates";
 
 const DEFAULT_BASE_DIR = path.join(os.homedir(), ".mozi");
 const DEFAULT_HOME = path.join(DEFAULT_BASE_DIR, "agents", "main", "home");
@@ -396,7 +397,8 @@ async function writeEnvFile(baseDir: string, envKey: string, apiKey: string) {
 async function seedFiles(dir: string, files: string[], label: string) {
   // Resolve template directory relative to this file
   // This file is in src/cli/commands/, templates are in src/agents/templates/
-  const templateDir = path.join(import.meta.dirname, "..", "..", "agents", "templates");
+  const templateDir =
+    resolveTemplatesDir() ?? path.join(import.meta.dirname, "..", "..", "agents", "templates");
 
   await fs.mkdir(dir, { recursive: true });
 

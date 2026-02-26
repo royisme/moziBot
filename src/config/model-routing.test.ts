@@ -25,4 +25,24 @@ describe("model routing", () => {
     expect(routing.defaultModel.primary).toBe("openai/gpt-4.1");
     expect(routing.defaultModel.fallbacks).toEqual([]);
   });
+
+  it("resolves fast model from defaults when provided", () => {
+    const config = {
+      agents: {
+        defaults: {
+          fastModel: {
+            primary: "openai/gpt-4o-mini",
+            fallbacks: ["openai/gpt-4o"],
+          },
+        },
+        mozi: {
+          model: "openai/gpt-4.1",
+        },
+      },
+    } as MoziConfig;
+
+    const routing = resolveAgentModelRouting(config, "mozi");
+    expect(routing.fastModel.primary).toBe("openai/gpt-4o-mini");
+    expect(routing.fastModel.fallbacks).toEqual(["openai/gpt-4o"]);
+  });
 });

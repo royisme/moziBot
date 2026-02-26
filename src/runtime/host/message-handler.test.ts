@@ -299,6 +299,16 @@ describe("MessageHandler commands", () => {
         getContextBreakdown: (sessionKey: string) => unknown;
         getWorkspaceDir: (agentId: string) => string | undefined;
         getHomeDir: (agentId: string) => string | undefined;
+        dispatchExtensionCommand?: (params: {
+          commandName: string;
+          args: string;
+          sessionKey: string;
+          agentId: string;
+          peerId: string;
+          channelId: string;
+          message: unknown;
+          sendReply: (text: string) => Promise<void>;
+        }) => Promise<boolean>;
       };
       runPromptWithFallback: (params: unknown) => Promise<void>;
     };
@@ -386,6 +396,16 @@ describe("MessageHandler commands", () => {
         agentId: string,
       ) => string | undefined,
       getHomeDir: (() => "/tmp/mozi-home") as unknown as (agentId: string) => string | undefined,
+      dispatchExtensionCommand: (async () => false) as unknown as (params: {
+        commandName: string;
+        args: string;
+        sessionKey: string;
+        agentId: string;
+        peerId: string;
+        channelId: string;
+        message: unknown;
+        sendReply: (text: string) => Promise<void>;
+      }) => Promise<boolean>,
     };
     h.runPromptWithFallback = runPromptWithFallback as unknown as (
       params: unknown,
@@ -408,184 +428,26 @@ describe("MessageHandler commands", () => {
     await handler.handle(createMessage("/new"), channel);
     expect(resetSession).toHaveBeenCalledTimes(1);
     expect(resetSession.mock.calls[0]?.[1]).toBe("mozi");
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("what they want to work on now");
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const params = runPromptWithFallback.mock.calls[0]?.[0] as { text: string };
+    expect(params.text).toBe(RESET_SESSION_GREETING_PROMPT);
   });
 
   it("handles /reset by rotating current session segment", async () => {
     await handler.handle(createMessage("/reset"), channel);
     expect(resetSession).toHaveBeenCalledTimes(1);
     expect(resetSession.mock.calls[0]?.[1]).toBe("mozi");
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("what they want to work on now");
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const params = runPromptWithFallback.mock.calls[0]?.[0] as { text: string };
+    expect(params.text).toBe(RESET_SESSION_GREETING_PROMPT);
   });
 
-  it("uses reset-greeting output as-is without regex fallback", async () => {
-    let capturedResetPrompt = "";
-    let capturedPromptMode: string | undefined;
-    runPromptWithFallback.mockImplementation(
-      async (params: { text?: string; promptMode?: string }) => {
-        capturedResetPrompt = params.text ?? "";
-        capturedPromptMode = params.promptMode;
-      },
-    );
-    const h = handler as unknown as {
-      agentManager: {
-        getAgent: (
-          sessionKey: string,
-          agentId: string,
-          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-        ) => Promise<{
-          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-          modelRef: string;
-        }>;
-      };
-    };
-
-    h.agentManager.getAgent = (async (
-      _sessionKey: string,
-      _agentId: string,
-      options?: {
-        promptMode?: "main" | "reset-greeting" | "subagent-minimal";
-      },
-    ) => ({
-      agent: {
-        messages:
-          options?.promptMode === "reset-greeting"
-            ? [{ role: "assistant", content: "I am pi. Nice to meet you." }]
-            : [],
-      },
-      modelRef: "quotio/gemini-3-flash-preview",
-    })) as unknown as (
-      sessionKey: string,
-      agentId: string,
-      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-    ) => Promise<{
-      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-      modelRef: string;
-    }>;
-
-    await handler.handle(createMessage("/new"), channel);
-
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("I am pi. Nice to meet you.");
-    expect(capturedResetPrompt).toBe(RESET_SESSION_GREETING_PROMPT);
-    expect(capturedPromptMode).toBe("reset-greeting");
-  });
-
-  it("preserves zh identity greeting output from reset mode without rewriting", async () => {
-    const h = handler as unknown as {
-      agentManager: {
-        getAgent: (
-          sessionKey: string,
-          agentId: string,
-          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-        ) => Promise<{
-          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-          modelRef: string;
-        }>;
-      };
-    };
-
-    h.agentManager.getAgent = (async (
-      _sessionKey: string,
-      _agentId: string,
-      options?: {
-        promptMode?: "main" | "reset-greeting" | "subagent-minimal";
-      },
-    ) => ({
-      agent: {
-        prompt: async () => {},
-        messages:
-          options?.promptMode === "reset-greeting"
-            ? [
-                {
-                  role: "assistant",
-                  content: "你好，我是 Luka。我们继续推进你现在最重要的任务。",
-                },
-              ]
-            : [],
-      },
-      modelRef: "quotio/gemini-3-flash-preview",
-    })) as unknown as (
-      sessionKey: string,
-      agentId: string,
-      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-    ) => Promise<{
-      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-      modelRef: string;
-    }>;
-
-    await handler.handle(createMessage("/new"), channel);
-
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toBe("你好，我是 Luka。我们继续推进你现在最重要的任务。");
-  });
-
-  it("falls back to static /new reply when reset greeting turn returns empty", async () => {
-    const h = handler as unknown as {
-      agentManager: {
-        getAgent: (
-          sessionKey: string,
-          agentId: string,
-          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-        ) => Promise<{ agent: { prompt: (text: string) => Promise<void>; messages: unknown[] } }>;
-      };
-    };
-
-    h.agentManager.getAgent = (async () => ({
-      agent: {
-        prompt: async () => {},
-        messages: [],
-      },
-    })) as unknown as (
-      sessionKey: string,
-      agentId: string,
-      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-    ) => Promise<{ agent: { prompt: (text: string) => Promise<void>; messages: unknown[] } }>;
-
-    await handler.handle(createMessage("/new"), channel);
-
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("rotated to a new session segment");
-  });
-
-  it("falls back to zh /new reply when identity language hint is zh-CN", async () => {
-    const h = handler as unknown as {
-      agentManager: {
-        getAgent: (
-          sessionKey: string,
-          agentId: string,
-          options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-        ) => Promise<{
-          agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-          modelRef: string;
-          systemPrompt: string;
-        }>;
-      };
-    };
-
-    h.agentManager.getAgent = (async () => ({
-      agent: {
-        prompt: async () => {},
-        messages: [],
-      },
-      modelRef: "quotio/gemini-3-flash-preview",
-      systemPrompt: "# Identity & Persona\n## USER.md\nLanguage preference: zh-CN",
-    })) as unknown as (
-      sessionKey: string,
-      agentId: string,
-      options?: { promptMode?: "main" | "reset-greeting" | "subagent-minimal" },
-    ) => Promise<{
-      agent: { prompt: (text: string) => Promise<void>; messages: unknown[] };
-      modelRef: string;
-      systemPrompt: string;
-    }>;
-
-    await handler.handle(createMessage("/new"), channel);
-
-    const payload = send.mock.calls[0]?.[1] as { text: string };
-    expect(payload.text).toContain("新会话已开始");
+  it("uses /new args as the prompt after reset", async () => {
+    await handler.handle(createMessage("/new hello there"), channel);
+    expect(resetSession).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    const params = runPromptWithFallback.mock.calls[0]?.[0] as { text: string };
+    expect(params.text).toBe("hello there");
   });
 
   it("handles /models by showing available models", async () => {

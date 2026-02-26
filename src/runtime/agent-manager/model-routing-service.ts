@@ -27,6 +27,17 @@ export function getAgentFallbacks(params: { config: MoziConfig; agentId: string 
   return routing.defaultModel.fallbacks;
 }
 
+export function getAgentFastModelCandidates(params: {
+  config: MoziConfig;
+  agentId: string;
+}): string[] {
+  const routing = resolveAgentModelRouting(params.config, params.agentId);
+  const candidates = [routing.fastModel.primary, ...routing.fastModel.fallbacks].filter(
+    (ref): ref is string => Boolean(ref),
+  );
+  return Array.from(new Set(candidates));
+}
+
 export function resolveLifecycleControlModel(params: {
   sessionKey: string;
   agentId?: string;

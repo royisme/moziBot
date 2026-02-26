@@ -43,6 +43,7 @@ import {
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
   shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
+import { performSessionReset } from "./message-handler/services/session-control-command";
 import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } from "./message-handler/services/status-reaction";
 import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler/services/streaming";
 import { RuntimeRouter } from "./router";
@@ -383,6 +384,19 @@ export class MessageHandler {
           sendReply: async (text) => {
             await channel.send(peerId, { text });
           },
+        }),
+      interruptSession: async (sessionKey, reason) =>
+        await this.interruptSession(sessionKey, reason),
+      performSessionReset: async ({ sessionKey, agentId, reason }) =>
+        await performSessionReset({
+          sessionKey,
+          agentId,
+          config: this.config,
+          agentManager: this.agentManager,
+          flushMemory: async (targetSessionKey, targetAgentId, messages, config) =>
+            await this.flushMemory(targetSessionKey, targetAgentId, messages, config),
+          logger,
+          reason,
         }),
       runPromptWithFallback: async (params) => await this.runPromptWithFallback(params),
       maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) =>

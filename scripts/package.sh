@@ -24,11 +24,12 @@ TARBALL="$ROOT_DIR/dist/release/mozi-${VERSION}-${OS}-${ARCH}.tar.gz"
 mkdir -p dist/release/tmp
 cp dist/mozi.mjs dist/release/tmp/
 cp dist/mozi-runtime.mjs dist/release/tmp/
+cp -R dist/templates dist/release/tmp/
 cp package.json dist/release/tmp/
 cp release/README.md dist/release/tmp/README.md
 cp release/config.example.jsonc dist/release/tmp/
 
-( cd dist/release/tmp && tar -czf "$TARBALL" mozi.mjs mozi-runtime.mjs package.json README.md config.example.jsonc )
+( cd dist/release/tmp && tar -czf "$TARBALL" mozi.mjs mozi-runtime.mjs templates package.json README.md config.example.jsonc )
 
 rm -rf dist/release/tmp
 

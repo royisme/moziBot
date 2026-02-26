@@ -25,6 +25,8 @@ describe("runCommandFlow", () => {
         getCommandHandlerMap: () => ({ status: builtIn }),
         getChannel: () => ({ id: "telegram", send: async () => "1" }),
         dispatchExtensionCommand: extensionDispatch,
+        interruptSession: async () => false,
+        performSessionReset: async () => {},
       } as unknown as OrchestratorDeps,
     );
 
@@ -54,6 +56,8 @@ describe("runCommandFlow", () => {
         getCommandHandlerMap: () => ({}),
         getChannel: () => ({ id: "telegram", send: async () => "1" }),
         dispatchExtensionCommand: extensionDispatch,
+        interruptSession: async () => false,
+        performSessionReset: async () => {},
       } as unknown as OrchestratorDeps,
     );
 
@@ -82,9 +86,85 @@ describe("runCommandFlow", () => {
         getCommandHandlerMap: () => ({}),
         getChannel: () => ({ id: "telegram", send: async () => "1" }),
         dispatchExtensionCommand: extensionDispatch,
+        interruptSession: async () => false,
+        performSessionReset: async () => {},
       } as unknown as OrchestratorDeps,
     );
 
     expect(result).toBe("handled");
+  });
+
+  it("routes /new through reset flow and continues", async () => {
+    const interruptSession = vi.fn(async () => true);
+    const performSessionReset = vi.fn(async () => {});
+    const state = {
+      parsedCommand: { name: "new", args: "" },
+      sessionKey: "s1",
+      agentId: "a1",
+      peerId: "p1",
+      text: "/new",
+    };
+    const result = await runCommandFlow(
+      {
+        messageId: "m1",
+        traceId: "t1",
+        type: "message",
+        payload: { text: "/new" },
+        startTime: Date.now(),
+        state,
+      },
+      {
+        getCommandHandlerMap: () => ({}),
+        getChannel: () => ({ id: "telegram", send: async () => "1" }),
+        dispatchExtensionCommand: async () => false,
+        interruptSession,
+        performSessionReset,
+      } as unknown as OrchestratorDeps,
+    );
+
+    expect(result).toBe("continue");
+    expect(interruptSession).toHaveBeenCalledWith("s1", "Session reset command");
+    expect(performSessionReset).toHaveBeenCalledWith({
+      sessionKey: "s1",
+      agentId: "a1",
+      reason: "new",
+    });
+    expect(state.text).toContain("A new session was started via /new or /reset");
+  });
+
+  it("routes /reset with args and preserves args for prompt flow", async () => {
+    const performSessionReset = vi.fn(async () => {});
+    const state = {
+      parsedCommand: { name: "reset", args: "hello there" },
+      sessionKey: "s1",
+      agentId: "a1",
+      peerId: "p1",
+      text: "/reset hello there",
+    };
+    const result = await runCommandFlow(
+      {
+        messageId: "m1",
+        traceId: "t1",
+        type: "message",
+        payload: { text: "/reset hello there" },
+        startTime: Date.now(),
+        state,
+      },
+      {
+        getCommandHandlerMap: () => ({}),
+        getChannel: () => ({ id: "telegram", send: async () => "1" }),
+        dispatchExtensionCommand: async () => false,
+        interruptSession: async () => false,
+        performSessionReset,
+      } as unknown as OrchestratorDeps,
+    );
+
+    expect(result).toBe("continue");
+    expect(performSessionReset).toHaveBeenCalledWith({
+      sessionKey: "s1",
+      agentId: "a1",
+      reason: "reset",
+    });
+    expect(state.text).toBe("hello there");
   });
 });

@@ -10,6 +10,7 @@ export type AgentModelList = {
 export type AgentModelRouting = {
   defaultModel: AgentModelList;
   imageModel: AgentModelList;
+  fastModel: AgentModelList;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -58,9 +59,11 @@ export function resolveAgentModelRouting(config: MoziConfig, agentId: string): A
 
   const defaultModel = merge(toModelList(entry?.model), toModelList(defaults?.model));
   const imageModel = merge(toModelList(entry?.imageModel), toModelList(defaults?.imageModel));
+  const fastModel = merge(toModelList(entry?.fastModel), toModelList(defaults?.fastModel));
 
   return {
     defaultModel,
     imageModel,
+    fastModel,
   };
 }

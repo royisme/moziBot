@@ -60,6 +60,8 @@ export interface OrchestratorDepsBuilderParams {
     channel: ChannelPlugin,
   ) => ReturnType<OrchestratorDeps["getCommandHandlerMap"]>;
   dispatchExtensionCommand: OrchestratorDeps["dispatchExtensionCommand"];
+  interruptSession: OrchestratorDeps["interruptSession"];
+  performSessionReset: OrchestratorDeps["performSessionReset"];
   runPromptWithFallback: (params: {
     sessionKey: string;
     agentId: string;
@@ -96,6 +98,8 @@ type InboundDeps = Pick<
   | "getCommandHandlerMap"
   | "getChannel"
   | "dispatchExtensionCommand"
+  | "interruptSession"
+  | "performSessionReset"
 >;
 
 type SessionDeps = Pick<
@@ -182,6 +186,9 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
       return channelLike;
     },
     dispatchExtensionCommand: async (args) => await params.dispatchExtensionCommand(args),
+    interruptSession: async (sessionKey, reason) =>
+      await params.interruptSession(sessionKey, reason),
+    performSessionReset: async (args) => await params.performSessionReset(args),
   };
 }
 

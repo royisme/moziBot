@@ -166,9 +166,15 @@ program
 program
   .command("chat")
   .description("Start Mozi TUI chat")
-  .action(async () => {
+  .option("--runtime", "Connect to a running Mozi runtime via localDesktop")
+  .option("--host <host>", "Runtime host")
+  .option("--port <port>", "Runtime port", (value) => Number.parseInt(value, 10))
+  .option("--token <token>", "Runtime auth token")
+  .option("--peer-id <peerId>", "Runtime peer id")
+  .option("-c, --config <path>", "Config file path")
+  .action(async (options) => {
     const { runChat } = await import("../tui");
-    await runChat();
+    await runChat(options);
   });
 
 // Auth / secrets management

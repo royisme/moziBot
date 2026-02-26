@@ -137,6 +137,7 @@ export const AgentEntrySchema = z
     workspace: z.string().optional(),
     systemPrompt: z.string().optional(),
     model: AgentModelSchema.optional(),
+    fastModel: AgentModelSchema.optional(),
     imageModel: AgentModelSchema.optional(),
     skills: z.array(z.string()).optional(),
     tools: z.array(z.string()).optional(),
@@ -158,6 +159,7 @@ export const AgentsSchema = z
     defaults: z
       .object({
         model: AgentModelSchema.optional(),
+        fastModel: AgentModelSchema.optional(),
         imageModel: AgentModelSchema.optional(),
         tools: z.array(z.string()).optional(),
         subagents: SubagentPolicySchema.optional(),

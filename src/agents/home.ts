@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { logger } from "../logger";
+import { resolveTemplatePath } from "./templates";
 
 /**
  * Home = Agent's identity directory
@@ -121,7 +122,11 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 async function readTemplateContent(filename: string): Promise<string> {
-  const templatePath = path.join(__dirname, "templates", filename);
+  const templatePath = resolveTemplatePath(filename);
+  if (!templatePath) {
+    logger.warn(`Templates directory not found; using empty template for ${filename}`);
+    return "";
+  }
   const raw = await fs.readFile(templatePath, "utf-8");
   return stripFrontmatter(raw);
 }
@@ -142,9 +147,12 @@ export async function ensureHome(dir: string): Promise<void> {
       await fs.access(filePath);
     } catch {
       logger.info(`Creating default home file: ${filename}`);
-      const templatePath = path.join(__dirname, "templates", filename);
+      const templatePath = resolveTemplatePath(filename);
       let content = "";
       try {
+        if (!templatePath) {
+          throw new Error("templates_not_found");
+        }
         const raw = await fs.readFile(templatePath, "utf-8");
         // Strip frontmatter from templates
         content = stripFrontmatter(raw);

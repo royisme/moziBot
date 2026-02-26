@@ -13,6 +13,7 @@ export type AgentEntry = {
   workspace?: string;
   systemPrompt?: string;
   model?: unknown;
+  fastModel?: unknown;
   imageModel?: unknown;
   skills?: string[];
   tools?: string[];

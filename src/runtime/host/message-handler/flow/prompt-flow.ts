@@ -12,6 +12,7 @@ import { getRuntimeHookRunner } from "../../../hooks";
  */
 export const runPromptFlow: PromptFlow = async (ctx, deps) => {
   const { state, payload } = ctx;
+  const { logger } = deps;
   const transcribeMessage = (p: unknown) => deps.transcribeInboundMessage(p);
   const checkCapability = (params: {
     sessionKey: string;
@@ -147,8 +148,8 @@ export const runPromptFlow: PromptFlow = async (ctx, deps) => {
     };
 
     return bundle;
-  } catch {
-    // TODO: Connect to centralized error flow
-    return "abort";
+  } catch (error) {
+    logger?.error?.({ traceId: ctx.traceId, error }, "Prompt flow failed");
+    throw error;
   }
 };
