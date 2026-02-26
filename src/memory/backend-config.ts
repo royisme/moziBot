@@ -16,22 +16,25 @@ export type ResolvedMemoryPersistenceConfig = {
 };
 
 export type ResolvedMemoryBackendConfig = {
-  backend: "builtin" | "qmd";
+  backend: "builtin" | "qmd" | "embedded";
   citations: "auto" | "always" | "never";
   builtin: ResolvedBuiltinMemoryConfig;
   qmd?: ResolvedQmdConfig;
+  embedded?: ResolvedEmbeddedConfig;
   persistence: ResolvedMemoryPersistenceConfig;
 };
 
+export type ResolvedMemorySyncConfig = {
+  onSessionStart: boolean;
+  onSearch: boolean;
+  watch: boolean;
+  watchDebounceMs: number;
+  intervalMinutes: number;
+  forceOnFlush: boolean;
+};
+
 export type ResolvedBuiltinMemoryConfig = {
-  sync: {
-    onSessionStart: boolean;
-    onSearch: boolean;
-    watch: boolean;
-    watchDebounceMs: number;
-    intervalMinutes: number;
-    forceOnFlush: boolean;
-  };
+  sync: ResolvedMemorySyncConfig;
 };
 
 const DEFAULT_PERSISTENCE: ResolvedMemoryPersistenceConfig = {
@@ -46,6 +49,15 @@ const DEFAULT_PERSISTENCE: ResolvedMemoryPersistenceConfig = {
 };
 
 const DEFAULT_BUILTIN_SYNC = {
+  onSessionStart: true,
+  onSearch: true,
+  watch: true,
+  watchDebounceMs: 1_500,
+  intervalMinutes: 0,
+  forceOnFlush: true,
+} as const;
+
+const DEFAULT_EMBEDDED_SYNC = {
   onSessionStart: true,
   onSearch: true,
   watch: true,
@@ -91,6 +103,7 @@ export type ResolvedQmdReliabilityConfig = {
 };
 
 type MemoryQmdConfig = NonNullable<MemoryConfig["qmd"]>;
+type MemoryEmbeddedConfig = NonNullable<MemoryConfig["embedded"]>;
 
 export type ResolvedQmdConfig = {
   command: string;
@@ -102,6 +115,48 @@ export type ResolvedQmdConfig = {
   limits: ResolvedQmdLimitsConfig;
   includeDefaultMemory: boolean;
   scope?: MemoryQmdConfig["scope"];
+  recall?: MemoryQmdConfig["recall"];
+};
+
+export type ResolvedEmbeddedConfig = {
+  enabled: boolean;
+  requestedProvider: "openai" | "ollama" | "auto";
+  provider: "openai" | "ollama";
+  model: string;
+  remote: {
+    baseUrl: string;
+    apiKey?: string;
+    headers?: Record<string, string>;
+    timeoutMs: number;
+    batchSize: number;
+  };
+  sources: Array<"memory" | "sessions">;
+  store: {
+    path: string;
+    vector: {
+      enabled: boolean;
+      extensionPath?: string;
+    };
+  };
+  chunking: {
+    tokens: number;
+    overlap: number;
+  };
+  sync: ResolvedMemorySyncConfig;
+  query: {
+    maxResults: number;
+    minScore: number;
+    hybrid: {
+      enabled: boolean;
+      vectorWeight: number;
+      textWeight: number;
+      candidateMultiplier: number;
+    };
+  };
+  cache: {
+    enabled: boolean;
+    maxEntries?: number;
+  };
   recall?: MemoryQmdConfig["recall"];
 };
 
@@ -118,6 +173,22 @@ const DEFAULT_QMD_LIMITS: ResolvedQmdLimitsConfig = {
   maxInjectedChars: 4_000,
   timeoutMs: DEFAULT_QMD_TIMEOUT_MS,
 };
+
+const DEFAULT_EMBEDDED_PROVIDER = "auto" as const;
+const DEFAULT_EMBEDDED_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_EMBEDDED_OLLAMA_BASE_URL = "http://localhost:11434/v1";
+const DEFAULT_EMBEDDED_OPENAI_MODEL = "text-embedding-3-small";
+const DEFAULT_EMBEDDED_OLLAMA_MODEL = "nomic-embed-text";
+const DEFAULT_EMBEDDED_TIMEOUT_MS = 15_000;
+const DEFAULT_EMBEDDED_BATCH_SIZE = 64;
+const DEFAULT_EMBEDDED_CHUNK_TOKENS = 400;
+const DEFAULT_EMBEDDED_CHUNK_OVERLAP = 80;
+const DEFAULT_EMBEDDED_MIN_SCORE = 0.35;
+const DEFAULT_EMBEDDED_MAX_RESULTS = 6;
+const DEFAULT_EMBEDDED_HYBRID_ENABLED = true;
+const DEFAULT_EMBEDDED_HYBRID_VECTOR_WEIGHT = 0.7;
+const DEFAULT_EMBEDDED_HYBRID_TEXT_WEIGHT = 0.3;
+const DEFAULT_EMBEDDED_HYBRID_CANDIDATE_MULTIPLIER = 4;
 const DEFAULT_QMD_SCOPE: NonNullable<MemoryQmdConfig["scope"]> = {
   default: "deny",
   rules: [
@@ -372,6 +443,151 @@ function resolveSearchMode(raw?: MemoryQmdConfig["searchMode"]): MemoryQmdSearch
   return DEFAULT_QMD_SEARCH_MODE;
 }
 
+function resolveEmbeddedProvider(
+  cfg?: MemoryEmbeddedConfig,
+): { requestedProvider: "openai" | "ollama" | "auto"; provider: "openai" | "ollama" } {
+  const requested = cfg?.provider ?? DEFAULT_EMBEDDED_PROVIDER;
+  if (requested === "openai" || requested === "ollama") {
+    return { requestedProvider: requested, provider: requested };
+  }
+  const apiKey = cfg?.remote?.apiKey?.trim();
+  if (apiKey) {
+    return { requestedProvider: "auto", provider: "openai" };
+  }
+  const baseUrl = cfg?.remote?.baseUrl?.trim();
+  if (baseUrl && /localhost|127\.0\.0\.1/i.test(baseUrl)) {
+    return { requestedProvider: "auto", provider: "ollama" };
+  }
+  if (baseUrl) {
+    return { requestedProvider: "auto", provider: "openai" };
+  }
+  return { requestedProvider: "auto", provider: "ollama" };
+}
+
+function resolveEmbeddedStorePath(params: {
+  agentId: string;
+  baseDir: string;
+  raw?: string;
+}): string {
+  if (!params.raw?.trim()) {
+    return path.join(params.baseDir, "memory", "embedded", `${params.agentId}.sqlite`);
+  }
+  const withToken = params.raw.includes("{agentId}")
+    ? params.raw.replaceAll("{agentId}", params.agentId)
+    : params.raw;
+  const trimmed = withToken.trim();
+  if (trimmed.startsWith("~") || path.isAbsolute(trimmed)) {
+    return path.normalize(resolveUserPath(trimmed));
+  }
+  return path.normalize(path.resolve(params.baseDir, trimmed));
+}
+
+function resolveEmbeddedSources(cfg?: MemoryEmbeddedConfig): Array<"memory" | "sessions"> {
+  const sources = cfg?.sources?.length ? cfg.sources : ["memory"];
+  const normalized = new Set<"memory" | "sessions">();
+  for (const source of sources) {
+    if (source === "memory") {
+      normalized.add("memory");
+    }
+    if (source === "sessions") {
+      normalized.add("sessions");
+    }
+  }
+  if (normalized.size === 0) {
+    normalized.add("memory");
+  }
+  return Array.from(normalized);
+}
+
+function resolveEmbeddedRemote(params: {
+  cfg?: MemoryEmbeddedConfig;
+  provider: "openai" | "ollama";
+}): ResolvedEmbeddedConfig["remote"] {
+  const baseUrlDefault =
+    params.provider === "ollama" ? DEFAULT_EMBEDDED_OLLAMA_BASE_URL : DEFAULT_EMBEDDED_OPENAI_BASE_URL;
+  const baseUrl = params.cfg?.remote?.baseUrl?.trim() || baseUrlDefault;
+  const timeoutMs = Math.max(
+    1000,
+    Math.floor(params.cfg?.remote?.timeoutMs ?? DEFAULT_EMBEDDED_TIMEOUT_MS),
+  );
+  const batchSize = Math.max(
+    1,
+    Math.floor(params.cfg?.remote?.batchSize ?? DEFAULT_EMBEDDED_BATCH_SIZE),
+  );
+  return {
+    baseUrl,
+    apiKey: params.cfg?.remote?.apiKey?.trim() || undefined,
+    headers: params.cfg?.remote?.headers ?? undefined,
+    timeoutMs,
+    batchSize,
+  };
+}
+
+function resolveEmbeddedChunking(cfg?: MemoryEmbeddedConfig): ResolvedEmbeddedConfig["chunking"] {
+  const tokens = Math.max(
+    32,
+    Math.floor(cfg?.chunking?.tokens ?? DEFAULT_EMBEDDED_CHUNK_TOKENS),
+  );
+  const overlap = Math.max(
+    0,
+    Math.floor(cfg?.chunking?.overlap ?? DEFAULT_EMBEDDED_CHUNK_OVERLAP),
+  );
+  return { tokens, overlap };
+}
+
+function resolveEmbeddedSync(cfg?: MemoryEmbeddedConfig): ResolvedMemorySyncConfig {
+  return {
+    onSessionStart: cfg?.sync?.onSessionStart ?? DEFAULT_EMBEDDED_SYNC.onSessionStart,
+    onSearch: cfg?.sync?.onSearch ?? DEFAULT_EMBEDDED_SYNC.onSearch,
+    watch: cfg?.sync?.watch ?? DEFAULT_EMBEDDED_SYNC.watch,
+    watchDebounceMs: Math.max(
+      0,
+      Math.floor(cfg?.sync?.watchDebounceMs ?? DEFAULT_EMBEDDED_SYNC.watchDebounceMs),
+    ),
+    intervalMinutes: Math.max(
+      0,
+      Math.floor(cfg?.sync?.intervalMinutes ?? DEFAULT_EMBEDDED_SYNC.intervalMinutes),
+    ),
+    forceOnFlush: cfg?.sync?.forceOnFlush ?? DEFAULT_EMBEDDED_SYNC.forceOnFlush,
+  };
+}
+
+function resolveEmbeddedQuery(cfg?: MemoryEmbeddedConfig): ResolvedEmbeddedConfig["query"] {
+  const hybrid = {
+    enabled: cfg?.query?.hybrid?.enabled ?? DEFAULT_EMBEDDED_HYBRID_ENABLED,
+    vectorWeight: Math.min(
+      1,
+      Math.max(0, cfg?.query?.hybrid?.vectorWeight ?? DEFAULT_EMBEDDED_HYBRID_VECTOR_WEIGHT),
+    ),
+    textWeight: Math.min(
+      1,
+      Math.max(0, cfg?.query?.hybrid?.textWeight ?? DEFAULT_EMBEDDED_HYBRID_TEXT_WEIGHT),
+    ),
+    candidateMultiplier: Math.max(
+      1,
+      Math.floor(
+        cfg?.query?.hybrid?.candidateMultiplier ?? DEFAULT_EMBEDDED_HYBRID_CANDIDATE_MULTIPLIER,
+      ),
+    ),
+  };
+  return {
+    maxResults: Math.max(1, Math.floor(cfg?.query?.maxResults ?? DEFAULT_EMBEDDED_MAX_RESULTS)),
+    minScore: Math.min(1, Math.max(0, cfg?.query?.minScore ?? DEFAULT_EMBEDDED_MIN_SCORE)),
+    hybrid,
+  };
+}
+
+function resolveEmbeddedCache(cfg?: MemoryEmbeddedConfig): ResolvedEmbeddedConfig["cache"] {
+  const maxEntriesRaw = cfg?.cache?.maxEntries;
+  return {
+    enabled: cfg?.cache?.enabled ?? true,
+    maxEntries:
+      maxEntriesRaw && Number.isFinite(maxEntriesRaw) && maxEntriesRaw > 0
+        ? Math.floor(maxEntriesRaw)
+        : undefined,
+  };
+}
+
 export function resolveWorkspaceDir(cfg: MoziConfig, agentId: string): string {
   const agents = cfg.agents as Record<string, { workspace?: string }> | undefined;
   const entry = agents?.[agentId];
@@ -445,6 +661,51 @@ export function resolveMemoryBackendConfig(params: {
         params.cfg.memory?.builtin?.sync?.forceOnFlush ?? DEFAULT_BUILTIN_SYNC.forceOnFlush,
     },
   };
+
+  if (backend === "embedded") {
+    const embeddedCfg = params.cfg.memory?.embedded;
+    const baseDir = params.cfg.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
+    const { requestedProvider, provider } = resolveEmbeddedProvider(embeddedCfg);
+    const requestedModel = embeddedCfg?.model?.trim();
+    const model =
+      requestedModel && requestedModel.length > 0
+        ? requestedModel
+        : provider === "ollama"
+          ? DEFAULT_EMBEDDED_OLLAMA_MODEL
+          : DEFAULT_EMBEDDED_OPENAI_MODEL;
+    const resolved: ResolvedEmbeddedConfig = {
+      enabled: embeddedCfg?.enabled !== false,
+      requestedProvider,
+      provider,
+      model,
+      remote: resolveEmbeddedRemote({ cfg: embeddedCfg, provider }),
+      sources: resolveEmbeddedSources(embeddedCfg),
+      store: {
+        path: resolveEmbeddedStorePath({
+          agentId: params.agentId,
+          baseDir,
+          raw: embeddedCfg?.store?.path,
+        }),
+        vector: {
+          enabled: embeddedCfg?.store?.vector?.enabled ?? true,
+          extensionPath: embeddedCfg?.store?.vector?.extensionPath?.trim() || undefined,
+        },
+      },
+      chunking: resolveEmbeddedChunking(embeddedCfg),
+      sync: resolveEmbeddedSync(embeddedCfg),
+      query: resolveEmbeddedQuery(embeddedCfg),
+      cache: resolveEmbeddedCache(embeddedCfg),
+      recall: embeddedCfg?.recall,
+    };
+
+    return {
+      backend: "embedded",
+      citations,
+      builtin,
+      embedded: resolved,
+      persistence,
+    };
+  }
 
   if (backend !== "qmd") {
     return { backend: "builtin", citations, builtin, persistence };

@@ -90,3 +90,36 @@ describe("resolveMemoryBackendConfig qmd search mode", () => {
     expect(resolved.qmd?.searchMode).toBe("vsearch");
   });
 });
+
+describe("resolveMemoryBackendConfig embedded defaults", () => {
+  test("defaults to ollama provider when auto and no apiKey", () => {
+    const cfg = makeBaseConfig();
+    (cfg as { memory?: Record<string, unknown> }).memory = {
+      backend: "embedded",
+      embedded: {},
+    };
+
+    const resolved = resolveMemoryBackendConfig({ cfg, agentId: "mozi" });
+    expect(resolved.backend).toBe("embedded");
+    expect(resolved.embedded?.provider).toBe("ollama");
+    expect(resolved.embedded?.remote.baseUrl).toBe("http://localhost:11434/v1");
+    expect(resolved.embedded?.model).toBe("nomic-embed-text");
+  });
+
+  test("defaults to openai when apiKey is provided", () => {
+    const cfg = makeBaseConfig();
+    (cfg as { memory?: Record<string, unknown> }).memory = {
+      backend: "embedded",
+      embedded: {
+        remote: {
+          apiKey: "test-key",
+        },
+      },
+    };
+
+    const resolved = resolveMemoryBackendConfig({ cfg, agentId: "mozi" });
+    expect(resolved.embedded?.provider).toBe("openai");
+    expect(resolved.embedded?.remote.baseUrl).toBe("https://api.openai.com/v1");
+    expect(resolved.embedded?.model).toBe("text-embedding-3-small");
+  });
+});

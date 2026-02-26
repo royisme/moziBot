@@ -1,4 +1,4 @@
-import type { ResolvedBuiltinMemoryConfig } from "./backend-config";
+import type { ResolvedMemorySyncConfig } from "./backend-config";
 import type { MemorySearchManager } from "./types";
 
 export type MemoryLifecycleEvent =
@@ -13,12 +13,12 @@ export class MemoryLifecycleOrchestrator {
 
   constructor(
     private readonly manager: MemorySearchManager,
-    private readonly builtin: ResolvedBuiltinMemoryConfig,
+    private readonly syncConfig: ResolvedMemorySyncConfig,
   ) {}
 
   async handle(event: MemoryLifecycleEvent): Promise<void> {
     if (event.type === "session_start") {
-      if (!this.builtin.sync.onSessionStart) {
+      if (!this.syncConfig.onSessionStart) {
         return;
       }
       await this.requestSync("session-start", false);
@@ -26,7 +26,7 @@ export class MemoryLifecycleOrchestrator {
     }
 
     if (event.type === "search_requested") {
-      if (!this.builtin.sync.onSearch) {
+      if (!this.syncConfig.onSearch) {
         return;
       }
       if (!this.manager.status().dirty) {
@@ -36,7 +36,7 @@ export class MemoryLifecycleOrchestrator {
       return;
     }
 
-    if (!this.builtin.sync.forceOnFlush) {
+    if (!this.syncConfig.forceOnFlush) {
       this.manager.markDirty?.();
       return;
     }

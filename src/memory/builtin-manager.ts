@@ -97,6 +97,7 @@ export class BuiltinMemoryManager implements MemorySearchManager {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(`FTS5 search failed; falling back to LIKE: ${message}`);
+        return this.searchLikeFromFts(normalized, maxResults, minScore);
       }
     }
 
@@ -384,6 +385,33 @@ export class BuiltinMemoryManager implements MemorySearchManager {
     const escaped = escapeLike(query);
     const rows = this.db
       .prepare("SELECT path, content FROM memory_docs WHERE content LIKE ? ESCAPE '\\' LIMIT ?")
+      .all(`%${escaped}%`, maxResults) as LikeRow[];
+
+    return rows
+      .map((row) => {
+        const score = normalizeOccurrences(row.content, query);
+        const snippet = buildSnippet(row.content, query);
+        const lineRange = computeLineRange(row.content, snippet, query);
+        return {
+          path: row.path,
+          startLine: lineRange.startLine,
+          endLine: lineRange.endLine,
+          score,
+          snippet,
+          source: "memory" as MemorySource,
+        };
+      })
+      .filter((entry) => entry.score >= minScore);
+  }
+
+  private searchLikeFromFts(
+    query: string,
+    maxResults: number,
+    minScore: number,
+  ): MemorySearchResult[] {
+    const escaped = escapeLike(query);
+    const rows = this.db
+      .prepare("SELECT path, content FROM memory_fts WHERE content LIKE ? ESCAPE '\\' LIMIT ?")
       .all(`%${escaped}%`, maxResults) as LikeRow[];
 
     return rows

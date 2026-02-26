@@ -37,3 +37,44 @@ Align Mozi session persistence with pi SessionManager while keeping Mozi session
 - How to represent sessionKey -> sessionFile mapping without breaking existing SessionStore usage
 - Ensuring backward compatibility when old transcripts are read alongside new pi-style transcripts
 - Memory index performance impact when compaction entries grow
+
+---
+
+# Embedded Memory Backend (OpenClaw-style) - Task Tracker
+
+## Scope
+Add an embedded memory backend that uses embeddings + vector/FTS hybrid search, aligned with OpenClaw architecture while keeping Mozi config style and paths. Default backend remains `builtin`.
+
+## Decisions
+- Use `memory.backend = "embedded"` to enable the new backend.
+- Support OpenAI-compatible embedding endpoints with built-in defaults for `openai` and `ollama`.
+- Keep Mozi paths (no `.pi`/OpenClaw paths).
+- Optional session transcript indexing via `sources: ["memory", "sessions"]` (default: memory only).
+- Builtin remains the fallback backend if embedded fails.
+
+## Plan (High Level)
+1. Add embedded config schema + resolver
+2. Implement embedded manager (indexing, embeddings, hybrid search)
+3. Wire embedded backend into memory factory and lifecycle orchestration
+4. Update docs + ADR
+5. Add/adjust tests and validation
+
+## Tasks
+- [x] Extend memory config schema to include `embedded` settings
+- [x] Resolve embedded config (defaults, paths, provider)
+- [x] Implement embedded memory manager (schema, indexing, search)
+- [x] Implement embedding provider (OpenAI-compatible + Ollama defaults)
+- [x] Add session transcript indexing (optional)
+- [x] Wire into `getMemoryManager()` with fallback to builtin
+- [x] Update docs and add ADR
+- [x] Add tests for config and embedded manager basics
+- [x] Run validation commands
+
+## Progress Log
+- 2026-02-26: Created embedded memory task tracker and decisions.
+- 2026-02-26: Implemented embedded backend, docs, tests, and schema updates.
+
+## Risks / Open Questions
+- Vector extension availability in all target environments (sqlite-vec load)
+- Provider latency/failure handling for embedding calls
+- Session indexing performance on large transcripts
