@@ -65,7 +65,8 @@ export class MoziClient {
     if (!fns) return;
     for (const fn of fns) {
       try {
-        fn(...args);
+        const invoke = fn as (...params: unknown[]) => void;
+        invoke(...(args as unknown[]));
       } catch {
         // listener error; swallow
       }
