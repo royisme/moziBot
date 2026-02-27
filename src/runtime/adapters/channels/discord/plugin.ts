@@ -285,6 +285,34 @@ export class DiscordPlugin extends BaseChannelPlugin {
     return lastId;
   }
 
+  async editMessage(channelId: string, messageId: string, newText: string): Promise<void> {
+    if (!this.client) {
+      logger.warn({ channelId, messageId }, "Discord editMessage: client not connected");
+      return;
+    }
+
+    try {
+      await this.client.rest.patch(Routes.channelMessage(channelId, messageId), {
+        body: serializePayload({ content: newText }),
+      });
+    } catch (error) {
+      logger.warn({ error, channelId, messageId }, "Failed to edit Discord message");
+    }
+  }
+
+  async deleteMessage(channelId: string, messageId: string): Promise<void> {
+    if (!this.client) {
+      logger.warn({ channelId, messageId }, "Discord deleteMessage: client not connected");
+      return;
+    }
+
+    try {
+      await this.client.rest.delete(Routes.channelMessage(channelId, messageId));
+    } catch (error) {
+      logger.warn({ error, channelId, messageId }, "Failed to delete Discord message");
+    }
+  }
+
   async setStatusReaction(
     peerId: string,
     messageId: string,
@@ -469,6 +497,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
       media: mapAttachments(msg.attachments),
       replyToId: msg.messageReference?.message_id || undefined,
       timestamp: new Date(msg.timestamp),
+      threadId: (msg.channel as any)?.isThread?.() ? msg.channelId : undefined,
       raw: rawData,
     };
 

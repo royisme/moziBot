@@ -40,6 +40,7 @@ vi.mock("grammy", () => {
       on: vi.fn(),
       catch: vi.fn(),
       api: {
+        config: { use: vi.fn() },
         getMe: vi.fn().mockResolvedValue({ id: 42, username: "mozi_bot" }),
         sendMessage: vi.fn().mockResolvedValue({ message_id: 123 }),
         sendPhoto: vi.fn().mockResolvedValue({ message_id: 124 }),
@@ -203,9 +204,9 @@ describe("TelegramPlugin", () => {
     });
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("130");
-    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith("12345", expect.any(Object), {
+    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith("12345", expect.any(Object), expect.objectContaining({
       reply_markup: undefined,
-    });
+    }));
   });
 
   it("should send audio message", async () => {

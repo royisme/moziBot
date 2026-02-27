@@ -62,6 +62,7 @@
   "dependencies": {
     "@buape/carbon": "^0.14.0",
     "@grammyjs/runner": "^2.0.3",
+    "@grammyjs/transformer-throttler": "^1.2.1",
     "@inquirer/prompts": "^8.2.0",
     "@lydell/node-pty": "1.2.0-beta.3",
     "@mariozechner/pi-agent-core": "^0.51.6",

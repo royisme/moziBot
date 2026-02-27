@@ -22,6 +22,7 @@ export interface OutboundMessage {
   buttons?: InlineButton[][];
   silent?: boolean;
   traceId?: string;
+  threadId?: string | number;
 }
 
 export interface MediaAttachment {
