@@ -1,23 +1,22 @@
-export { ProcessRegistry, getProcessRegistry, setProcessRegistry, closeProcessRegistry } from "./process-registry";
-export type { ProcessRecord, ProcessSessionRecord, ProcessStatus } from "./process-registry";
+export { ProcessRegistry, getProcessRegistry, setProcessRegistry, closeProcessRegistry } from "./process-registry.js";
+export type { ProcessRecord, ProcessSessionRecord, ProcessStatus } from "./process-registry.js";
 
 export {
-  ProcessSupervisor,
   getProcessSupervisor,
   setProcessSupervisor,
-  closeProcessSupervisor,
-} from "./supervisor";
+  resetProcessSupervisor,
+  createProcessSupervisor,
+} from "./supervisor/index.js";
 export type {
-  ProcessStartParams,
-  ProcessHandle,
-  ProcessOutcome,
-  ProcessOutcomeWithOutput,
-  ProcessSupervisorOptions,
-  ProcessOutputCallback,
-} from "./supervisor";
+  ProcessSupervisor,
+  ManagedRun,
+  RunExit,
+  RunRecord,
+  RunState,
+  SpawnInput,
+  SpawnMode,
+  TerminationReason,
+} from "./supervisor/index.js";
 
-export { ManagedRun } from "./managed-run";
-export type { ManagedRunStatus, ManagedRunOutcome } from "./managed-run";
-
-export { createProcessTool } from "./process-tool";
-export type { ProcessOperation, ProcessToolArgs } from "./process-tool";
+export { createProcessTool } from "./process-tool.js";
+export type { ProcessOperation } from "./process-tool.js";

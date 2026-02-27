@@ -1,4 +1,6 @@
 import Database, { type Database as DatabaseType } from "better-sqlite3";
+import { existsSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { logger } from "../logger";
 
@@ -56,6 +58,10 @@ export class ProcessRegistry {
   private sweeper: NodeJS.Timeout | null = null;
 
   constructor(dbPath: string, jobTtlMs?: number) {
+    const dir = path.dirname(dbPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.jobTtlMs = clampTtl(jobTtlMs);
@@ -321,7 +327,7 @@ let globalRegistry: ProcessRegistry | null = null;
 
 export function getProcessRegistry(dbPath?: string, jobTtlMs?: number): ProcessRegistry {
   if (!globalRegistry) {
-    const defaultPath = path.join(process.cwd(), ".mozi", "data", "process-registry.db");
+    const defaultPath = path.join(os.homedir(), ".mozi", "data", "process-registry.db");
     globalRegistry = new ProcessRegistry(dbPath ?? defaultPath, jobTtlMs);
   }
   return globalRegistry;

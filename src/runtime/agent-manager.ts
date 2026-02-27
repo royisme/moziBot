@@ -585,8 +585,7 @@ export class AgentManager {
     authResolver?: import("./exec-runtime").AuthResolver;
   }): import("./exec-runtime").ExecRuntime {
     // Lazy import to avoid circular dependencies
-    const { getProcessSupervisor, getProcessRegistry } = require("../process") as {
-      getProcessSupervisor: (registry?: import("../process/process-registry").ProcessRegistry) => import("../process/supervisor").ProcessSupervisor;
+    const { getProcessRegistry } = require("../process") as {
       getProcessRegistry: () => import("../process/process-registry").ProcessRegistry;
     };
     const { createSandboxBoundary } = require("./sandbox/config") as {
@@ -595,7 +594,6 @@ export class AgentManager {
 
     const { ExecRuntime } = require("./exec-runtime") as {
       ExecRuntime: new (
-        supervisor: import("../process/supervisor").ProcessSupervisor,
         registry: import("../process/process-registry").ProcessRegistry,
         boundary: import("./sandbox/config").SandboxBoundary,
         authResolver?: import("./exec-runtime").AuthResolver,
@@ -611,7 +609,6 @@ export class AgentManager {
     );
 
     const registry = getProcessRegistry();
-    const supervisor = getProcessSupervisor(registry);
 
     // When the effective boundary mode is vibebox, inject a VibeboxExecutor so
     // ExecRuntime can delegate execution to the external vibebox binary bridge.
@@ -631,7 +628,6 @@ export class AgentManager {
     }
 
     return new ExecRuntime(
-      supervisor,
       registry,
       boundary,
       params.authResolver,

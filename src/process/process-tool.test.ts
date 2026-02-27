@@ -3,11 +3,16 @@ import { createProcessTool } from "./process-tool";
 import {
   getProcessRegistry,
   closeProcessRegistry,
-  closeProcessSupervisor,
+  resetProcessSupervisor,
 } from "./index";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
+function text(result: Awaited<ReturnType<ReturnType<typeof createProcessTool>["execute"]>>, idx = 0): string {
+  const item = result.content[idx] as any;
+  return item.text ?? "";
+}
 
 describe("createProcessTool", () => {
   let tempDir: string;
@@ -18,13 +23,13 @@ describe("createProcessTool", () => {
     dbPath = path.join(tempDir, "test-registry.db");
 
     closeProcessRegistry();
-    closeProcessSupervisor();
+    resetProcessSupervisor();
     getProcessRegistry(dbPath);
   });
 
   afterEach(() => {
     closeProcessRegistry();
-    closeProcessSupervisor();
+    resetProcessSupervisor();
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -34,7 +39,6 @@ describe("createProcessTool", () => {
       agentId: "test-agent",
     });
 
-    // First register a process in the registry
     const registry = getProcessRegistry(dbPath);
     registry.addSession({
       id: "test-job-1",
@@ -46,10 +50,10 @@ describe("createProcessTool", () => {
       pty: false,
     });
 
-    const result = await tool.execute("call-1", { operation: "list" });
+    const result = await tool.execute("call-1", { action: "list" });
 
     expect(result.content[0].type).toBe("text");
-    expect(result.content[0].text).toContain("test-job-1");
+    expect(text(result)).toContain("test-job-1");
   });
 
   it("should return status for a registered process", async () => {
@@ -69,10 +73,10 @@ describe("createProcessTool", () => {
       pty: false,
     });
 
-    const result = await tool.execute("call-1", { operation: "status", jobId: "test-job-2" });
+    const result = await tool.execute("call-1", { action: "status", jobId: "test-job-2" });
 
-    expect(result.content[0].text).toContain("test-job-2");
-    expect(result.content[0].text).toContain("running");
+    expect(text(result)).toContain("test-job-2");
+    expect(text(result)).toContain("running");
   });
 
   it("should return not found for non-existent process", async () => {
@@ -81,9 +85,9 @@ describe("createProcessTool", () => {
       agentId: "test-agent",
     });
 
-    const result = await tool.execute("call-1", { operation: "status", jobId: "non-existent" });
+    const result = await tool.execute("call-1", { action: "status", jobId: "non-existent" });
 
-    expect(result.content[0].text).toContain("Process not found");
+    expect(text(result)).toContain("Process not found");
   });
 
   it("should tail output from a completed process", async () => {
@@ -103,13 +107,12 @@ describe("createProcessTool", () => {
       pty: false,
     });
 
-    // Simulate output being captured
     registry.appendOutput("test-job-3", "test-output-line\n");
     registry.markExited({ id: "test-job-3", exitCode: 0, signal: null });
 
-    const result = await tool.execute("call-1", { operation: "tail", jobId: "test-job-3" });
+    const result = await tool.execute("call-1", { action: "tail", jobId: "test-job-3" });
 
-    expect(result.content[0].text).toContain("test-output-line");
+    expect(text(result)).toContain("test-output-line");
   });
 
   it("should tail with max chars limit", async () => {
@@ -129,15 +132,13 @@ describe("createProcessTool", () => {
       pty: false,
     });
 
-    // Add some output
     const longOutput = "x".repeat(100);
     registry.appendOutput("test-job-4", longOutput);
     registry.markExited({ id: "test-job-4", exitCode: 0, signal: null });
 
-    const result = await tool.execute("call-1", { operation: "tail", jobId: "test-job-4", chars: 10 });
+    const result = await tool.execute("call-1", { action: "tail", jobId: "test-job-4", chars: 10 });
 
-    // The output should be limited
-    expect(result.content[0].text).toBeDefined();
+    expect(text(result)).toBeDefined();
   });
 
   it("should fail to kill a non-running process", async () => {
@@ -158,41 +159,41 @@ describe("createProcessTool", () => {
     });
     registry.markExited({ id: "test-job-6", exitCode: 0, signal: null });
 
-    const killResult = await tool.execute("call-1", { operation: "kill", jobId: "test-job-6" });
-    expect(killResult.content[0].text).toContain("not running");
+    const killResult = await tool.execute("call-1", { action: "kill", jobId: "test-job-6" });
+    expect(text(killResult)).toContain("not running");
   });
 
-  it("should require jobId for status operation", async () => {
+  it("should require jobId for status action", async () => {
     const tool = createProcessTool({
       sessionKey: "test-session",
       agentId: "test-agent",
     });
 
-    const result = await tool.execute("call-1", { operation: "status" });
+    const result = await tool.execute("call-1", { action: "status" });
 
-    expect(result.content[0].text).toContain("jobId is required");
+    expect(text(result)).toContain("jobId is required");
   });
 
-  it("should require jobId for tail operation", async () => {
+  it("should require jobId for tail action", async () => {
     const tool = createProcessTool({
       sessionKey: "test-session",
       agentId: "test-agent",
     });
 
-    const result = await tool.execute("call-1", { operation: "tail" });
+    const result = await tool.execute("call-1", { action: "tail" });
 
-    expect(result.content[0].text).toContain("jobId is required");
+    expect(text(result)).toContain("jobId is required");
   });
 
-  it("should require jobId for kill operation", async () => {
+  it("should require jobId for kill action", async () => {
     const tool = createProcessTool({
       sessionKey: "test-session",
       agentId: "test-agent",
     });
 
-    const result = await tool.execute("call-1", { operation: "kill" });
+    const result = await tool.execute("call-1", { action: "kill" });
 
-    expect(result.content[0].text).toContain("jobId is required");
+    expect(text(result)).toContain("jobId is required");
   });
 
   it("should list both running and finished processes", async () => {
@@ -203,7 +204,6 @@ describe("createProcessTool", () => {
 
     const registry = getProcessRegistry(dbPath);
 
-    // Register a running process
     registry.addSession({
       id: "test-job-running",
       sessionId: "test-session",
@@ -214,7 +214,6 @@ describe("createProcessTool", () => {
       pty: false,
     });
 
-    // Register a finished process
     registry.addSession({
       id: "test-job-finished",
       sessionId: "test-session",
@@ -227,11 +226,11 @@ describe("createProcessTool", () => {
     registry.appendOutput("test-job-finished", "done\n");
     registry.markExited({ id: "test-job-finished", exitCode: 0, signal: null });
 
-    const result = await tool.execute("call-1", { operation: "list" });
+    const result = await tool.execute("call-1", { action: "list" });
 
-    expect(result.content[0].text).toContain("Running");
-    expect(result.content[0].text).toContain("test-job-running");
-    expect(result.content[0].text).toContain("Finished");
-    expect(result.content[0].text).toContain("test-job-finished");
+    expect(text(result)).toContain("Running");
+    expect(text(result)).toContain("test-job-running");
+    expect(text(result)).toContain("Finished");
+    expect(text(result)).toContain("test-job-finished");
   });
 });
