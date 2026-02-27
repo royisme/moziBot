@@ -33,25 +33,6 @@ type SessionSegmentMeta = {
   nextSessionId?: string;
 };
 
-type TranscriptHeader = {
-  type: "session";
-  sessionId: string;
-  sessionKey: string;
-  agentId: string;
-  createdAt: number;
-  updatedAt?: number;
-  archived?: boolean;
-  prevSessionId?: string;
-  nextSessionId?: string;
-  model?: string;
-  metadata?: Record<string, unknown>;
-};
-
-type TranscriptMessage = {
-  type: "message";
-  message: unknown;
-};
-
 export type SessionFormat = "legacy" | "pi";
 
 const SESSION_FORMAT_METADATA_KEY = "sessionFormat";
@@ -129,11 +110,6 @@ export class SessionStore {
     const existingRaw = store[sessionKey];
     const existing = existingRaw ? this.normalizeEntry(existingRaw, agentId) : undefined;
     if (existing) {
-      const format = resolveSessionFormat(existing.metadata);
-      const transcript =
-        format === "legacy"
-          ? this.readTranscript(existing.latestSessionFile)
-          : { messages: [] as unknown[] };
       const state: SessionState = {
         sessionKey,
         agentId: existing.agentId,
@@ -145,7 +121,7 @@ export class SessionStore {
         sessionFile: existing.latestSessionFile,
         currentModel: existing.currentModel,
         metadata: existing.metadata,
-        context: transcript.messages,
+        context: [],
         createdAt: existing.createdAt || existing.updatedAt || Date.now(),
         updatedAt: existing.updatedAt || existing.createdAt || Date.now(),
       };
@@ -181,19 +157,6 @@ export class SessionStore {
     };
     store[sessionKey] = entry;
     this.saveStore(store);
-
-    const format = resolveSessionFormat(entry.metadata);
-    if (format === "legacy") {
-      const header: TranscriptHeader = {
-        type: "session",
-        sessionId,
-        sessionKey,
-        agentId,
-        createdAt: now,
-        metadata: entry.metadata,
-      };
-      this.writeTranscript(sessionFile, header, []);
-    }
 
     const created: SessionState = {
       sessionKey,
@@ -311,25 +274,6 @@ export class SessionStore {
     store[sessionKey] = entry;
     this.saveStore(store);
 
-    if (entry.latestSessionFile && nextFormat === "legacy") {
-      const latestMeta = entry.segments[entry.latestSessionId];
-      const header: TranscriptHeader = {
-        type: "session",
-        sessionId: entry.latestSessionId,
-        sessionKey: next.sessionKey,
-        agentId: entry.agentId,
-        createdAt: latestMeta?.createdAt || next.createdAt || entry.createdAt || now,
-        updatedAt: now,
-        archived: latestMeta?.archived,
-        prevSessionId: latestMeta?.prevSessionId,
-        nextSessionId: latestMeta?.nextSessionId,
-        model: entry.currentModel,
-        metadata: entry.metadata,
-      };
-      const messages = Array.isArray(next.context) ? next.context : [];
-      this.writeTranscript(entry.latestSessionFile, header, messages);
-    }
-
     const persisted: SessionState = {
       ...next,
       latestSessionId: entry.latestSessionId,
@@ -413,21 +357,6 @@ export class SessionStore {
       };
     }
 
-    if (format === "legacy") {
-      const nextHeader: TranscriptHeader = {
-        type: "session",
-        sessionId: nextSessionId,
-        sessionKey,
-        agentId: existing.agentId,
-        createdAt: now,
-        updatedAt: now,
-        prevSessionId: previousLatestId,
-        model: undefined,
-        metadata: existing.metadata,
-      };
-      this.writeTranscript(nextSessionFile, nextHeader, []);
-    }
-
     store[sessionKey] = existing;
     this.saveStore(store);
 
@@ -473,14 +402,6 @@ export class SessionStore {
       return undefined;
     }
 
-    const mergedMessages =
-      format === "legacy"
-        ? [
-            ...this.readTranscript(previous.sessionFile).messages,
-            ...this.readTranscript(entry.latestSessionFile).messages,
-          ]
-        : [];
-
     entry.latestSessionId = previousId;
     entry.latestSessionFile = previous.sessionFile;
     entry.sessionId = previousId;
@@ -502,22 +423,6 @@ export class SessionStore {
       new Set([...(entry.historySessionIds || []), currentLatestId]),
     );
 
-    if (format === "legacy") {
-      const header: TranscriptHeader = {
-        type: "session",
-        sessionId: previousId,
-        sessionKey,
-        agentId: entry.agentId,
-        createdAt: previous.createdAt,
-        updatedAt: now,
-        archived: false,
-        prevSessionId: previous.prevSessionId,
-        model: entry.currentModel,
-        metadata: entry.metadata,
-      };
-      this.writeTranscript(previous.sessionFile, header, mergedMessages);
-    }
-
     store[sessionKey] = entry;
     this.saveStore(store);
 
@@ -530,7 +435,7 @@ export class SessionStore {
       segments: this.toSessionStateSegments(entry.segments),
       sessionId: previousId,
       sessionFile: previous.sessionFile,
-      context: format === "legacy" ? mergedMessages : [],
+      context: [],
       updatedAt: now,
     };
     this.cache.set(sessionKey, reverted);
@@ -559,44 +464,6 @@ export class SessionStore {
     this.ensureDir(this.storePath);
     const json = JSON.stringify(store, null, 2);
     fs.writeFileSync(this.storePath, json, "utf-8");
-  }
-
-  private readTranscript(sessionFile: string): { header?: TranscriptHeader; messages: unknown[] } {
-    try {
-      const raw = fs.readFileSync(sessionFile, "utf-8");
-      const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
-      let header: TranscriptHeader | undefined;
-      const messages: unknown[] = [];
-      for (const line of lines) {
-        try {
-          const payload = JSON.parse(line) as TranscriptHeader | TranscriptMessage;
-          if (payload && payload.type === "session") {
-            header = payload;
-          } else if (payload && payload.type === "message") {
-            messages.push(payload.message);
-          }
-        } catch {
-          continue;
-        }
-      }
-      return { header, messages };
-    } catch {
-      return { messages: [] };
-    }
-  }
-
-  private writeTranscript(
-    sessionFile: string,
-    header: TranscriptHeader,
-    messages: unknown[],
-  ): void {
-    this.ensureDir(sessionFile);
-    const lines: string[] = [JSON.stringify(header)];
-    for (const message of messages) {
-      const payload: TranscriptMessage = { type: "message", message };
-      lines.push(JSON.stringify(payload));
-    }
-    fs.writeFileSync(sessionFile, lines.join("\n") + "\n", "utf-8");
   }
 
   private ensureDir(filePath: string): void {

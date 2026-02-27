@@ -25,7 +25,7 @@ export interface OutboundMessage {
 }
 
 export interface MediaAttachment {
-  type: "photo" | "video" | "audio" | "document" | "voice";
+  type: "photo" | "video" | "audio" | "document" | "voice" | "animation" | "video_note" | "gif";
   url?: string;
   path?: string;
   buffer?: Buffer;
@@ -36,6 +36,10 @@ export interface MediaAttachment {
   width?: number;
   height?: number;
   durationMs?: number;
+  /** Send audio as voice message instead of audio file */
+  asVoice?: boolean;
+  /** Send video as video note instead of regular video */
+  asVideoNote?: boolean;
 }
 
 export interface InlineButton {

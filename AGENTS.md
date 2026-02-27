@@ -146,3 +146,51 @@ Core:
 1. Check `groups/{folder}/logs/` for container logs
 2. Run container manually: `docker run -it mozi-agent /bin/bash`
 3. Enable debug logging: `LOG_LEVEL=debug`
+
+## Background Exec
+
+The `exec` tool supports long-running background processes:
+
+```yaml
+# Start a background server
+exec:
+  command: python -m http.server 8000
+  background: true
+
+# Run for 5 seconds, then background (captures initial output)
+exec:
+  command: npm run dev
+  yieldMs: 5000
+
+# PTY mode for interactive tools
+exec:
+  command: vim file.txt
+  pty: true
+  background: true
+```
+
+Manage background processes with the `process` tool:
+
+```yaml
+# Check status
+process:
+  operation: status
+  jobId: job_123456_abc
+
+# View output (last 1000 chars)
+process:
+  operation: tail
+  jobId: job_123456_abc
+  chars: 1000
+
+# Kill process
+process:
+  operation: kill
+  jobId: job_123456_abc
+
+# List all running processes
+process:
+  operation: status
+```
+
+See `docs/exec-supervisor.md` for full documentation.

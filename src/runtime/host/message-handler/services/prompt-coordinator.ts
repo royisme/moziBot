@@ -1,6 +1,8 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../../../config";
 import type { FlushMetadata } from "../../../../memory/flush-manager";
+import type { TapeService } from "../../../../tape/tape-service.js";
+import type { TapeStore } from "../../../../tape/tape-store.js";
 import type { StreamingCallback } from "./streaming";
 import {
   resolveMemoryBackendConfig,
@@ -9,7 +11,8 @@ import {
 import { estimateMessagesTokens } from "../../../context-management";
 import { isCompactionFailureError, isContextOverflowError } from "../../../context-management";
 import { isTransientError } from "../../../core/error-policy";
-import { getAssistantFailureReason } from "../../reply-utils";
+import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
+import { recordTurnToTape, withForkTape } from "../../../../tape/integration.js";
 import {
   isAbortError as isAbortErrorService,
   isAgentBusyError as isAgentBusyErrorService,
@@ -43,7 +46,6 @@ interface PromptCoordinatorAgentManager {
     sessionKey: string,
     agentId: string,
   ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
-  updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
   getContextUsage(sessionKey: string): {
     usedTokens: number;
     totalTokens: number;
@@ -85,6 +87,55 @@ function buildLogPreview(text: string, maxChars = LOG_PREVIEW_MAX_CHARS): string
   return `${redacted.slice(0, maxChars)}... [truncated ${redacted.length - maxChars} chars]`;
 }
 
+/**
+ * Extract tool calls and tool results from the agent messages for tape recording.
+ * Looks for the most recent tool_call / tool_result messages following the last
+ * user message (i.e., the current turn's tool activity).
+ */
+function extractTurnToolData(messages: AgentMessage[]): {
+  toolCalls: Record<string, unknown>[];
+  toolResults: unknown[];
+} {
+  // Walk messages in reverse to find the current turn's tool activity.
+  // A "turn" starts at the last user message and ends at the latest assistant message.
+  const toolCalls: Record<string, unknown>[] = [];
+  const toolResults: unknown[] = [];
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as Record<string, unknown>;
+    if (!msg || typeof msg !== "object") continue;
+
+    const role = typeof msg.role === "string" ? msg.role : "";
+    if (role === "user") {
+      // Reached the user message boundary – stop scanning.
+      break;
+    }
+
+    const content = msg.content;
+
+    if (role === "tool") {
+      // Tool result – collect raw content
+      toolResults.unshift(typeof content === "string" ? content : content);
+    } else if (role === "assistant" && Array.isArray(content)) {
+      // Check for tool_call blocks inside assistant content array
+      for (const block of content) {
+        const b = block as Record<string, unknown>;
+        if (b && (b.type === "tool_use" || b.type === "toolCall")) {
+          toolCalls.push(b as Record<string, unknown>);
+        }
+      }
+    } else if (role === "assistant" && content && typeof content === "object") {
+      // Some models wrap tool calls in content directly
+      const c = content as Record<string, unknown>;
+      if (c.type === "tool_use" || c.type === "toolCall") {
+        toolCalls.push(c);
+      }
+    }
+  }
+
+  return { toolCalls, toolResults };
+}
+
 export async function runPromptWithCoordinator(params: {
   sessionKey: string;
   agentId: string;
@@ -111,6 +162,17 @@ export async function runPromptWithCoordinator(params: {
     messages: AgentMessage[],
     config: ResolvedMemoryPersistenceConfig,
   ) => Promise<boolean>;
+  /**
+   * Optional: returns a TapeService for dual-write recording.
+   * When provided, each turn is recorded to the tape alongside the SessionStore transcript.
+   */
+  getTapeService?: (sessionKey: string) => TapeService | null | undefined;
+  /**
+   * Optional: returns the shared TapeStore for fork/merge isolation.
+   * When provided alongside getTapeService, each prompt turn is wrapped in a tape fork
+   * so that failed/aborted interactions do not pollute the main tape.
+   */
+  getTapeStore?: () => TapeStore | null | undefined;
 }): Promise<void> {
   const {
     sessionKey,
@@ -125,6 +187,8 @@ export async function runPromptWithCoordinator(params: {
     activeMap,
     interruptedSet,
     flushMemory,
+    getTapeService,
+    getTapeStore,
   } = params;
 
   if (DEBUG_LOG_PROMPT) {
@@ -263,7 +327,49 @@ export async function runPromptWithCoordinator(params: {
     throw new Error(failureReason);
   }
 
-  agentManager.updateSessionContext(sessionKey, current.agent.messages);
+  // Tape write: record the turn to tape (sole persistence path for session history).
+  // When getTapeStore is available, wrap the tape write in a fork so that failed/aborted
+  // interactions do not pollute the main tape.
+  if (getTapeService) {
+    const tapeService = getTapeService(sessionKey);
+    if (tapeService) {
+      const tapeStore = getTapeStore ? getTapeStore() : null;
+
+      const doRecord = (serviceToWrite: TapeService) => {
+        const assistantText = latestAssistant
+          ? extractAssistantText((latestAssistant as { content?: unknown }).content)
+          : "";
+        const { toolCalls, toolResults } = extractTurnToolData(current.agent.messages);
+        recordTurnToTape(serviceToWrite, {
+          userMessage: text,
+          assistantMessage: assistantText,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          toolResults: toolResults.length > 0 ? toolResults : undefined,
+          meta: { sessionKey, agentId, modelRef: current.modelRef, traceId },
+        });
+      };
+
+      try {
+        if (tapeStore) {
+          // Fork/merge: entries written via forkedService are only committed to
+          // the main tape on success; on failure they are discarded.
+          await withForkTape(tapeService, tapeStore, async (forkedService) => {
+            doRecord(forkedService);
+          });
+        } else {
+          // No store available: fall back to direct write (no fork isolation).
+          doRecord(tapeService);
+        }
+      } catch (tapeErr) {
+        // Tape write failure must never break the main flow.
+        logger.warn(
+          { sessionKey, agentId, traceId, err: tapeErr },
+          "Tape dual-write failed (non-fatal)",
+        );
+      }
+    }
+  }
+
   const usage = agentManager.getContextUsage(sessionKey);
   if (usage) {
     logger.debug(

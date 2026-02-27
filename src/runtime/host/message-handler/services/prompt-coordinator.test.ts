@@ -35,7 +35,6 @@ describe("runPromptWithCoordinator logging", () => {
       getSessionMetadata: vi.fn(() => undefined),
       updateSessionMetadata: vi.fn(() => {}),
       compactSession: vi.fn(async () => ({ success: true, tokensReclaimed: 0 })),
-      updateSessionContext: vi.fn(() => {}),
       getContextUsage: vi.fn(() => ({ usedTokens: 100, totalTokens: 1000, percentage: 10 })),
     };
 
@@ -92,7 +91,6 @@ describe("runPromptWithCoordinator logging", () => {
       getSessionMetadata: vi.fn(() => undefined),
       updateSessionMetadata: vi.fn(() => {}),
       compactSession: vi.fn(async () => ({ success: true, tokensReclaimed: 0 })),
-      updateSessionContext: vi.fn(() => {}),
       getContextUsage: vi.fn(() => ({ usedTokens: 100, totalTokens: 1000, percentage: 10 })),
     };
 
@@ -146,7 +144,6 @@ describe("runPromptWithCoordinator logging", () => {
       getSessionMetadata: vi.fn(() => undefined),
       updateSessionMetadata: vi.fn(() => {}),
       compactSession: vi.fn(async () => ({ success: true, tokensReclaimed: 0 })),
-      updateSessionContext: vi.fn(() => {}),
       getContextUsage: vi.fn(() => ({ usedTokens: 100, totalTokens: 1000, percentage: 10 })),
     };
 

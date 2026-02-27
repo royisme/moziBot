@@ -16,6 +16,7 @@ import {
   memorySearchSchema,
   type MemoryToolsContext,
 } from "../agents/tools/memory";
+import { createProcessTool } from "../process";
 import { SubagentRegistry } from "./subagent-registry";
 import { createZodTool } from "./tool-utils";
 
@@ -97,4 +98,11 @@ export function createPiCodingTools(workspaceDir: string): AgentTool[] {
     createFindTool(workspaceDir),
     createLsTool(workspaceDir),
   ];
+}
+
+export function createProcessTools(params: {
+  sessionKey: string;
+  agentId: string;
+}): AgentTool[] {
+  return [createProcessTool(params)];
 }

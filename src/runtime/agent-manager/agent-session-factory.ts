@@ -13,11 +13,11 @@ import path from "node:path";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { ExtensionRegistry } from "../../extensions";
 import type { ModelRegistry } from "../model-registry";
-import type { SandboxExecutor } from "../sandbox/executor";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
 import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
+import type { AuthResolver, ExecRuntime } from "../exec-runtime";
 import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
 import { logger } from "../../logger";
 import { emitSessionTranscriptUpdate } from "../../memory/session-transcript-events";
@@ -66,10 +66,13 @@ export async function createAndInitializeAgentSession(params: {
     homeDir: string;
     sandboxConfig?: SandboxConfig;
   }) => Promise<AgentTool[]> | AgentTool[];
-  getSandboxExecutor: (args: {
+  getExecRuntime: (args: {
+    workspaceDir: string;
     sandboxConfig?: SandboxConfig;
     allowlist?: string[];
-  }) => SandboxExecutor;
+    allowedSecrets?: string[];
+    authResolver?: AuthResolver;
+  }) => ExecRuntime;
   sandboxConfig?: SandboxConfig;
   onPromptMetadata?: (metadata: import("./prompt-builder").PromptBuildMetadata) => void;
   onToolsResolved?: (toolNames: string[]) => void;
@@ -120,7 +123,7 @@ export async function createAndInitializeAgentSession(params: {
       skillLoader: params.skillLoader,
       extensionRegistry: params.extensionRegistry,
       toolProvider: params.toolProvider,
-      getSandboxExecutor: (p) => params.getSandboxExecutor(p),
+      getExecRuntime: (p) => params.getExecRuntime(p),
     },
   );
 

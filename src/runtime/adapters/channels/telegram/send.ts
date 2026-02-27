@@ -10,6 +10,15 @@ import {
   TELEGRAM_MAX_MESSAGE_LENGTH,
 } from "./render";
 
+/**
+ * Check if a MIME type represents a GIF
+ */
+function isGifMedia(mimeType?: string, filename?: string): boolean {
+  if (mimeType === "image/gif") return true;
+  if (filename?.toLowerCase().endsWith(".gif")) return true;
+  return false;
+}
+
 export async function sendMessage(
   bot: Bot,
   peerId: string,
@@ -35,19 +44,75 @@ export async function sendMessage(
 
     if (message.media?.length) {
       const media = message.media[0];
-      if (media.type === "photo" && media.buffer) {
-        sentMessage = await bot.api.sendPhoto(chatId, new InputFile(media.buffer), {
-          caption: htmlText || undefined,
-          parse_mode: "HTML",
-          reply_markup: replyMarkup,
-        });
-      } else if (media.buffer) {
-        sentMessage = await bot.api.sendDocument(chatId, new InputFile(media.buffer), {
-          caption: htmlText || undefined,
-          parse_mode: "HTML",
-        });
-      } else {
+
+      if (!media.buffer) {
+        // No buffer, send text only
         sentMessage = await sendTextWithChunking(bot, chatId, rawText, htmlText, replyMarkup);
+      } else {
+        const inputFile = new InputFile(media.buffer, media.filename);
+        const caption = htmlText || undefined;
+        const parseMode = "HTML" as const;
+        const baseOptions = {
+          caption,
+          parse_mode: parseMode,
+          reply_markup: replyMarkup,
+        };
+
+        switch (media.type) {
+          case "photo":
+            sentMessage = await bot.api.sendPhoto(chatId, inputFile, baseOptions);
+            break;
+
+          case "video":
+            if (media.asVideoNote) {
+              // Video note doesn't support caption
+              sentMessage = await bot.api.sendVideoNote(chatId, inputFile, {
+                reply_markup: replyMarkup,
+              });
+            } else {
+              sentMessage = await bot.api.sendVideo(chatId, inputFile, baseOptions);
+            }
+            break;
+
+          case "video_note":
+            sentMessage = await bot.api.sendVideoNote(chatId, inputFile, {
+              reply_markup: replyMarkup,
+            });
+            break;
+
+          case "audio":
+            if (media.asVoice) {
+              sentMessage = await bot.api.sendVoice(chatId, inputFile, {
+                caption,
+                parse_mode: parseMode,
+                reply_markup: replyMarkup,
+              });
+            } else {
+              sentMessage = await bot.api.sendAudio(chatId, inputFile, baseOptions);
+            }
+            break;
+
+          case "voice":
+            // Voice messages are sent via sendVoice
+            sentMessage = await bot.api.sendVoice(chatId, inputFile, {
+              caption,
+              parse_mode: parseMode,
+              reply_markup: replyMarkup,
+            });
+            break;
+
+          case "animation":
+          case "gif":
+            // GIFs and animations are sent via sendAnimation
+            sentMessage = await bot.api.sendAnimation(chatId, inputFile, baseOptions);
+            break;
+
+          case "document":
+          default:
+            // Default to document
+            sentMessage = await bot.api.sendDocument(chatId, inputFile, baseOptions);
+            break;
+        }
       }
     } else {
       sentMessage = await sendTextWithChunking(bot, chatId, rawText, htmlText, replyMarkup);

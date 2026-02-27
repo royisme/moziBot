@@ -162,10 +162,8 @@ describe("SessionStore segmented lifecycle", () => {
     }
 
     expect(reverted.latestSessionId).not.toBe(rotatedId);
-    expect(reverted.context).toEqual([
-      { role: "user", content: "before-rotation" },
-      { role: "user", content: "after-rotation" },
-    ]);
+    // Legacy transcript merge is removed — context is always [] after revert
+    expect(reverted.context).toEqual([]);
   });
 
   it("semantic_rollover_reversible_pi_discards_merge", () => {

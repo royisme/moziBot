@@ -218,6 +218,8 @@ export class MessageHandler {
       interruptedSet: this.interruptedPromptRuns,
       flushMemory: async (sessionKey, agentId, messages, config) =>
         await this.flushMemory(sessionKey, agentId, messages, config),
+      getTapeService: (sessionKey) => this.agentManager.getTapeService?.(sessionKey) ?? null,
+      getTapeStore: () => this.agentManager.getTapeStore?.() ?? null,
     });
   }
 

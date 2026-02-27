@@ -279,7 +279,6 @@ describe("MessageHandler commands", () => {
         >;
         resetSession: (sessionKey: string) => void;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         getSessionMetadata: (sessionKey: string) => Record<string, unknown> | undefined;
         getPromptMetadata: (sessionKey: string) =>
@@ -369,10 +368,6 @@ describe("MessageHandler commands", () => {
       >,
       resetSession: resetSession as unknown as (sessionKey: string) => void,
       ensureChannelContext: (async () => {}) as unknown as (params: unknown) => Promise<void>,
-      updateSessionContext: (() => {}) as unknown as (
-        sessionKey: string,
-        messages: unknown[],
-      ) => void,
       updateSessionMetadata: updateSessionMetadata as unknown as (
         sessionKey: string,
         patch: unknown,
@@ -1228,7 +1223,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
@@ -1262,10 +1256,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1299,7 +1289,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
@@ -1333,10 +1322,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1374,7 +1359,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
           modelRef: string;
@@ -1417,10 +1401,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1466,7 +1446,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
           modelRef: string;
@@ -1509,10 +1488,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,

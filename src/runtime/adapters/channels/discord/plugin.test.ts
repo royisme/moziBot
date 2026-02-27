@@ -248,6 +248,124 @@ describe("DiscordPlugin (carbon)", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it("sends different media types as attachments (photo, video, audio, animation, gif)", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    // All media types should be sent as file attachments since Discord
+    // doesn't have type-specific APIs like Telegram (no sendPhoto, sendVoice, etc.)
+    await plugin.send("channel-123", {
+      media: [
+        { type: "photo", buffer: Buffer.from("photo-data"), filename: "photo.jpg", mimeType: "image/jpeg" },
+        { type: "video", buffer: Buffer.from("video-data"), filename: "video.mp4", mimeType: "video/mp4" },
+        { type: "audio", buffer: Buffer.from("audio-data"), filename: "audio.mp3", mimeType: "audio/mpeg" },
+        { type: "animation", buffer: Buffer.from("anim-data"), filename: "animation.gif", mimeType: "image/gif" },
+        { type: "gif", buffer: Buffer.from("gif-data"), filename: "image.gif", mimeType: "image/gif" },
+        { type: "voice", buffer: Buffer.from("voice-data"), filename: "voice.ogg", mimeType: "audio/ogg" },
+        { type: "video_note", buffer: Buffer.from("video-note"), filename: "video_note.mp4", mimeType: "video/mp4" },
+      ],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string; data?: Blob }>;
+      content?: string;
+    };
+    expect(body.files?.length).toBe(7);
+    expect(body.files?.[0]?.name).toBe("photo.jpg");
+    expect(body.files?.[1]?.name).toBe("video.mp4");
+    expect(body.files?.[2]?.name).toBe("audio.mp3");
+    expect(body.files?.[3]?.name).toBe("animation.gif");
+    expect(body.files?.[4]?.name).toBe("image.gif");
+    expect(body.files?.[5]?.name).toBe("voice.ogg");
+    expect(body.files?.[6]?.name).toBe("video_note.mp4");
+  });
+
+  it("sends URL-based media as text content", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    await plugin.send("channel-123", {
+      text: "Check this out",
+      media: [
+        { type: "photo", url: "https://example.com/photo.jpg" },
+        { type: "video", url: "https://example.com/video.mp4" },
+      ],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string }>;
+      content?: string;
+    };
+    expect(body.content).toContain("Check this out");
+    expect(body.content).toContain("https://example.com/photo.jpg");
+    expect(body.content).toContain("https://example.com/video.mp4");
+    // When only URLs are provided (no buffer/path), they are included in content, not as files
+    expect(body.files).toBeUndefined();
+  });
+
+  it("uses caption as fallback text when no text provided", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    // No text, but has caption in media
+    await plugin.send("channel-123", {
+      media: [
+        { type: "photo", buffer: Buffer.from("photo"), filename: "photo.jpg", caption: "A beautiful sunset" },
+      ],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string }>;
+      content?: string;
+    };
+    expect(body.content).toBe("A beautiful sunset");
+    expect(body.files?.length).toBe(1);
+  });
+
+  it("maps inbound attachments to correct media types", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received: { media?: Array<{ type: string; mimeType?: string }> } | null = null;
+    plugin.on("message", (msg) => {
+      received = msg as { media?: Array<{ type: string; mimeType?: string }> };
+    });
+
+    await listener.handle(
+      {
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-123",
+          channelId: "chan-1",
+          content: "hello",
+          attachments: [
+            { id: "1", filename: "photo.jpg", content_type: "image/jpeg", size: 1000, url: "https://example.com/photo.jpg", proxy_url: "https://example.com/proxy/photo.jpg" },
+            { id: "2", filename: "video.mp4", content_type: "video/mp4", size: 5000, url: "https://example.com/video.mp4", proxy_url: "https://example.com/proxy/video.mp4" },
+            { id: "3", filename: "audio.mp3", content_type: "audio/mpeg", size: 2000, url: "https://example.com/audio.mp3", proxy_url: "https://example.com/proxy/audio.mp3" },
+            { id: "4", filename: "doc.pdf", content_type: "application/pdf", size: 3000, url: "https://example.com/doc.pdf", proxy_url: "https://example.com/proxy/doc.pdf" },
+            { id: "5", filename: "unknown", size: 100, url: "https://example.com/unknown", proxy_url: "https://example.com/proxy/unknown" },
+          ],
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+
+    expect(received).toBeDefined();
+    expect(received?.media?.length).toBe(5);
+    expect(received?.media?.[0]?.type).toBe("photo");
+    expect(received?.media?.[1]?.type).toBe("video");
+    expect(received?.media?.[2]?.type).toBe("audio");
+    expect(received?.media?.[3]?.type).toBe("document");
+    expect(received?.media?.[4]?.type).toBe("document"); // unknown content type defaults to document
+  });
+
   it("handles inbound message", async () => {
     const plugin = new DiscordPlugin({ botToken: "test-token" });
     const client = await connectPlugin(plugin);

@@ -45,7 +45,6 @@ describe("MessageHandler fallback behavior", () => {
       }
     });
     const waitForIdle = vi.fn(async () => {});
-    const updateSessionContext = vi.fn(() => {});
     const setSessionModel = vi.fn(() => {});
 
     const agent = {
@@ -66,7 +65,6 @@ describe("MessageHandler fallback behavior", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -80,7 +78,6 @@ describe("MessageHandler fallback behavior", () => {
         agent,
         modelRef: "quotio/gemini-3-flash-preview",
       }),
-      updateSessionContext,
       setSessionModel,
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
@@ -95,7 +92,6 @@ describe("MessageHandler fallback behavior", () => {
 
     expect(prompt).toHaveBeenCalledTimes(2);
     expect(setSessionModel).not.toHaveBeenCalled();
-    expect(updateSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it("switches to fallback model on real model error", async () => {
@@ -105,7 +101,6 @@ describe("MessageHandler fallback behavior", () => {
       throw new Error("400 model failure");
     });
     const fallbackPrompt = vi.fn(async () => {});
-    const updateSessionContext = vi.fn(() => {});
 
     const primaryAgent = {
       prompt: primaryPrompt,
@@ -135,7 +130,6 @@ describe("MessageHandler fallback behavior", () => {
           agent: typeof primaryAgent | typeof fallbackAgent;
           modelRef: string;
         }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -149,7 +143,6 @@ describe("MessageHandler fallback behavior", () => {
         agent: activeModel === "quotio/gemini-3-flash-preview" ? primaryAgent : fallbackAgent,
         modelRef: activeModel,
       }),
-      updateSessionContext,
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
@@ -167,7 +160,6 @@ describe("MessageHandler fallback behavior", () => {
     expect(primaryPrompt).toHaveBeenCalledTimes(1);
     expect(fallbackPrompt).toHaveBeenCalledTimes(1);
     expect(activeModel).toBe("quotio/fallback-model");
-    expect(updateSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat plain aborted message as user abort", async () => {
@@ -177,7 +169,6 @@ describe("MessageHandler fallback behavior", () => {
       throw new Error("request aborted by upstream gateway");
     });
     const fallbackPrompt = vi.fn(async () => {});
-    const updateSessionContext = vi.fn(() => {});
 
     const primaryAgent = {
       prompt: primaryPrompt,
@@ -207,7 +198,6 @@ describe("MessageHandler fallback behavior", () => {
           agent: typeof primaryAgent | typeof fallbackAgent;
           modelRef: string;
         }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -221,7 +211,6 @@ describe("MessageHandler fallback behavior", () => {
         agent: activeModel === "quotio/gemini-3-flash-preview" ? primaryAgent : fallbackAgent,
         modelRef: activeModel,
       }),
-      updateSessionContext,
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
@@ -239,7 +228,6 @@ describe("MessageHandler fallback behavior", () => {
     expect(primaryPrompt).toHaveBeenCalledTimes(1);
     expect(fallbackPrompt).toHaveBeenCalledTimes(1);
     expect(activeModel).toBe("quotio/fallback-model");
-    expect(updateSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it("switches to fallback model when prompt times out", async () => {
@@ -249,7 +237,6 @@ describe("MessageHandler fallback behavior", () => {
       await new Promise(() => {});
     });
     const fallbackPrompt = vi.fn(async () => {});
-    const updateSessionContext = vi.fn(() => {});
 
     const primaryAgent = {
       prompt: primaryPrompt,
@@ -279,7 +266,6 @@ describe("MessageHandler fallback behavior", () => {
           agent: typeof primaryAgent | typeof fallbackAgent;
           modelRef: string;
         }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -293,7 +279,6 @@ describe("MessageHandler fallback behavior", () => {
         agent: activeModel === "quotio/gemini-3-flash-preview" ? primaryAgent : fallbackAgent,
         modelRef: activeModel,
       }),
-      updateSessionContext,
       setSessionModel: (_sessionKey, modelRef) => {
         activeModel = modelRef;
       },
@@ -316,7 +301,6 @@ describe("MessageHandler fallback behavior", () => {
     expect(primaryPrompt).toHaveBeenCalledTimes(1);
     expect(fallbackPrompt).toHaveBeenCalledTimes(1);
     expect(activeModel).toBe("quotio/fallback-model");
-    expect(updateSessionContext).toHaveBeenCalledTimes(1);
   });
 
   it("interruptSession aborts active run and waits for idle", async () => {
@@ -356,7 +340,6 @@ describe("MessageHandler fallback behavior", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -370,7 +353,6 @@ describe("MessageHandler fallback behavior", () => {
         agent,
         modelRef: "quotio/gemini-3-flash-preview",
       }),
-      updateSessionContext: () => {},
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
@@ -438,7 +420,6 @@ describe("MessageHandler fallback behavior", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -452,7 +433,6 @@ describe("MessageHandler fallback behavior", () => {
         agent,
         modelRef: "quotio/gemini-3-flash-preview",
       }),
-      updateSessionContext: () => {},
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,
@@ -521,7 +501,6 @@ describe("MessageHandler fallback behavior", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: typeof agent; modelRef: string }>;
-        updateSessionContext: (sessionKey: string, messages: unknown) => void;
         setSessionModel: SetSessionModelFn;
         clearRuntimeModelOverride: (sessionKey: string) => void;
         getContextUsage: (sessionKey: string) => unknown;
@@ -535,7 +514,6 @@ describe("MessageHandler fallback behavior", () => {
         agent,
         modelRef: "quotio/gemini-3-flash-preview",
       }),
-      updateSessionContext: () => {},
       setSessionModel: () => {},
       clearRuntimeModelOverride: vi.fn(),
       getContextUsage: () => null,

@@ -9,7 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../config";
 import type { InboundMessage } from "./adapters/channels/types";
-import type { SandboxConfig } from "./sandbox/types";
+import { type SandboxConfig, type SandboxProbeResult } from "./sandbox/types";
+import { SandboxService } from "./sandbox/service";
+import { VibeboxExecutor } from "./sandbox/vibebox-executor";
 import type { SubagentRegistry } from "./subagent-registry";
 import type { ModelSpec } from "./types";
 import {
@@ -24,13 +26,16 @@ import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
 import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
 import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
+import { createTapeStore, createTapeService, buildMessagesFromTape } from "../tape/integration.js";
+import type { TapeMessage } from "../tape/tape-context.js";
+import type { TapeService } from "../tape/tape-service.js";
+import { TapeStore } from "../tape/tape-store.js";
 // Extracted modules
 import {
   type AgentEntry,
   resolveWorkspaceDir,
   resolveHomeDir,
   resolveSandboxConfig,
-  resolveExecAllowlist,
   resolvePromptTimeoutMs as resolvePromptTimeoutMsFromConfig,
   resolveSubagentPromptMode,
 } from "./agent-manager/config-resolver";
@@ -38,7 +43,6 @@ import {
   compactSession as compactSessionMetric,
   getContextBreakdown as getContextBreakdownMetric,
   getContextUsage as getContextUsageMetric,
-  updateSessionContext as updateSessionContextMetric,
 } from "./agent-manager/context-metrics";
 import {
   createExtensionRegistry,
@@ -79,12 +83,6 @@ import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
-import {
-  buildSandboxExecutorCacheKey,
-  createSandboxExecutor,
-  type SandboxProbeResult,
-  type SandboxExecutor,
-} from "./sandbox/executor";
 import { SessionStore } from "./session-store";
 
 export type { AgentEntry };
@@ -132,7 +130,6 @@ export class AgentManager {
   private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
   private promptToolsBySession = new Map<string, string[]>();
   private skillLoadersByWorkspace = new Map<string, SkillLoader>();
-  private sandboxExecutors = new Map<string, SandboxExecutor>();
   private modelRegistry: ModelRegistry;
   private providerRegistry: ProviderRegistry;
   private sessions: SessionStore;
@@ -151,6 +148,9 @@ export class AgentManager {
     homeDir: string;
     sandboxConfig?: SandboxConfig;
   }) => Promise<AgentTool[]> | AgentTool[];
+  // Tape system: per-workspace store and per-session service registry
+  private tapeStore: TapeStore | undefined;
+  private tapeServices = new Map<string, TapeService>();
 
   constructor(params: {
     config: MoziConfig;
@@ -322,7 +322,7 @@ export class AgentManager {
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillsIndexSynced.clear();
     clearMemoryManagerCache();
-    this.sandboxExecutors.clear();
+
     disposeAllRuntimeSessions({
       agents: this.agents,
       agentModelRefs: this.agentModelRefs,
@@ -429,11 +429,18 @@ export class AgentManager {
       if (mode !== "docker" && mode !== "apple-vm" && !vibeboxEnabled) {
         continue;
       }
-      const executor = this.getSandboxExecutor({
-        sandboxConfig,
-        allowlist: resolveExecAllowlist(this.config, entry),
-      });
-      const result = await executor.probe();
+
+      let result: SandboxProbeResult;
+      if (vibeboxEnabled) {
+        const vibebox = new VibeboxExecutor({
+          config: sandboxConfig?.apple?.vibebox,
+          defaultProvider: mode,
+        });
+        result = await vibebox.probe();
+      } else {
+        const service = new SandboxService(sandboxConfig!);
+        result = await service.probe();
+      }
       reports.push({ agentId: id, result });
     }
     return reports;
@@ -570,24 +577,67 @@ export class AgentManager {
     this.channelContextSessions.add(sessionKey);
   }
 
-  private getSandboxExecutor(params: {
+  private getExecRuntime(params: {
+    workspaceDir: string;
     sandboxConfig?: SandboxConfig;
     allowlist?: string[];
-  }): SandboxExecutor {
-    const key = buildSandboxExecutorCacheKey({
-      config: params.sandboxConfig,
-      allowlist: params.allowlist,
-    });
-    const existing = this.sandboxExecutors.get(key);
-    if (existing) {
-      return existing;
+    allowedSecrets?: string[];
+    authResolver?: import("./exec-runtime").AuthResolver;
+  }): import("./exec-runtime").ExecRuntime {
+    // Lazy import to avoid circular dependencies
+    const { getProcessSupervisor, getProcessRegistry } = require("../process") as {
+      getProcessSupervisor: (registry?: import("../process/process-registry").ProcessRegistry) => import("../process/supervisor").ProcessSupervisor;
+      getProcessRegistry: () => import("../process/process-registry").ProcessRegistry;
+    };
+    const { createSandboxBoundary } = require("./sandbox/config") as {
+      createSandboxBoundary: (workspaceDir: string, config?: SandboxConfig, allowlist?: string[]) => import("./sandbox/config").SandboxBoundary;
+    };
+
+    const { ExecRuntime } = require("./exec-runtime") as {
+      ExecRuntime: new (
+        supervisor: import("../process/supervisor").ProcessSupervisor,
+        registry: import("../process/process-registry").ProcessRegistry,
+        boundary: import("./sandbox/config").SandboxBoundary,
+        authResolver?: import("./exec-runtime").AuthResolver,
+        allowedSecrets?: string[],
+        vibeboxExecutor?: import("./sandbox/vibebox-executor").VibeboxExecutor,
+      ) => import("./exec-runtime").ExecRuntime;
+    };
+
+    const boundary = createSandboxBoundary(
+      params.workspaceDir,
+      params.sandboxConfig,
+      params.allowlist,
+    );
+
+    const registry = getProcessRegistry();
+    const supervisor = getProcessSupervisor(registry);
+
+    // When the effective boundary mode is vibebox, inject a VibeboxExecutor so
+    // ExecRuntime can delegate execution to the external vibebox binary bridge.
+    let vibeboxExecutor: import("./sandbox/vibebox-executor").VibeboxExecutor | undefined;
+    if (boundary.mode === "vibebox") {
+      const { VibeboxExecutor } = require("./sandbox/vibebox-executor") as {
+        VibeboxExecutor: new (params: {
+          config?: import("./sandbox/types").SandboxVibeboxConfig;
+          defaultProvider?: "off" | "apple-vm" | "docker";
+        }) => import("./sandbox/vibebox-executor").VibeboxExecutor;
+      };
+      const sandboxMode = params.sandboxConfig?.mode ?? "apple-vm";
+      vibeboxExecutor = new VibeboxExecutor({
+        config: params.sandboxConfig?.apple?.vibebox,
+        defaultProvider: sandboxMode === "docker" ? "docker" : "apple-vm",
+      });
     }
-    const executor = createSandboxExecutor({
-      config: params.sandboxConfig,
-      allowlist: params.allowlist,
-    });
-    this.sandboxExecutors.set(key, executor);
-    return executor;
+
+    return new ExecRuntime(
+      supervisor,
+      registry,
+      boundary,
+      params.authResolver,
+      params.allowedSecrets,
+      vibeboxExecutor,
+    );
   }
 
   private resolveAgentModelRef(agentId: string, entry?: AgentEntry): string | undefined {
@@ -695,7 +745,7 @@ export class AgentManager {
           extensionRegistry: this.extensionRegistry,
           skillsIndexSynced: this.skillsIndexSynced,
           toolProvider: this.toolProvider,
-          getSandboxExecutor: (p) => this.getSandboxExecutor(p),
+          getExecRuntime: (p) => this.getExecRuntime(p),
           onToolsResolved: (toolNames) => {
             this.promptToolsBySession.set(sessionKey, toolNames);
           },
@@ -808,16 +858,6 @@ export class AgentManager {
     this.promptToolsBySession.delete(sessionKey);
   }
 
-  updateSessionContext(sessionKey: string, messages: unknown): void {
-    updateSessionContextMetric({
-      sessionKey,
-      messages,
-      sessions: this.sessions,
-      modelRegistry: this.modelRegistry,
-      agentModelRefs: this.agentModelRefs,
-    });
-  }
-
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined {
     return this.sessions.get(sessionKey)?.metadata;
   }
@@ -843,7 +883,20 @@ export class AgentManager {
       sessionKey,
       agents: this.agents,
       sessions: this.sessions,
+      getTapeService: (key) => this.getTapeService(key),
     });
+  }
+
+  /**
+   * Reconstruct LLM messages from the tape for a session, using only entries
+   * after the last anchor (i.e., the most recent compaction boundary).
+   * Returns null if no tape service is available for the session.
+   * This is an alternative context source that will replace session context in TAPE-4.
+   */
+  getMessagesFromTape(sessionKey: string): TapeMessage[] | null {
+    const tapeService = this.getTapeService(sessionKey);
+    if (!tapeService) return null;
+    return buildMessagesFromTape(tapeService);
   }
 
   getContextUsage(sessionKey: string): {
@@ -871,5 +924,60 @@ export class AgentManager {
       sessionKey,
       agents: this.agents,
     });
+  }
+
+  /**
+   * Returns (or lazily creates) a TapeService for the given session.
+   * Returns null if the tape store cannot be resolved (e.g. no homeDir configured).
+   */
+  getTapeService(sessionKey: string): TapeService | null {
+    const existing = this.tapeServices.get(sessionKey);
+    if (existing) {
+      return existing;
+    }
+
+    const homeDir = this.config.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
+    const workspaceDir = os.homedir(); // workspace-agnostic store at home level
+
+    if (!this.tapeStore) {
+      try {
+        this.tapeStore = createTapeStore(homeDir, workspaceDir);
+      } catch (err) {
+        logger.warn({ err }, "TapeStore creation failed; tape dual-write disabled");
+        return null;
+      }
+    }
+
+    try {
+      // tapeName format: session:{sessionKey}
+      const tapeName = `session:${sessionKey}`;
+      const service = createTapeService(this.tapeStore, tapeName);
+      this.tapeServices.set(sessionKey, service);
+      return service;
+    } catch (err) {
+      logger.warn({ sessionKey, err }, "TapeService creation failed; tape dual-write disabled for session");
+      return null;
+    }
+  }
+
+  /**
+   * Returns the shared TapeStore, lazily creating it if needed.
+   * Returns null if the store cannot be resolved (e.g. no homeDir configured).
+   */
+  getTapeStore(): TapeStore | null {
+    if (this.tapeStore) {
+      return this.tapeStore;
+    }
+
+    const homeDir = this.config.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
+    const workspaceDir = os.homedir();
+
+    try {
+      this.tapeStore = createTapeStore(homeDir, workspaceDir);
+      return this.tapeStore;
+    } catch (err) {
+      logger.warn({ err }, "TapeStore creation failed; tape fork/merge disabled");
+      return null;
+    }
   }
 }
