@@ -207,6 +207,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
       { command: "context", description: "View context details" },
       { command: "prompt_digest", description: "View prompt digest" },
       { command: "models", description: "List available models" },
+      { command: "skills", description: "List available skills" },
       { command: "switch", description: "Switch model (usage: /switch provider/model)" },
       { command: "new", description: "Start a new session" },
       { command: "reset", description: "Reset the current session" },

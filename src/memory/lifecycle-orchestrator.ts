@@ -1,5 +1,6 @@
 import type { ResolvedMemorySyncConfig } from "./backend-config";
 import type { MemorySearchManager } from "./types";
+import { logger } from "../logger";
 
 export type MemoryLifecycleEvent =
   | { type: "session_start"; sessionKey: string }
@@ -21,7 +22,7 @@ export class MemoryLifecycleOrchestrator {
       if (!this.syncConfig.onSessionStart) {
         return;
       }
-      await this.requestSync("session-start", false);
+      this.requestSync("session-start", false);
       return;
     }
 
@@ -32,7 +33,7 @@ export class MemoryLifecycleOrchestrator {
       if (!this.manager.status().dirty) {
         return;
       }
-      await this.requestSync("search", false);
+      this.requestSync("search", false);
       return;
     }
 
@@ -42,16 +43,15 @@ export class MemoryLifecycleOrchestrator {
     }
 
     this.manager.markDirty?.();
-    await this.requestSync("flush", true);
+    this.requestSync("flush", true);
   }
 
-  private async requestSync(reason: string, force: boolean): Promise<void> {
+  private requestSync(reason: string, force: boolean): void {
     if (this.draining) {
       if (force) {
         this.pendingReasons.add(reason);
         this.pendingForce = true;
       }
-      await this.draining;
       return;
     }
 
@@ -60,10 +60,23 @@ export class MemoryLifecycleOrchestrator {
       this.pendingForce = true;
     }
 
-    this.draining = this.drain().finally(() => {
-      this.draining = null;
-    });
-    await this.draining;
+    this.startDrain();
+  }
+
+  private startDrain(): void {
+    if (this.draining) {
+      return;
+    }
+    this.draining = this.drain()
+      .catch((err) => {
+        logger.warn({ err }, "Memory lifecycle sync failed");
+      })
+      .finally(() => {
+        this.draining = null;
+        if (this.pendingReasons.size > 0 || this.pendingForce) {
+          this.startDrain();
+        }
+      });
   }
 
   private async drain(): Promise<void> {
@@ -75,5 +88,9 @@ export class MemoryLifecycleOrchestrator {
       const reason = reasons.join(",");
       await this.manager.sync?.({ reason, force });
     }
+  }
+
+  async waitForIdle(): Promise<void> {
+    await this.draining;
   }
 }

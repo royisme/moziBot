@@ -9,6 +9,7 @@ import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
 import type { AgentEntry } from "./config-resolver";
 import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
+import { logger } from "../../logger";
 import { createRuntimeSecretBroker } from "../auth/broker";
 import { getRuntimeHookRunner } from "../hooks";
 import { createExecTool } from "../sandbox/tool";
@@ -216,11 +217,20 @@ export async function buildTools(
   if (allowSet.has("memory_search") || allowSet.has("memory_get")) {
     const manager = await getMemoryManager(deps.config, params.agentId);
     const lifecycle = await getMemoryLifecycleOrchestrator(deps.config, params.agentId);
-    await lifecycle.handle({ type: "session_start", sessionKey: params.sessionKey });
+    void lifecycle.handle({ type: "session_start", sessionKey: params.sessionKey }).catch((err) => {
+      logger.warn({ err, sessionKey: params.sessionKey }, "Memory lifecycle session_start failed");
+    });
 
     const lifecycleAwareManager: MemorySearchManager = {
       search: async (query: string, opts?: { maxResults?: number; minScore?: number }) => {
-        await lifecycle.handle({ type: "search_requested", sessionKey: params.sessionKey });
+        void lifecycle
+          .handle({ type: "search_requested", sessionKey: params.sessionKey })
+          .catch((err) => {
+            logger.warn(
+              { err, sessionKey: params.sessionKey },
+              "Memory lifecycle search_requested failed",
+            );
+          });
         return manager.search(query, opts);
       },
       readFile: (args: { relPath: string; from?: number; lines?: number }) =>

@@ -18,6 +18,8 @@ interface MockedBot {
     deleteMessage: ReturnType<typeof vi.fn>;
     editMessageText: ReturnType<typeof vi.fn>;
     answerCallbackQuery: ReturnType<typeof vi.fn>;
+    deleteMyCommands: ReturnType<typeof vi.fn>;
+    setMyCommands: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -42,6 +44,8 @@ vi.mock("grammy", () => {
         deleteMessage: vi.fn().mockResolvedValue(true),
         editMessageText: vi.fn().mockResolvedValue({ message_id: 123 }),
         answerCallbackQuery: vi.fn().mockResolvedValue(true),
+        deleteMyCommands: vi.fn().mockResolvedValue(true),
+        setMyCommands: vi.fn().mockResolvedValue(true),
       },
     };
   });
@@ -106,6 +110,17 @@ describe("TelegramPlugin", () => {
       }),
     );
     expect(plugin.getStatus()).toBe("connected");
+  });
+
+  it("should register native commands including skills", async () => {
+    await plugin.connect();
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(botInstance.api.setMyCommands).toHaveBeenCalled();
+    const commands = botInstance.api.setMyCommands.mock.calls.at(-1)?.[0] as Array<{
+      command: string;
+      description: string;
+    }>;
+    expect(commands.some((entry) => entry.command === "skills")).toBe(true);
   });
 
   it("should call stop on disconnect", async () => {

@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import {
@@ -10,13 +8,14 @@ import {
   SessionManager as PiSessionManager,
   SettingsManager as PiSettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { ExtensionRegistry } from "../../extensions";
 import type { ModelRegistry } from "../model-registry";
 import type { SandboxExecutor } from "../sandbox/executor";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
-import { resolveSessionFormat } from "../session-store";
 import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
 import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
@@ -31,6 +30,7 @@ import {
 } from "../context-management";
 import { computeEffectiveSettings, pruneContextMessages } from "../context-pruning";
 import { sanitizePromptInputForModel } from "../payload-sanitizer";
+import { resolveSessionFormat } from "../session-store";
 import {
   type AgentEntry,
   resolveContextPruningConfig,
@@ -172,7 +172,7 @@ export async function createAndInitializeAgentSession(params: {
   let persistedContext =
     sessionFormat === "legacy" && Array.isArray(sessionState.context)
       ? (sessionState.context as AgentMessage[])
-      : (agent.messages as AgentMessage[]);
+      : agent.messages;
   if (persistedContext.length > 0) {
     const historyLimit = resolveHistoryLimit(params.config, params.sessionKey);
     if (historyLimit && historyLimit > 0) {

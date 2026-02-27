@@ -27,12 +27,13 @@ function makeBuiltinSync(override?: Partial<ResolvedMemorySyncConfig>): Resolved
 }
 
 describe("MemoryLifecycleOrchestrator", () => {
-  test("session_start triggers sync when enabled", async () => {
+  test("session_start enqueues sync when enabled", async () => {
     const sync = vi.fn(async () => {});
     const manager = makeManager({ sync });
     const orchestrator = new MemoryLifecycleOrchestrator(manager, makeBuiltinSync());
 
     await orchestrator.handle({ type: "session_start", sessionKey: "s1" });
+    await orchestrator.waitForIdle();
 
     expect(sync).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledWith({ reason: "session-start", force: false });
@@ -45,6 +46,7 @@ describe("MemoryLifecycleOrchestrator", () => {
     const orchestrator = new MemoryLifecycleOrchestrator(manager, makeBuiltinSync());
 
     await orchestrator.handle({ type: "flush_completed", sessionKey: "s1" });
+    await orchestrator.waitForIdle();
 
     expect(markDirty).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledTimes(1);
@@ -77,6 +79,7 @@ describe("MemoryLifecycleOrchestrator", () => {
     const orchestratorDirty = new MemoryLifecycleOrchestrator(managerDirty, makeBuiltinSync());
 
     await orchestratorDirty.handle({ type: "search_requested", sessionKey: "s1" });
+    await orchestratorDirty.waitForIdle();
 
     expect(sync).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledWith({ reason: "search", force: false });
@@ -125,8 +128,9 @@ describe("MemoryLifecycleOrchestrator", () => {
 
     const p1 = orchestrator.handle({ type: "search_requested", sessionKey: "s1" });
     const p2 = orchestrator.handle({ type: "search_requested", sessionKey: "s1" });
-    release?.();
     await Promise.all([p1, p2]);
+    release?.();
+    await orchestrator.waitForIdle();
 
     expect(sync).toHaveBeenCalledTimes(1);
   });
@@ -148,12 +152,30 @@ describe("MemoryLifecycleOrchestrator", () => {
 
     const p1 = orchestrator.handle({ type: "session_start", sessionKey: "s1" });
     const p2 = orchestrator.handle({ type: "flush_completed", sessionKey: "s1" });
-    release?.();
     await Promise.all([p1, p2]);
+    release?.();
+    await orchestrator.waitForIdle();
 
     expect(markDirty).toHaveBeenCalledTimes(1);
     expect(sync).toHaveBeenCalledTimes(2);
     expect(sync).toHaveBeenNthCalledWith(1, { reason: "session-start", force: false });
     expect(sync).toHaveBeenNthCalledWith(2, { reason: "flush", force: true });
+  });
+
+  test("handle returns without waiting for long-running sync", async () => {
+    let release: (() => void) | undefined;
+    const syncGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const sync = vi.fn(async () => {
+      await syncGate;
+    });
+    const manager = makeManager({ sync });
+    const orchestrator = new MemoryLifecycleOrchestrator(manager, makeBuiltinSync());
+
+    await orchestrator.handle({ type: "session_start", sessionKey: "s1" });
+    expect(sync).toHaveBeenCalledTimes(1);
+    release?.();
+    await orchestrator.waitForIdle();
   });
 });

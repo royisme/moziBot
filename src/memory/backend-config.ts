@@ -443,9 +443,10 @@ function resolveSearchMode(raw?: MemoryQmdConfig["searchMode"]): MemoryQmdSearch
   return DEFAULT_QMD_SEARCH_MODE;
 }
 
-function resolveEmbeddedProvider(
-  cfg?: MemoryEmbeddedConfig,
-): { requestedProvider: "openai" | "ollama" | "auto"; provider: "openai" | "ollama" } {
+function resolveEmbeddedProvider(cfg?: MemoryEmbeddedConfig): {
+  requestedProvider: "openai" | "ollama" | "auto";
+  provider: "openai" | "ollama";
+} {
   const requested = cfg?.provider ?? DEFAULT_EMBEDDED_PROVIDER;
   if (requested === "openai" || requested === "ollama") {
     return { requestedProvider: requested, provider: requested };
@@ -504,7 +505,9 @@ function resolveEmbeddedRemote(params: {
   provider: "openai" | "ollama";
 }): ResolvedEmbeddedConfig["remote"] {
   const baseUrlDefault =
-    params.provider === "ollama" ? DEFAULT_EMBEDDED_OLLAMA_BASE_URL : DEFAULT_EMBEDDED_OPENAI_BASE_URL;
+    params.provider === "ollama"
+      ? DEFAULT_EMBEDDED_OLLAMA_BASE_URL
+      : DEFAULT_EMBEDDED_OPENAI_BASE_URL;
   const baseUrl = params.cfg?.remote?.baseUrl?.trim() || baseUrlDefault;
   const timeoutMs = Math.max(
     1000,
@@ -524,14 +527,8 @@ function resolveEmbeddedRemote(params: {
 }
 
 function resolveEmbeddedChunking(cfg?: MemoryEmbeddedConfig): ResolvedEmbeddedConfig["chunking"] {
-  const tokens = Math.max(
-    32,
-    Math.floor(cfg?.chunking?.tokens ?? DEFAULT_EMBEDDED_CHUNK_TOKENS),
-  );
-  const overlap = Math.max(
-    0,
-    Math.floor(cfg?.chunking?.overlap ?? DEFAULT_EMBEDDED_CHUNK_OVERLAP),
-  );
+  const tokens = Math.max(32, Math.floor(cfg?.chunking?.tokens ?? DEFAULT_EMBEDDED_CHUNK_TOKENS));
+  const overlap = Math.max(0, Math.floor(cfg?.chunking?.overlap ?? DEFAULT_EMBEDDED_CHUNK_OVERLAP));
   return { tokens, overlap };
 }
 

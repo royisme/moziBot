@@ -101,6 +101,18 @@ export type AgentSandboxProbeReport = {
   result: SandboxProbeResult;
 };
 
+type AgentSkillSummary = {
+  name: string;
+  description?: string;
+};
+
+export type AgentSkillsInventory = {
+  enabled: AgentSkillSummary[];
+  loadedButDisabled: AgentSkillSummary[];
+  missingConfigured: string[];
+  allowlistActive: boolean;
+};
+
 function normalizePiInputCapabilities(
   input: Array<"text" | "image" | "audio" | "video" | "file"> | undefined,
 ): Array<"text" | "image"> {
@@ -441,6 +453,52 @@ export class AgentManager {
       return undefined;
     }
     return resolveHomeDir(this.config, agentId, entry);
+  }
+
+  async listAvailableSkills(
+    agentId: string,
+  ): Promise<Array<{ name: string; description?: string }>> {
+    const inventory = await this.listSkillsInventory(agentId);
+    return inventory.enabled;
+  }
+
+  async listSkillsInventory(agentId: string): Promise<AgentSkillsInventory> {
+    const entry = this.getAgentEntry(agentId);
+    const workspaceDir = resolveWorkspaceDir(this.config, agentId, entry);
+    const skillLoader = this.getSkillLoaderForWorkspace(workspaceDir);
+    await skillLoader.loadAll();
+    const loaded = skillLoader
+      .list()
+      .map((skill) => ({ name: skill.name, description: skill.description?.trim() || undefined }))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+    const configured = (entry?.skills ?? []).map((name) => name.trim()).filter((name) => !!name);
+    const allowlistActive = configured.length > 0;
+    if (!allowlistActive) {
+      return {
+        enabled: loaded,
+        loadedButDisabled: [],
+        missingConfigured: [],
+        allowlistActive: false,
+      };
+    }
+    const configuredSet = new Set(configured);
+    const loadedByName = new Map(loaded.map((skill) => [skill.name, skill]));
+    const enabled = configured
+      .map((name) => loadedByName.get(name))
+      .filter((skill): skill is AgentSkillSummary => Boolean(skill))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+    const loadedButDisabled = loaded
+      .filter((skill) => !configuredSet.has(skill.name))
+      .toSorted((a, b) => a.name.localeCompare(b.name));
+    const missingConfigured = configured
+      .filter((name, index) => configured.indexOf(name) === index && !loadedByName.has(name))
+      .toSorted((a, b) => a.localeCompare(b));
+    return {
+      enabled,
+      loadedButDisabled,
+      missingConfigured,
+      allowlistActive: true,
+    };
   }
 
   private async getHomeContext(homeDir: string): Promise<string> {

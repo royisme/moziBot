@@ -35,6 +35,7 @@ import {
   handleRestartCommand as handleRestartCommandService,
   performSessionReset,
 } from "./session-control-command";
+import { handleSkillsCommand as handleSkillsCommandService } from "./skills-command";
 
 const RESET_GREETING_TIMEOUT_MS = 12_000;
 
@@ -330,6 +331,14 @@ export function buildCommandHandlerMap(params: {
           peerId,
           agentManager,
           modelRegistry,
+        });
+      },
+      onSkills: async ({ agentId, channel, peerId }) => {
+        await handleSkillsCommandService({
+          agentId,
+          channel,
+          peerId,
+          agentManager,
         });
       },
       onSwitch: async ({ sessionKey, agentId, args, channel, peerId }) => {

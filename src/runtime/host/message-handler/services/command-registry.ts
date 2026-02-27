@@ -31,6 +31,7 @@ export interface MessageCommandRegistryDeps {
     message: InboundMessage;
   }): Promise<void>;
   onModels(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
+  onSkills(params: { agentId: string; peerId: string }): Promise<void>;
   onSwitch(params: {
     sessionKey: string;
     agentId: string;
@@ -83,7 +84,7 @@ export interface MessageCommandRegistryDeps {
 }
 
 const HELP_TEXT =
-  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
+  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/skills List available skills\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
 
 export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps): CommandHandlerMap {
   const withInbound = (ctx: CommandDispatchContext): InboundMessage =>
@@ -127,6 +128,12 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
     },
     models: async (ctx) => {
       await deps.onModels({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
+    },
+    skill: async (ctx) => {
+      await deps.onSkills({ agentId: ctx.agentId, peerId: ctx.peerId });
+    },
+    skills: async (ctx) => {
+      await deps.onSkills({ agentId: ctx.agentId, peerId: ctx.peerId });
     },
     switch: async (ctx, args) => {
       await deps.onSwitch({

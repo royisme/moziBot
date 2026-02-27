@@ -82,9 +82,13 @@ export class BuiltinMemoryManager implements MemorySearchManager {
       return [];
     }
     if (this.config.sync.onSearch && this.dirty) {
-      await this.sync({ reason: "search" });
+      void this.sync({ reason: "search" }).catch((err) => {
+        logger.warn(`builtin memory sync failed (search): ${String(err)}`);
+      });
     } else {
-      await this.ensureSynced();
+      void this.ensureSynced().catch((err) => {
+        logger.warn(`builtin memory sync failed (ensure): ${String(err)}`);
+      });
     }
 
     const maxResults = opts?.maxResults ?? DEFAULT_MAX_RESULTS;

@@ -16,6 +16,24 @@ Implementations:
 - `discord/plugin.ts`
 - `local-desktop/plugin.ts`
 
+## Telegram Native Commands
+
+Telegram registers native bot commands via `setMyCommands` in `telegram/plugin.ts`.
+Current built-in command menu includes:
+
+- `/help`
+- `/status`
+- `/whoami`
+- `/context`
+- `/prompt_digest`
+- `/models`
+- `/skills` (with `/skill` alias in text-command parser)
+- `/switch`
+- `/new`
+- `/reset`
+- `/compact`
+- `/restart`
+
 ## Local Desktop Widget
 
 The local desktop channel exposes a lightweight widget endpoint used by the desktop UI.

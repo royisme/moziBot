@@ -7,10 +7,10 @@ import { ensureHome } from "../agents/home";
 import { logger } from "../logger";
 import { resolveMemoryBackendConfig, resolveHomeDir } from "./backend-config";
 import { BuiltinMemoryManager } from "./builtin-manager";
+import { EmbeddedMemoryManager } from "./embedded/embedded-manager";
 import { FallbackMemoryManager } from "./fallback-manager";
 import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 import { QmdMemoryManager } from "./qmd-manager";
-import { EmbeddedMemoryManager } from "./embedded/embedded-manager";
 
 const managerCache = new Map<string, MemorySearchManager>();
 const lifecycleCache = new Map<string, MemoryLifecycleOrchestrator>();

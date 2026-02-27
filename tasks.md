@@ -1,9 +1,11 @@
 # Pi Session Alignment (Mozi) - Task Tracker
 
 ## Scope
+
 Align Mozi session persistence with pi SessionManager while keeping Mozi session paths and file naming. No migration of existing sessions.
 
 ## Decisions
+
 - Use pi SessionManager as the session transcript writer (JSONL tree structure).
 - Keep Mozi session paths (no ~/.pi or OpenClaw paths).
 - Keep file naming as `<sessionId>.jsonl`.
@@ -11,6 +13,7 @@ Align Mozi session persistence with pi SessionManager while keeping Mozi session
 - No migration for existing sessions; only new sessions use pi SessionManager.
 
 ## Plan (High Level)
+
 1. Session storage alignment
 2. Transcript writing via SessionManager
 3. Memory indexing path + event wiring
@@ -19,6 +22,7 @@ Align Mozi session persistence with pi SessionManager while keeping Mozi session
 6. Docs update (required for L2)
 
 ## Tasks
+
 - [ ] Audit Mozi SessionStore and transcript flow; map all write/read entry points
 - [ ] Design sessionFile resolution using Mozi paths + pi SessionManager open()
 - [x] Implement session transcript writer using SessionManager (new sessions only)
@@ -30,10 +34,12 @@ Align Mozi session persistence with pi SessionManager while keeping Mozi session
 - [x] Run validation commands
 
 ## Progress Log
+
 - 2026-02-26: Created task tracker and aligned decisions.
 - 2026-02-26: Added pi session format metadata, transcript update events, docs updates, tests, and pi reset semantics.
 
 ## Risks / Open Questions
+
 - How to represent sessionKey -> sessionFile mapping without breaking existing SessionStore usage
 - Ensuring backward compatibility when old transcripts are read alongside new pi-style transcripts
 - Memory index performance impact when compaction entries grow
@@ -43,9 +49,11 @@ Align Mozi session persistence with pi SessionManager while keeping Mozi session
 # Embedded Memory Backend (OpenClaw-style) - Task Tracker
 
 ## Scope
+
 Add an embedded memory backend that uses embeddings + vector/FTS hybrid search, aligned with OpenClaw architecture while keeping Mozi config style and paths. Default backend remains `builtin`.
 
 ## Decisions
+
 - Use `memory.backend = "embedded"` to enable the new backend.
 - Support OpenAI-compatible embedding endpoints with built-in defaults for `openai` and `ollama`.
 - Keep Mozi paths (no `.pi`/OpenClaw paths).
@@ -53,6 +61,7 @@ Add an embedded memory backend that uses embeddings + vector/FTS hybrid search, 
 - Builtin remains the fallback backend if embedded fails.
 
 ## Plan (High Level)
+
 1. Add embedded config schema + resolver
 2. Implement embedded manager (indexing, embeddings, hybrid search)
 3. Wire embedded backend into memory factory and lifecycle orchestration
@@ -60,6 +69,7 @@ Add an embedded memory backend that uses embeddings + vector/FTS hybrid search, 
 5. Add/adjust tests and validation
 
 ## Tasks
+
 - [x] Extend memory config schema to include `embedded` settings
 - [x] Resolve embedded config (defaults, paths, provider)
 - [x] Implement embedded memory manager (schema, indexing, search)
@@ -71,10 +81,12 @@ Add an embedded memory backend that uses embeddings + vector/FTS hybrid search, 
 - [x] Run validation commands
 
 ## Progress Log
+
 - 2026-02-26: Created embedded memory task tracker and decisions.
 - 2026-02-26: Implemented embedded backend, docs, tests, and schema updates.
 
 ## Risks / Open Questions
+
 - Vector extension availability in all target environments (sqlite-vec load)
 - Provider latency/failure handling for embedding calls
 - Session indexing performance on large transcripts

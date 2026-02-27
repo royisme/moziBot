@@ -19,6 +19,7 @@ import type {
 import { logger } from "../../logger";
 import { applyRecallPostProcessing } from "../recall";
 import { onSessionTranscriptUpdate } from "../session-transcript-events";
+import { createRemoteEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider";
 import {
   buildFileEntry,
   chunkMarkdown,
@@ -28,9 +29,7 @@ import {
   listMemoryFiles,
   remapChunkLines,
 } from "./internal";
-import { createRemoteEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider";
 import { ensureEmbeddedSchema, loadSqliteVecExtension } from "./schema";
-import { buildSessionEntry, listSessionFiles, sessionPathForFile } from "./session-files";
 import {
   bm25RankToScore,
   buildFtsQuery,
@@ -38,12 +37,14 @@ import {
   searchKeyword,
   searchVector,
 } from "./search";
+import { buildSessionEntry, listSessionFiles, sessionPathForFile } from "./session-files";
 
 const VECTOR_TABLE = "chunks_vec";
 const FTS_TABLE = "chunks_fts";
 const EMBEDDING_CACHE_TABLE = "embedding_cache";
 const DEFAULT_SNIPPET_MAX_CHARS = 700;
 const DEFAULT_MIN_SCORE = 0.3;
+const MIN_EMBED_QUERY_CHARS = 256;
 
 type EmbeddedMeta = {
   provider?: string;
@@ -171,7 +172,9 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
       return [];
     }
     if (this.settings.sync.onSearch && (this.dirty || this.sessionsDirty)) {
-      await this.sync({ reason: "search" });
+      void this.sync({ reason: "search" }).catch((err) => {
+        logger.warn(`embedded memory sync failed (search): ${String(err)}`);
+      });
     }
     const minScore = opts?.minScore ?? this.settings.query.minScore ?? DEFAULT_MIN_SCORE;
     const maxResults = opts?.maxResults ?? this.settings.query.maxResults;
@@ -181,7 +184,8 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
       Math.max(1, Math.floor(maxResults * hybrid.candidateMultiplier)),
     );
 
-    const queryEmbeddings = await this.provider.embed([trimmed]);
+    const queryText = this.clampQueryForEmbedding(trimmed);
+    const queryEmbeddings = await this.provider.embed([queryText]);
     const queryVec = queryEmbeddings[0] ?? [];
     const sourceFilter = this.buildSourceFilter();
 
@@ -248,6 +252,24 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
     });
 
     return processed.filter((entry) => entry.score >= minScore).slice(0, maxResults);
+  }
+
+  private clampQueryForEmbedding(query: string): string {
+    const maxChars = Math.max(MIN_EMBED_QUERY_CHARS, this.settings.chunking.tokens * 4);
+    if (query.length <= maxChars) {
+      return query;
+    }
+    logger.warn(
+      {
+        agentId: this.agentId,
+        originalChars: query.length,
+        clampedChars: maxChars,
+        provider: this.provider.id,
+        model: this.provider.model,
+      },
+      "Embedded memory query too long; clamped before embedding",
+    );
+    return query.slice(0, maxChars);
   }
 
   async readFile(params: ReadFileParams): Promise<ReadFileResult> {
@@ -511,7 +533,9 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
     await this.writeChunks(entry, chunks, options.source);
   }
 
-  private async indexSessionEntry(entry: Awaited<ReturnType<typeof buildSessionEntry>>): Promise<void> {
+  private async indexSessionEntry(
+    entry: Awaited<ReturnType<typeof buildSessionEntry>>,
+  ): Promise<void> {
     if (!entry) {
       return;
     }
@@ -613,9 +637,7 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
       .run(entry.path, source, entry.hash, entry.mtimeMs, entry.size);
   }
 
-  private async embedChunks(
-    chunks: Array<{ text: string; hash: string }>,
-  ): Promise<number[][]> {
+  private async embedChunks(chunks: Array<{ text: string; hash: string }>): Promise<number[][]> {
     if (chunks.length === 0) {
       return [];
     }
@@ -698,21 +720,19 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
          dims=excluded.dims,
          updated_at=excluded.updated_at`,
     );
-    const runInsert = this.db.transaction(
-      (batch: Array<{ hash: string; embedding: number[] }>) => {
-        for (const entry of batch) {
-          insert.run(
-            this.provider.id,
-            this.provider.model,
-            this.providerKey,
-            entry.hash,
-            JSON.stringify(entry.embedding),
-            entry.embedding.length,
-            now,
-          );
-        }
-      },
-    );
+    const runInsert = this.db.transaction((batch: Array<{ hash: string; embedding: number[] }>) => {
+      for (const entry of batch) {
+        insert.run(
+          this.provider.id,
+          this.provider.model,
+          this.providerKey,
+          entry.hash,
+          JSON.stringify(entry.embedding),
+          entry.embedding.length,
+          now,
+        );
+      }
+    });
     runInsert(entries);
     this.pruneEmbeddingCache();
   }
@@ -956,9 +976,9 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
 
   private readMeta(): EmbeddedMeta | null {
     try {
-      const row = this.db
-        .prepare(`SELECT value FROM meta WHERE key = ?`)
-        .get("embedded") as { value: string } | undefined;
+      const row = this.db.prepare(`SELECT value FROM meta WHERE key = ?`).get("embedded") as
+        | { value: string }
+        | undefined;
       if (!row?.value) {
         return null;
       }
@@ -973,7 +993,9 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
     try {
       const payload = JSON.stringify(meta);
       this.db
-        .prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        .prepare(
+          `INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+        )
         .run("embedded", payload);
     } catch {
       // ignore
