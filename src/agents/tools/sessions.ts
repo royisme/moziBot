@@ -1,4 +1,10 @@
 import { z } from "zod";
+import type { MoziConfig } from "../../config/schema";
+import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
+import { AcpSessionManager } from "../../acp/control-plane";
+import { normalizeRuntimeOptions, validateRuntimeOptionPatch } from "../../acp/control-plane/runtime-options";
+import type { SessionAcpMeta } from "../../acp/types";
+import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import type { ContinuationRequest } from "../../runtime/core/contracts";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
 import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
@@ -10,6 +16,7 @@ export interface SessionToolsContext {
   sessionManager: SessionManager;
   subAgentRegistry: SubAgentRegistry;
   currentSessionKey: string;
+  config?: MoziConfig;
 }
 
 export interface SessionInfo {
@@ -28,6 +35,19 @@ export interface Message {
   toolCallId?: string;
   name?: string;
 }
+
+const acpSpawnSchema = z
+  .object({
+    backend: z.string().optional(),
+    agent: z.string().optional(),
+    mode: z.enum(["persistent", "oneshot"]).optional(),
+    runtimeMode: z.string().optional(),
+    model: z.string().optional(),
+    cwd: z.string().optional(),
+    permissionProfile: z.string().optional(),
+    timeoutSeconds: z.number().optional(),
+  })
+  .optional();
 
 // sessions_list - List active sessions
 export const sessionsListSchema = z.object({
@@ -117,13 +137,146 @@ export const sessionsSpawnSchema = z.object({
   label: z.string().optional(),
   cleanup: z.enum(["delete", "keep"]).optional(),
   runTimeoutSeconds: z.number().optional(),
+  runtime: z.enum(["default", "acp"]).optional(),
+  acp: acpSpawnSchema,
 });
+
+function shouldUseAcpSpawn(params: z.infer<typeof sessionsSpawnSchema>): boolean {
+  return params.runtime === "acp" || Boolean(params.acp);
+}
+
+async function initializeAcpSubAgent(
+  ctx: SessionToolsContext,
+  params: z.infer<typeof sessionsSpawnSchema>,
+  spawnResult: SpawnResult,
+): Promise<SpawnResult> {
+  const config = ctx.config;
+  if (config) {
+    if (!isAcpEnabledByPolicy(config)) {
+      return {
+        childKey: "",
+        sessionId: "",
+        status: "rejected",
+        error: "ACP is disabled by policy.",
+      };
+    }
+    if (!isAcpDispatchEnabledByPolicy(config)) {
+      return {
+        childKey: "",
+        sessionId: "",
+        status: "rejected",
+        error: "ACP dispatch is disabled by policy.",
+      };
+    }
+  }
+
+  const childKey = spawnResult.childKey;
+  const childSession = ctx.sessionManager.get(childKey);
+  if (!childSession) {
+    return {
+      childKey: "",
+      sessionId: "",
+      status: "error",
+      error: "Spawned child session was not found",
+    };
+  }
+
+  const acpOptions = params.acp ?? {};
+  const resolvedBackend = acpOptions.backend?.trim() || config?.acp?.backend?.trim();
+  if (!resolvedBackend) {
+    return {
+      childKey: "",
+      sessionId: "",
+      status: "rejected",
+      error: "ACP backend is required (set acp.backend or pass acp.backend).",
+    };
+  }
+
+  const resolvedAgent =
+    acpOptions.agent?.trim() || params.agentId?.trim() || childSession.agentId || "main";
+  const mode = acpOptions.mode ?? "persistent";
+
+  const runtimeOptionsPatch = validateRuntimeOptionPatch({
+    model: acpOptions.model ?? params.model,
+    runtimeMode: acpOptions.runtimeMode,
+    cwd: acpOptions.cwd,
+    permissionProfile: acpOptions.permissionProfile,
+    timeoutSeconds: acpOptions.timeoutSeconds ?? params.runTimeoutSeconds,
+  });
+  const runtimeOptions = normalizeRuntimeOptions(runtimeOptionsPatch);
+
+  const now = Date.now();
+  const meta: SessionAcpMeta = {
+    backend: resolvedBackend,
+    agent: resolvedAgent,
+    runtimeSessionName: childKey,
+    mode,
+    ...(Object.keys(runtimeOptions).length > 0 ? { runtimeOptions } : {}),
+    ...(runtimeOptions.cwd ? { cwd: runtimeOptions.cwd } : {}),
+    state: "idle",
+    lastActivityAt: now,
+  };
+
+  try {
+    upsertAcpSessionMeta({
+      sessionKey: childKey,
+      mutate: () => meta,
+    });
+
+    const acpSessionManager = new AcpSessionManager();
+    await acpSessionManager.ensureSession({
+      cfg: (config ?? {}) as MoziConfig,
+      sessionKey: childKey,
+      agent: resolvedAgent,
+      mode,
+      cwd: runtimeOptions.cwd,
+      backendId: resolvedBackend,
+    });
+
+    await ctx.sessionManager.update(childKey, {
+      metadata: {
+        ...(childSession.metadata ?? {}),
+        acp: {
+          backend: resolvedBackend,
+          mode,
+          ...(Object.keys(runtimeOptions).length > 0 ? { runtimeOptions } : {}),
+        },
+      },
+    });
+
+    return spawnResult;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    try {
+      upsertAcpSessionMeta({
+        sessionKey: childKey,
+        mutate: () => null,
+      });
+    } catch {
+      // best-effort cleanup
+    }
+
+    ctx.subAgentRegistry.complete(childKey, {
+      status: "failed",
+      error: message,
+    });
+    await ctx.sessionManager.setStatus(childKey, "failed");
+
+    return {
+      childKey,
+      sessionId: spawnResult.sessionId,
+      status: "error",
+      error: message,
+    };
+  }
+}
 
 export async function sessionsSpawn(
   ctx: SessionToolsContext,
   params: z.infer<typeof sessionsSpawnSchema>,
 ): Promise<SpawnResult> {
-  return spawnSubAgent(ctx.sessionManager, ctx.subAgentRegistry, {
+  const spawnResult = await spawnSubAgent(ctx.sessionManager, ctx.subAgentRegistry, {
     parentKey: ctx.currentSessionKey,
     agentId: params.agentId,
     model: params.model,
@@ -132,6 +285,16 @@ export async function sessionsSpawn(
     cleanup: params.cleanup || "keep",
     timeoutSeconds: params.runTimeoutSeconds,
   });
+
+  if (spawnResult.status !== "accepted") {
+    return spawnResult;
+  }
+
+  if (!shouldUseAcpSpawn(params)) {
+    return spawnResult;
+  }
+
+  return initializeAcpSubAgent(ctx, params, spawnResult);
 }
 
 export const scheduleContinuationSchema = z.object({

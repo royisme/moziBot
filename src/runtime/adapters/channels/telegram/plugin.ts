@@ -1,10 +1,12 @@
 import { run, sequentialize } from "@grammyjs/runner";
+import { apiThrottler } from "@grammyjs/transformer-throttler";
 import { Bot } from "grammy";
 import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
 import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
+import { TelegramUpdateDedup } from "./dedup";
 import { handleMessage, handleCallback } from "./handlers";
 import {
   formatTelegramError,
@@ -13,6 +15,7 @@ import {
 } from "./network-errors";
 import { sendMessage, reactToMessage, deleteMsg, editMsg } from "./send";
 import { TypingManager } from "./typing";
+import { mkdir } from "node:fs/promises";
 
 interface StatusReactionsConfig {
   enabled?: boolean;
@@ -42,6 +45,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
 
   private bot: Bot;
   private config: TelegramPluginConfig;
+  private dedup: TelegramUpdateDedup;
   private runner: ReturnType<typeof run> | null = null;
   private runnerTask: Promise<void> | null = null;
   private connectAbortController: AbortController | null = null;
@@ -73,11 +77,26 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.statusReactionsEnabled = statusReactions?.enabled === true;
     this.statusReactionEmojis = resolveStatusReactionEmojis(statusReactions?.emojis);
     this.bot = new Bot(config.botToken);
+    this.dedup = new TelegramUpdateDedup(config.botToken);
     this.typingManager = new TypingManager((peerId) => this.sendTypingAction(peerId));
     this.setupHandlers();
   }
 
   private setupHandlers(): void {
+    this.bot.use(async (ctx, next) => {
+      const updateId = ctx.update.update_id;
+      if (this.dedup.isDuplicate(updateId)) {
+        logger.info({ updateId }, "Skipping duplicate Telegram update");
+        return;
+      }
+      this.dedup.markPending(updateId);
+      try {
+        await next();
+      } finally {
+        this.dedup.markDone(updateId);
+      }
+    });
+
     this.bot.use(sequentialize((ctx) => ctx.chat?.id.toString()));
 
     this.bot.on("message:text", (ctx) =>
@@ -207,11 +226,13 @@ export class TelegramPlugin extends BaseChannelPlugin {
       { command: "context", description: "View context details" },
       { command: "prompt_digest", description: "View prompt digest" },
       { command: "models", description: "List available models" },
+      { command: "skills", description: "List available skills" },
       { command: "switch", description: "Switch model (usage: /switch provider/model)" },
       { command: "new", description: "Start a new session" },
       { command: "reset", description: "Reset the current session" },
       { command: "compact", description: "Compact session context" },
       { command: "restart", description: "Restart runtime" },
+      { command: "acp", description: "ACP session management (use /acp for help)" },
     ];
 
     try {
@@ -246,6 +267,8 @@ export class TelegramPlugin extends BaseChannelPlugin {
       try {
         await this.ensureIdentity(signal);
         await this.registerCommands();
+        await mkdir(process.env.DATA_DIR ?? ".data", { recursive: true });
+        await this.dedup.load();
 
         this.runner = run(this.bot, {
           runner: {

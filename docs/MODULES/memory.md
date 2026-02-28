@@ -26,11 +26,11 @@ The `builtin` memory backend supports automated synchronization of local `.md` f
 
 #### Sync Triggers
 
-- **Session Start**: Syncs when an agent session is warmed up.
-- **On Search**: Ensures index is fresh before executing a search if it's marked as dirty.
+- **Session Start**: Enqueues a background sync when an agent session is warmed up.
+- **On Search**: Enqueues a background sync when dirty; current search returns immediately against current index.
 - **Watch**: Filesystem watcher (chokidar) detects changes to `MEMORY.md` or `memory/` directory.
 - **Interval**: Periodic background sync.
-- **Flush**: When session history is flushed to memory files (e.g., on segment rotation or context overflow), the index can be forcefully updated.
+- **Flush**: When session history is flushed to memory files (e.g., on segment rotation or context overflow), a force sync is enqueued in background.
 
 ### Lifecycle Orchestrator
 
@@ -41,6 +41,8 @@ The `builtin` memory backend supports automated synchronization of local `.md` f
 - `flush_completed` → dirty mark and optional force sync (`memory.builtin.sync.forceOnFlush`)
 
 The orchestrator coalesces in-flight sync requests and preserves force-sync requests queued while another sync is running, reducing duplicate work and preventing lifecycle trigger races.
+
+Lifecycle-triggered sync is best-effort and non-blocking. Sync errors are logged and do not fail the active chat turn.
 
 ### QMD Session Transcript Updates
 
@@ -79,56 +81,56 @@ Embedded memory uses local SQLite + embeddings for vector search with optional F
     "embedded": {
       "provider": "ollama",
       "model": "nomic-embed-text",
-      "remote": { "baseUrl": "http://localhost:11434/v1" }
-    }
-  }
+      "remote": { "baseUrl": "http://localhost:11434/v1" },
+    },
+  },
 }
 ```
 
 #### Embedded Provider & Remote
 
-| Key                             | Default                    | Description                                           |
-| ------------------------------ | -------------------------- | ----------------------------------------------------- |
-| `embedded.provider`            | `auto`                     | `auto` → prefers OpenAI if `apiKey` is set, else Ollama. |
-| `embedded.model`               | Provider default           | Embedding model name.                                 |
-| `embedded.remote.baseUrl`      | Provider default           | OpenAI-compatible `/embeddings` endpoint.             |
-| `embedded.remote.apiKey`       | `undefined`                | API key for remote providers.                         |
-| `embedded.remote.headers`      | `undefined`                | Extra HTTP headers.                                   |
-| `embedded.remote.timeoutMs`    | `15000`                    | Request timeout.                                      |
-| `embedded.remote.batchSize`    | `64`                       | Max inputs per request.                               |
+| Key                         | Default          | Description                                              |
+| --------------------------- | ---------------- | -------------------------------------------------------- |
+| `embedded.provider`         | `auto`           | `auto` → prefers OpenAI if `apiKey` is set, else Ollama. |
+| `embedded.model`            | Provider default | Embedding model name.                                    |
+| `embedded.remote.baseUrl`   | Provider default | OpenAI-compatible `/embeddings` endpoint.                |
+| `embedded.remote.apiKey`    | `undefined`      | API key for remote providers.                            |
+| `embedded.remote.headers`   | `undefined`      | Extra HTTP headers.                                      |
+| `embedded.remote.timeoutMs` | `15000`          | Request timeout.                                         |
+| `embedded.remote.batchSize` | `64`             | Max inputs per request.                                  |
 
 #### Embedded Store & Vector
 
-| Key                                   | Default                                        | Description                              |
-| ------------------------------------- | ---------------------------------------------- | ---------------------------------------- |
-| `embedded.store.path`                 | `<baseDir>/memory/embedded/{agentId}.sqlite`   | SQLite index path.                       |
-| `embedded.store.vector.enabled`       | `true`                                         | Enable sqlite-vec vector table.          |
-| `embedded.store.vector.extensionPath` | `undefined`                                    | Optional sqlite-vec extension path.      |
+| Key                                   | Default                                      | Description                         |
+| ------------------------------------- | -------------------------------------------- | ----------------------------------- |
+| `embedded.store.path`                 | `<baseDir>/memory/embedded/{agentId}.sqlite` | SQLite index path.                  |
+| `embedded.store.vector.enabled`       | `true`                                       | Enable sqlite-vec vector table.     |
+| `embedded.store.vector.extensionPath` | `undefined`                                  | Optional sqlite-vec extension path. |
 
 #### Embedded Chunking & Sync
 
-| Key                               | Default | Description                                      |
-| --------------------------------- | ------- | ------------------------------------------------ |
-| `embedded.chunking.tokens`        | `400`   | Approx token budget per chunk (chars/4).        |
-| `embedded.chunking.overlap`       | `80`    | Token overlap between chunks.                    |
-| `embedded.sync.onSessionStart`    | `true`  | Trigger sync when session starts.                |
-| `embedded.sync.onSearch`          | `true`  | Sync before search when dirty.                   |
-| `embedded.sync.watch`             | `true`  | Watch memory files for changes.                  |
-| `embedded.sync.watchDebounceMs`   | `1500`  | Watch debounce.                                  |
-| `embedded.sync.intervalMinutes`   | `0`     | Periodic sync interval (0 disables).             |
-| `embedded.sync.forceOnFlush`      | `true`  | Force reindex after memory flush.                |
+| Key                             | Default | Description                              |
+| ------------------------------- | ------- | ---------------------------------------- |
+| `embedded.chunking.tokens`      | `400`   | Approx token budget per chunk (chars/4). |
+| `embedded.chunking.overlap`     | `80`    | Token overlap between chunks.            |
+| `embedded.sync.onSessionStart`  | `true`  | Trigger sync when session starts.        |
+| `embedded.sync.onSearch`        | `true`  | Sync before search when dirty.           |
+| `embedded.sync.watch`           | `true`  | Watch memory files for changes.          |
+| `embedded.sync.watchDebounceMs` | `1500`  | Watch debounce.                          |
+| `embedded.sync.intervalMinutes` | `0`     | Periodic sync interval (0 disables).     |
+| `embedded.sync.forceOnFlush`    | `true`  | Force reindex after memory flush.        |
 
 #### Embedded Query & Recall
 
-| Key                                      | Default | Description                                |
-| ---------------------------------------- | ------- | ------------------------------------------ |
-| `embedded.query.maxResults`              | `6`     | Max results to return.                     |
-| `embedded.query.minScore`                | `0.35`  | Min score threshold.                       |
-| `embedded.query.hybrid.enabled`          | `true`  | Combine vector + FTS scores.               |
-| `embedded.query.hybrid.vectorWeight`     | `0.7`   | Weight for vector score.                   |
-| `embedded.query.hybrid.textWeight`       | `0.3`   | Weight for FTS score.                      |
-| `embedded.query.hybrid.candidateMultiplier` | `4`  | Overfetch multiplier before merging.       |
-| `embedded.recall.*`                      | See `memory.qmd.recall` | Optional MMR/temporal decay post-processing. |
+| Key                                         | Default                 | Description                                  |
+| ------------------------------------------- | ----------------------- | -------------------------------------------- |
+| `embedded.query.maxResults`                 | `6`                     | Max results to return.                       |
+| `embedded.query.minScore`                   | `0.35`                  | Min score threshold.                         |
+| `embedded.query.hybrid.enabled`             | `true`                  | Combine vector + FTS scores.                 |
+| `embedded.query.hybrid.vectorWeight`        | `0.7`                   | Weight for vector score.                     |
+| `embedded.query.hybrid.textWeight`          | `0.3`                   | Weight for FTS score.                        |
+| `embedded.query.hybrid.candidateMultiplier` | `4`                     | Overfetch multiplier before merging.         |
+| `embedded.recall.*`                         | See `memory.qmd.recall` | Optional MMR/temporal decay post-processing. |
 
 #### Session Sources (Optional)
 
@@ -139,9 +141,9 @@ To include session transcripts in embedded search, set:
   "memory": {
     "backend": "embedded",
     "embedded": {
-      "sources": ["memory", "sessions"]
-    }
-  }
+      "sources": ["memory", "sessions"],
+    },
+  },
 }
 ```
 

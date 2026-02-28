@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { SessionManager } from "../../runtime/host/sessions/manager";
 import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
 import { closeDb, initDb } from "../../storage/db";
+import {
+  __testing as acpRuntimeRegistryTesting,
+  registerAcpRuntimeBackend,
+  unregisterAcpRuntimeBackend,
+} from "../../acp/runtime/registry";
+import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import { type SessionToolsContext, sessionsList, sessionsSend, sessionsSpawn } from "./sessions";
 
 const TEST_DB = "data/test-session-tools.db";
@@ -24,6 +30,15 @@ describe("Session Tools", () => {
   let subAgentRegistry: SubAgentRegistry;
   let ctx: SessionToolsContext;
 
+  const backendId = "acp-test-backend";
+  const config = {
+    acp: {
+      enabled: true,
+      dispatch: { enabled: true },
+      backend: backendId,
+    },
+  };
+
   beforeEach(async () => {
     cleanupTestDb();
     initDb(TEST_DB);
@@ -39,10 +54,35 @@ describe("Session Tools", () => {
       sessionManager,
       subAgentRegistry,
       currentSessionKey,
+      config,
     };
+
+    acpRuntimeRegistryTesting.resetAcpRuntimeBackendsForTests();
+    registerAcpRuntimeBackend({
+      id: backendId,
+      runtime: {
+        async ensureSession(input) {
+          return {
+            sessionKey: input.sessionKey,
+            backend: backendId,
+            runtimeSessionName: input.sessionKey,
+            cwd: input.cwd,
+            backendSessionId: `backend-${input.sessionKey}`,
+            agentSessionId: `agent-${input.sessionKey}`,
+          };
+        },
+        async *runTurn() {
+          yield { type: "done" as const };
+        },
+        async cancel() {},
+        async close() {},
+      },
+    });
   });
 
   afterEach(() => {
+    unregisterAcpRuntimeBackend(backendId);
+    acpRuntimeRegistryTesting.resetAcpRuntimeBackendsForTests();
     closeDb();
     cleanupTestDb();
   });
@@ -94,6 +134,42 @@ describe("Session Tools", () => {
     expect(run).toBeDefined();
     expect(run?.task).toBe("test task");
     expect(run?.label).toBe("subagent-1");
+  });
+
+  test("sessions_spawn can create ACP-backed sub-agent sessions", async () => {
+    const result = await sessionsSpawn(ctx, {
+      task: "acp sub task",
+      label: "acp-worker",
+      runtime: "acp",
+      acp: {
+        backend: backendId,
+        mode: "persistent",
+        runtimeMode: "plan",
+        model: "gpt-5-mini",
+        cwd: "/tmp",
+        permissionProfile: "default",
+        timeoutSeconds: 42,
+      },
+    });
+
+    expect(result.status).toBe("accepted");
+    const childSession = sessionManager.get(result.childKey);
+    expect(childSession).toBeDefined();
+
+    const acpEntry = readAcpSessionEntry({ sessionKey: result.childKey });
+    expect(acpEntry?.acp).toBeDefined();
+    expect(acpEntry?.acp?.backend).toBe(backendId);
+    expect(acpEntry?.acp?.mode).toBe("persistent");
+    expect(acpEntry?.acp?.runtimeOptions?.runtimeMode).toBe("plan");
+    expect(acpEntry?.acp?.runtimeOptions?.model).toBe("gpt-5-mini");
+    expect(acpEntry?.acp?.runtimeOptions?.cwd).toBe("/tmp");
+    expect(acpEntry?.acp?.runtimeOptions?.permissionProfile).toBe("default");
+    expect(acpEntry?.acp?.runtimeOptions?.timeoutSeconds).toBe(42);
+
+    upsertAcpSessionMeta({
+      sessionKey: result.childKey,
+      mutate: () => null,
+    });
   });
 
   test("sessions_send updates target session status", async () => {

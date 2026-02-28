@@ -3,6 +3,16 @@ import type { InboundMessage } from "../types";
 import type { TelegramPluginConfig } from "./plugin";
 import { logger } from "../../../../logger";
 import { isSenderAllowed, isCommandText, isBotMentioned } from "./access";
+import { MediaGroupDebouncer } from "./debouncer";
+
+const debouncerMap = new Map<string, MediaGroupDebouncer>();
+
+function getDebouncer(channelId: string): MediaGroupDebouncer {
+  if (!debouncerMap.has(channelId)) {
+    debouncerMap.set(channelId, new MediaGroupDebouncer());
+  }
+  return debouncerMap.get(channelId)!;
+}
 
 export async function handleMessage(
   ctx: Context,
@@ -88,6 +98,8 @@ export async function handleMessage(
     text,
     timestamp: new Date(msg.date * 1000),
     raw: msg,
+    replyToId: msg.reply_to_message?.message_id?.toString(),
+    threadId: msg.message_thread_id?.toString(),
   };
 
   // Handle attachments
@@ -158,7 +170,12 @@ export async function handleMessage(
     inbound.media = media;
   }
 
-  emitMessage(inbound);
+  const mediaGroupId = (msg as any).media_group_id as string | undefined;
+  if (mediaGroupId) {
+    getDebouncer(channelId).add(mediaGroupId, inbound, emitMessage);
+  } else {
+    emitMessage(inbound);
+  }
 }
 
 export async function handleCallback(

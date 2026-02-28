@@ -279,7 +279,6 @@ describe("MessageHandler commands", () => {
         >;
         resetSession: (sessionKey: string) => void;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         getSessionMetadata: (sessionKey: string) => Record<string, unknown> | undefined;
         getPromptMetadata: (sessionKey: string) =>
@@ -299,6 +298,9 @@ describe("MessageHandler commands", () => {
         getContextBreakdown: (sessionKey: string) => unknown;
         getWorkspaceDir: (agentId: string) => string | undefined;
         getHomeDir: (agentId: string) => string | undefined;
+        listAvailableSkills: (
+          agentId: string,
+        ) => Promise<Array<{ name: string; description?: string }>>;
         dispatchExtensionCommand?: (params: {
           commandName: string;
           args: string;
@@ -366,10 +368,6 @@ describe("MessageHandler commands", () => {
       >,
       resetSession: resetSession as unknown as (sessionKey: string) => void,
       ensureChannelContext: (async () => {}) as unknown as (params: unknown) => Promise<void>,
-      updateSessionContext: (() => {}) as unknown as (
-        sessionKey: string,
-        messages: unknown[],
-      ) => void,
       updateSessionMetadata: updateSessionMetadata as unknown as (
         sessionKey: string,
         patch: unknown,
@@ -396,6 +394,10 @@ describe("MessageHandler commands", () => {
         agentId: string,
       ) => string | undefined,
       getHomeDir: (() => "/tmp/mozi-home") as unknown as (agentId: string) => string | undefined,
+      listAvailableSkills: (async () => [
+        { name: "agent-browser", description: "Automates browser interactions." },
+        { name: "qmd", description: "Search local markdown docs." },
+      ]) as unknown as (agentId: string) => Promise<Array<{ name: string; description?: string }>>,
       dispatchExtensionCommand: (async () => false) as unknown as (params: {
         commandName: string;
         args: string;
@@ -456,6 +458,22 @@ describe("MessageHandler commands", () => {
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("Available models:");
     expect(payload.text).toContain("quotio/gemini-3-flash-preview");
+  });
+
+  it("handles /skill by showing available skills", async () => {
+    await handler.handle(createMessage("/skill"), channel);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Skills:");
+    expect(payload.text).toContain("Enabled:");
+    expect(payload.text).toContain("agent-browser");
+    expect(payload.text).toContain("qmd");
+  });
+
+  it("handles /skills as alias for skill listing", async () => {
+    await handler.handle(createMessage("/skills"), channel);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Skills:");
+    expect(payload.text).toContain("agent-browser");
   });
 
   it("handles /switch without args by showing current model", async () => {
@@ -1205,7 +1223,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
@@ -1239,10 +1256,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1276,7 +1289,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
       };
       sessions: {
@@ -1310,10 +1322,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1351,7 +1359,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
           modelRef: string;
@@ -1394,10 +1401,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,
@@ -1443,7 +1446,6 @@ describe("MessageHandler commands", () => {
           input: "text" | "image" | "audio" | "video" | "file";
         }) => Promise<{ ok: true; modelRef: string; switched: boolean }>;
         ensureChannelContext: (params: unknown) => Promise<void>;
-        updateSessionContext: (sessionKey: string, messages: unknown[]) => void;
         updateSessionMetadata: (sessionKey: string, patch: unknown) => void;
         resolveLifecycleControlModel: (params: { sessionKey: string; agentId?: string }) => {
           modelRef: string;
@@ -1486,10 +1488,6 @@ describe("MessageHandler commands", () => {
     h.agentManager.ensureChannelContext = (async () => {}) as unknown as (
       params: unknown,
     ) => Promise<void>;
-    h.agentManager.updateSessionContext = (() => {}) as unknown as (
-      sessionKey: string,
-      messages: unknown[],
-    ) => void;
     h.agentManager.updateSessionMetadata = (() => {}) as unknown as (
       sessionKey: string,
       patch: unknown,

@@ -1,25 +1,19 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { describe, expect, it } from "vitest";
-import type { SandboxExecutor } from "./sandbox/executor";
-import { createExecTool } from "./sandbox/tool";
+import { describe, expect, it, vi } from "vitest";
+import type { ExecRuntime, ExecResult } from "./exec-runtime";
+import { createExecTool } from "./exec-tool";
 import { sanitizeToolSchema, sanitizeTools } from "./schema-sanitizer";
 
-function createMockExecutor(): SandboxExecutor {
+function createMockRuntime(): ExecRuntime {
   return {
-    exec: async () => ({
-      exitCode: 0,
+    execute: vi.fn().mockResolvedValue({
+      type: "completed",
       stdout: "",
       stderr: "",
-    }),
-    stop: async () => {},
-    probe: async () => ({
-      ok: true,
-      mode: "off" as const,
-      message: "mock",
-      hints: [],
-    }),
-  };
+      exitCode: 0,
+    } as ExecResult),
+  } as unknown as ExecRuntime;
 }
 
 describe("sanitizeToolSchema", () => {
@@ -170,10 +164,9 @@ describe("sanitizeToolSchema", () => {
 
   it("sanitizes exec tool schema correctly", () => {
     const execTool = createExecTool({
-      executor: createMockExecutor(),
+      runtime: createMockRuntime(),
       sessionKey: "test-session",
       agentId: "test-agent",
-      workspaceDir: "/tmp",
     });
 
     const sanitized = sanitizeToolSchema(execTool.parameters);
@@ -243,10 +236,9 @@ describe("sanitizeTools", () => {
   it("sanitizes multiple tools and logs modifications", () => {
     const tools: AgentTool[] = [
       createExecTool({
-        executor: createMockExecutor(),
+        runtime: createMockRuntime(),
         sessionKey: "test-session",
         agentId: "test-agent",
-        workspaceDir: "/tmp",
       }),
       {
         name: "clean_tool",

@@ -40,6 +40,11 @@ export function createMessageCommandHandlerMap(params: {
       channel: ChannelPlugin;
       peerId: string;
     }) => Promise<void>;
+    onSkills: (params: {
+      agentId: string;
+      channel: ChannelPlugin;
+      peerId: string;
+    }) => Promise<void>;
     onSwitch: (params: {
       sessionKey: string;
       agentId: string;
@@ -105,6 +110,14 @@ export function createMessageCommandHandlerMap(params: {
       peerId: string;
       args: string;
     }) => Promise<void>;
+    onAcp: (params: {
+      sessionKey: string;
+      agentId: string;
+      message: InboundMessage;
+      channel: ChannelPlugin;
+      peerId: string;
+      args: string;
+    }) => Promise<void>;
   };
 }): CommandHandlerMap {
   const { channel, deps } = params;
@@ -129,6 +142,9 @@ export function createMessageCommandHandlerMap(params: {
     },
     onModels: async ({ sessionKey, agentId, peerId }) => {
       await deps.onModels({ sessionKey, agentId, channel, peerId });
+    },
+    onSkills: async ({ agentId, peerId }) => {
+      await deps.onSkills({ agentId, channel, peerId });
     },
     onSwitch: async ({ sessionKey, agentId, peerId, args }) => {
       await deps.onSwitch({ sessionKey, agentId, args, channel, peerId });
@@ -171,6 +187,9 @@ export function createMessageCommandHandlerMap(params: {
     },
     onHeartbeat: async ({ agentId, peerId, args }) => {
       await deps.onHeartbeat({ agentId, channel, peerId, args });
+    },
+    onAcp: async ({ sessionKey, agentId, message, peerId, args }) => {
+      await deps.onAcp({ sessionKey, agentId, message, channel, peerId, args });
     },
   };
 

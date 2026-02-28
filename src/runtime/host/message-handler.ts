@@ -158,6 +158,7 @@ export class MessageHandler {
           sessionManager: deps.sessionManager!,
           subAgentRegistry: deps.subAgentRegistry!,
           currentSessionKey: params.sessionKey,
+          config: this.config,
         }),
         ...createBrowserTools({
           getConfig: () => this.config,
@@ -218,6 +219,8 @@ export class MessageHandler {
       interruptedSet: this.interruptedPromptRuns,
       flushMemory: async (sessionKey, agentId, messages, config) =>
         await this.flushMemory(sessionKey, agentId, messages, config),
+      getTapeService: (sessionKey) => this.agentManager.getTapeService?.(sessionKey) ?? null,
+      getTapeStore: () => this.agentManager.getTapeStore?.() ?? null,
     });
   }
 

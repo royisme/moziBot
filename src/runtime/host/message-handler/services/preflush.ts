@@ -54,7 +54,12 @@ export async function performMemoryFlush(params: {
     if (success) {
       // Parity: call handle({ type: 'flush_completed', sessionKey })
       const lifecycle = await getMemoryLifecycleOrchestrator(deps.config, agentId);
-      await lifecycle.handle({ type: "flush_completed", sessionKey });
+      void lifecycle.handle({ type: "flush_completed", sessionKey }).catch((err) => {
+        deps.logger.warn(
+          { err: err instanceof Error ? err : new Error(String(err)), sessionKey },
+          "Memory lifecycle flush hook failed",
+        );
+      });
     }
 
     return success;

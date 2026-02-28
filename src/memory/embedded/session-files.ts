@@ -46,10 +46,7 @@ function redactSensitiveText(text: string): string {
     .replace(/bot\d+:[A-Za-z0-9_-]+/g, "bot<redacted>")
     .replace(/sk-[A-Za-z0-9_-]{16,}/g, "sk-<redacted>")
     .replace(/(Bearer\s+)[A-Za-z0-9._-]{16,}/gi, "$1<redacted>")
-    .replace(
-      /("(?:apiKey|token|authToken|botToken)"\s*:\s*")[^"]+(")/gi,
-      "$1<redacted>$2",
-    );
+    .replace(/("(?:apiKey|token|authToken|botToken)"\s*:\s*")[^"]+(")/gi, "$1<redacted>$2");
 }
 
 export function extractSessionText(content: unknown): string | null {

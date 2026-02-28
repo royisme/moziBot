@@ -1,10 +1,11 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { ModelRegistry } from "../model-registry";
 import type { SessionStore } from "../session-store";
+import type { TapeService } from "../../tape/tape-service.js";
 import { estimateMessagesTokens, estimateTokens } from "../context-management";
 import { getRuntimeHookRunner } from "../hooks";
-import { sanitizePromptInputForModel } from "../payload-sanitizer";
+import { logger } from "../../logger";
+import { compactViaTape } from "../../tape/integration.js";
 
 export type ContextUsage = {
   usedTokens: number;
@@ -21,38 +22,13 @@ export type ContextBreakdown = {
   totalTokens: number;
 };
 
-export function updateSessionContext(params: {
-  sessionKey: string;
-  messages: unknown;
-  sessions: SessionStore;
-  modelRegistry: ModelRegistry;
-  agentModelRefs: Map<string, string>;
-}): void {
-  const { sessionKey, messages, sessions, modelRegistry, agentModelRefs } = params;
-  const session = sessions.get(sessionKey);
-  const modelRef = agentModelRefs.get(sessionKey) || session?.currentModel;
-
-  if (Array.isArray(messages) && modelRef) {
-    const modelSpec = modelRegistry.get(modelRef);
-    const sanitized = sanitizePromptInputForModel(
-      messages as AgentMessage[],
-      modelRef,
-      modelSpec?.api,
-      modelSpec?.provider,
-    );
-    sessions.update(sessionKey, { context: sanitized });
-    return;
-  }
-
-  sessions.update(sessionKey, { context: messages });
-}
-
 export async function compactSession(params: {
   sessionKey: string;
   agents: Map<string, AgentSession>;
   sessions: SessionStore;
+  getTapeService?: (sessionKey: string) => TapeService | null | undefined;
 }): Promise<{ success: boolean; tokensReclaimed: number; reason?: string }> {
-  const { sessionKey, agents, sessions } = params;
+  const { sessionKey, agents, sessions, getTapeService } = params;
   const agent = agents.get(sessionKey);
   if (!agent) {
     return { success: false, tokensReclaimed: 0, reason: "No active agent session" };
@@ -85,7 +61,24 @@ export async function compactSession(params: {
     }
 
     const result = await agent.compact();
-    sessions.update(sessionKey, { context: agent.messages });
+
+    // Tape dual-write: create an anchor recording the compaction summary.
+    // This is additive — the existing destructive compaction is unchanged.
+    // Tape errors are non-fatal.
+    if (getTapeService) {
+      try {
+        const tapeService = getTapeService(sessionKey);
+        if (tapeService) {
+          const summary =
+            typeof result === "object" && result !== null && "summary" in result
+              ? (result as { summary?: string }).summary ?? ""
+              : "";
+          compactViaTape(tapeService, summary);
+        }
+      } catch (tapeErr) {
+        logger.warn({ sessionKey, err: tapeErr }, "Tape compaction anchor write failed (non-fatal)");
+      }
+    }
 
     if (hookRunner.hasHooks("after_compaction")) {
       const afterCount = agent.messages.length;

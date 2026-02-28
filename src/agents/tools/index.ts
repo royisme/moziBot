@@ -17,6 +17,13 @@ import {
   sessionsSpawn,
   sessionsSpawnSchema,
 } from "./sessions";
+import {
+  sessionsAcpSpawn,
+  sessionsAcpSpawnSchema,
+  shouldUseAcpSpawn,
+  initializeAcpSubAgent,
+  type SessionAcpToolsContext,
+} from "./sessions-acp";
 
 export { sessionsStatus, sessionsStatusSchema, sessionsStatusDescription } from "./sessions-status";
 

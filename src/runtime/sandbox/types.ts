@@ -38,3 +38,10 @@ export type SandboxConfig = {
 };
 
 export type SandboxMount = Mount;
+
+export type SandboxProbeResult = {
+  ok: boolean;
+  mode: "off" | "docker" | "apple-vm";
+  message: string;
+  hints: string[];
+};

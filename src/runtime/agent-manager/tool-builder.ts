@@ -3,19 +3,20 @@ import type { SkillLoader } from "../../agents/skills/loader";
 import type { MoziConfig } from "../../config";
 import type { ExtensionRegistry } from "../../extensions";
 import type { MemorySearchManager } from "../../memory/types";
-import type { SandboxExecutor } from "../sandbox/executor";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SubagentRegistry } from "../subagent-registry";
 import type { ModelSpec } from "../types";
 import type { AgentEntry } from "./config-resolver";
 import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
+import { logger } from "../../logger";
 import { createRuntimeSecretBroker } from "../auth/broker";
 import { getRuntimeHookRunner } from "../hooks";
-import { createExecTool } from "../sandbox/tool";
+import { createExecTool } from "../exec-tool";
+import { type AuthResolver, type ExecRuntime } from "../exec-runtime";
 import { sanitizeTools } from "../schema-sanitizer";
 import { createSkillsNoteTool } from "../skills-note";
 import { filterTools } from "../tool-selection";
-import { createMemoryTools, createPiCodingTools, createSubagentTool } from "../tools";
+import { createMemoryTools, createPiCodingTools, createProcessTools, createSubagentTool } from "../tools";
 import {
   resolveToolAllowList,
   resolveExecAllowlist,
@@ -44,10 +45,13 @@ export interface BuildToolsDeps {
     homeDir: string;
     sandboxConfig?: SandboxConfig;
   }) => Promise<AgentTool[]> | AgentTool[];
-  getSandboxExecutor: (params: {
+  getExecRuntime: (params: {
+    workspaceDir: string;
     sandboxConfig?: SandboxConfig;
     allowlist?: string[];
-  }) => SandboxExecutor;
+    allowedSecrets?: string[];
+    authResolver?: AuthResolver;
+  }) => ExecRuntime;
 }
 
 export function shouldSanitizeTools(config: MoziConfig, modelSpec: ModelSpec): boolean {
@@ -190,24 +194,30 @@ export async function buildTools(
   if (allowSet.has("exec")) {
     const allowlist = resolveExecAllowlist(deps.config, params.entry);
     const allowedSecrets = resolveExecAllowedSecrets(deps.config, params.entry);
-    const executor = deps.getSandboxExecutor({
+    const authResolver = deps.config.runtime?.auth?.enabled
+      ? createRuntimeSecretBroker({
+          masterKeyEnv: deps.config.runtime?.auth?.masterKeyEnv ?? "MOZI_MASTER_KEY",
+        })
+      : undefined;
+
+    const runtime = deps.getExecRuntime({
+      workspaceDir: params.workspaceDir,
       sandboxConfig: params.sandboxConfig,
       allowlist,
+      allowedSecrets,
+      authResolver,
     });
     tools.push(
       createExecTool({
-        executor,
+        runtime,
         sessionKey: params.sessionKey,
         agentId: params.agentId,
-        workspaceDir: params.workspaceDir,
-        allowedSecrets,
-        authResolver: deps.config.runtime?.auth?.enabled
-          ? createRuntimeSecretBroker({
-              masterKeyEnv: deps.config.runtime?.auth?.masterKeyEnv ?? "MOZI_MASTER_KEY",
-            })
-          : undefined,
       }),
     );
+  }
+
+  if (allowSet.has("process")) {
+    tools.push(...createProcessTools({ sessionKey: params.sessionKey, agentId: params.agentId }));
   }
 
   const codingTools = filterTools(createPiCodingTools(params.workspaceDir), allowList).tools;
@@ -216,11 +226,20 @@ export async function buildTools(
   if (allowSet.has("memory_search") || allowSet.has("memory_get")) {
     const manager = await getMemoryManager(deps.config, params.agentId);
     const lifecycle = await getMemoryLifecycleOrchestrator(deps.config, params.agentId);
-    await lifecycle.handle({ type: "session_start", sessionKey: params.sessionKey });
+    void lifecycle.handle({ type: "session_start", sessionKey: params.sessionKey }).catch((err) => {
+      logger.warn({ err, sessionKey: params.sessionKey }, "Memory lifecycle session_start failed");
+    });
 
     const lifecycleAwareManager: MemorySearchManager = {
       search: async (query: string, opts?: { maxResults?: number; minScore?: number }) => {
-        await lifecycle.handle({ type: "search_requested", sessionKey: params.sessionKey });
+        void lifecycle
+          .handle({ type: "search_requested", sessionKey: params.sessionKey })
+          .catch((err) => {
+            logger.warn(
+              { err, sessionKey: params.sessionKey },
+              "Memory lifecycle search_requested failed",
+            );
+          });
         return manager.search(query, opts);
       },
       readFile: (args: { relPath: string; from?: number; lines?: number }) =>

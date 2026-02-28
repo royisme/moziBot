@@ -19,7 +19,6 @@ import { buildCollectionIndex, ensureCollections } from "./qmd/collections";
 import { QmdDocResolver } from "./qmd/doc-resolver";
 import { resolveReadPath, type CollectionRoot } from "./qmd/path-utils";
 import { runQmd, parseQueryResults } from "./qmd/qmd-client";
-import { onSessionTranscriptUpdate } from "./session-transcript-events";
 import { isScopeAllowed } from "./qmd/scope";
 import {
   exportSessions,
@@ -28,6 +27,7 @@ import {
 } from "./qmd/session-exporter";
 import { clampResultsByInjectedChars, extractSnippetLines } from "./qmd/snippet";
 import { applyRecallPostProcessing } from "./recall";
+import { onSessionTranscriptUpdate } from "./session-transcript-events";
 
 export class QmdMemoryManager implements MemorySearchManager {
   static async create(params: {

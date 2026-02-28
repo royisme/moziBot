@@ -30,7 +30,9 @@ export async function flushMemoryWithLifecycle(params: {
     const success = result === true;
     if (success) {
       const lifecycle = await getMemoryLifecycleOrchestrator(config, agentId);
-      await lifecycle.handle({ type: "flush_completed", sessionKey });
+      void lifecycle.handle({ type: "flush_completed", sessionKey }).catch((err) => {
+        logger.warn({ err, sessionKey }, "Memory lifecycle flush hook failed");
+      });
     }
     return success;
   } catch (err) {

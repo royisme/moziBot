@@ -38,6 +38,7 @@ const SESSION_STATUS_VALUES = [
 ] as const;
 
 const CLEANUP_VALUES = ["delete", "keep"] as const;
+const SPAWN_RUNTIME_VALUES = ["default", "acp"] as const;
 const REMINDER_SCHEDULE_KIND_VALUES = ["at", "every", "cron"] as const;
 
 function stringEnum<const T extends readonly string[]>(values: T) {
@@ -110,6 +111,19 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
         label: Type.Optional(Type.String()),
         cleanup: Type.Optional(stringEnum(CLEANUP_VALUES)),
         runTimeoutSeconds: Type.Optional(Type.Number()),
+        runtime: Type.Optional(stringEnum(SPAWN_RUNTIME_VALUES)),
+        acp: Type.Optional(
+          Type.Object({
+            backend: Type.Optional(Type.String()),
+            agent: Type.Optional(Type.String()),
+            mode: Type.Optional(stringEnum(["persistent", "oneshot"] as const)),
+            runtimeMode: Type.Optional(Type.String()),
+            model: Type.Optional(Type.String()),
+            cwd: Type.Optional(Type.String()),
+            permissionProfile: Type.Optional(Type.String()),
+            timeoutSeconds: Type.Optional(Type.Number()),
+          }),
+        ),
       }),
       schema: sessionsSpawnSchema,
       ctx,

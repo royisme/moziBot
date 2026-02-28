@@ -12,6 +12,7 @@ import {
   handleStatusCommand as handleStatusCommandService,
   handleContextCommand as handleContextCommandService,
   handlePromptDigestCommand as handlePromptDigestCommandService,
+  handleAcpCommand as handleAcpCommandService,
 } from "../../commands/session";
 import { renderAssistantReply } from "../../reply-utils";
 import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
@@ -35,6 +36,7 @@ import {
   handleRestartCommand as handleRestartCommandService,
   performSessionReset,
 } from "./session-control-command";
+import { handleSkillsCommand as handleSkillsCommandService } from "./skills-command";
 
 const RESET_GREETING_TIMEOUT_MS = 12_000;
 
@@ -332,6 +334,14 @@ export function buildCommandHandlerMap(params: {
           modelRegistry,
         });
       },
+      onSkills: async ({ agentId, channel, peerId }) => {
+        await handleSkillsCommandService({
+          agentId,
+          channel,
+          peerId,
+          agentManager,
+        });
+      },
       onSwitch: async ({ sessionKey, agentId, args, channel, peerId }) => {
         await handleSwitchCommandService({
           sessionKey,
@@ -415,6 +425,17 @@ export function buildCommandHandlerMap(params: {
           resolveHomeDir,
           logger,
           toError: (error) => toErrorService(error),
+        });
+      },
+      onAcp: async ({ sessionKey, agentId, message, channel, peerId, args }) => {
+        await handleAcpCommandService({
+          sessionKey,
+          agentId,
+          message,
+          channel,
+          peerId,
+          args,
+          config,
         });
       },
     },

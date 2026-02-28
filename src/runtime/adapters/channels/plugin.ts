@@ -74,6 +74,13 @@ export abstract class BaseChannelPlugin extends EventEmitter implements ChannelP
     this.emit("message", msg);
   }
 
+  /**
+   * Public method to emit messages from external handlers (like slash commands)
+   */
+  public emitInboundMessage(msg: InboundMessage): void {
+    this.emit("message", msg);
+  }
+
   protected emitError(error: Error): void {
     if (this.listenerCount("error") === 0) {
       return;

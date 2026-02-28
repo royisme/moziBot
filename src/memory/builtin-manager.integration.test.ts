@@ -55,8 +55,16 @@ describe("BuiltinMemoryManager", () => {
     await fs.writeFile(path.join(workspaceDir, "memory", "new.md"), "Gamma appeared");
     manager.markDirty?.();
 
-    const results = await manager.search("Gamma");
-    expect(results.some((r) => r.path === "memory/new.md")).toBe(true);
+    let found = false;
+    for (let i = 0; i < 10; i += 1) {
+      const results = await manager.search("Gamma");
+      if (results.some((r) => r.path === "memory/new.md")) {
+        found = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(found).toBe(true);
   });
 
   test("warmSession performs initial sync when enabled", async () => {

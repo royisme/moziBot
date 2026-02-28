@@ -13,11 +13,18 @@ interface MockedBot {
     sendMessage: ReturnType<typeof vi.fn>;
     sendPhoto: ReturnType<typeof vi.fn>;
     sendDocument: ReturnType<typeof vi.fn>;
+    sendVideo: ReturnType<typeof vi.fn>;
+    sendAudio: ReturnType<typeof vi.fn>;
+    sendVoice: ReturnType<typeof vi.fn>;
+    sendAnimation: ReturnType<typeof vi.fn>;
+    sendVideoNote: ReturnType<typeof vi.fn>;
     sendChatAction: ReturnType<typeof vi.fn>;
     setMessageReaction: ReturnType<typeof vi.fn>;
     deleteMessage: ReturnType<typeof vi.fn>;
     editMessageText: ReturnType<typeof vi.fn>;
     answerCallbackQuery: ReturnType<typeof vi.fn>;
+    deleteMyCommands: ReturnType<typeof vi.fn>;
+    setMyCommands: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -33,15 +40,23 @@ vi.mock("grammy", () => {
       on: vi.fn(),
       catch: vi.fn(),
       api: {
+        config: { use: vi.fn() },
         getMe: vi.fn().mockResolvedValue({ id: 42, username: "mozi_bot" }),
         sendMessage: vi.fn().mockResolvedValue({ message_id: 123 }),
         sendPhoto: vi.fn().mockResolvedValue({ message_id: 124 }),
         sendDocument: vi.fn().mockResolvedValue({ message_id: 125 }),
+        sendVideo: vi.fn().mockResolvedValue({ message_id: 126 }),
+        sendAudio: vi.fn().mockResolvedValue({ message_id: 127 }),
+        sendVoice: vi.fn().mockResolvedValue({ message_id: 128 }),
+        sendAnimation: vi.fn().mockResolvedValue({ message_id: 129 }),
+        sendVideoNote: vi.fn().mockResolvedValue({ message_id: 130 }),
         sendChatAction: vi.fn().mockResolvedValue(true),
         setMessageReaction: vi.fn().mockResolvedValue(true),
         deleteMessage: vi.fn().mockResolvedValue(true),
         editMessageText: vi.fn().mockResolvedValue({ message_id: 123 }),
         answerCallbackQuery: vi.fn().mockResolvedValue(true),
+        deleteMyCommands: vi.fn().mockResolvedValue(true),
+        setMyCommands: vi.fn().mockResolvedValue(true),
       },
     };
   });
@@ -108,6 +123,17 @@ describe("TelegramPlugin", () => {
     expect(plugin.getStatus()).toBe("connected");
   });
 
+  it("should register native commands including skills", async () => {
+    await plugin.connect();
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(botInstance.api.setMyCommands).toHaveBeenCalled();
+    const commands = botInstance.api.setMyCommands.mock.calls.at(-1)?.[0] as Array<{
+      command: string;
+      description: string;
+    }>;
+    expect(commands.some((entry) => entry.command === "skills")).toBe(true);
+  });
+
   it("should call stop on disconnect", async () => {
     await plugin.connect();
     await plugin.disconnect();
@@ -136,6 +162,222 @@ describe("TelegramPlugin", () => {
       "12345",
       expect.any(Object),
       expect.objectContaining({ caption: "photo caption" }),
+    );
+  });
+
+  it("should send video message", async () => {
+    const buffer = Buffer.from("test-video");
+    const messageId = await plugin.send("12345", {
+      text: "video caption",
+      media: [{ type: "video", buffer, filename: "video.mp4" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("126");
+    expect(botInstance.api.sendVideo).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "video caption" }),
+    );
+  });
+
+  it("should send video as video note when asVideoNote is true", async () => {
+    const buffer = Buffer.from("test-video-note");
+    const messageId = await plugin.send("12345", {
+      text: "video note text",
+      media: [{ type: "video", buffer, asVideoNote: true }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("130");
+    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({}),
+    );
+    // Video note should not have caption
+    expect(botInstance.api.sendVideo).not.toHaveBeenCalled();
+  });
+
+  it("should send video_note message", async () => {
+    const buffer = Buffer.from("test-video-note");
+    const messageId = await plugin.send("12345", {
+      media: [{ type: "video_note", buffer }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("130");
+    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith("12345", expect.any(Object), expect.objectContaining({
+      reply_markup: undefined,
+    }));
+  });
+
+  it("should send audio message", async () => {
+    const buffer = Buffer.from("test-audio");
+    const messageId = await plugin.send("12345", {
+      text: "audio caption",
+      media: [{ type: "audio", buffer, filename: "audio.mp3" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("127");
+    expect(botInstance.api.sendAudio).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "audio caption" }),
+    );
+  });
+
+  it("should send audio as voice when asVoice is true", async () => {
+    const buffer = Buffer.from("test-voice");
+    const messageId = await plugin.send("12345", {
+      text: "voice caption",
+      media: [{ type: "audio", buffer, asVoice: true }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("128");
+    expect(botInstance.api.sendVoice).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "voice caption" }),
+    );
+    expect(botInstance.api.sendAudio).not.toHaveBeenCalled();
+  });
+
+  it("should send voice message", async () => {
+    const buffer = Buffer.from("test-voice");
+    const messageId = await plugin.send("12345", {
+      text: "voice note",
+      media: [{ type: "voice", buffer }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("128");
+    expect(botInstance.api.sendVoice).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "voice note" }),
+    );
+  });
+
+  it("should send animation message", async () => {
+    const buffer = Buffer.from("test-animation");
+    const messageId = await plugin.send("12345", {
+      text: "animation caption",
+      media: [{ type: "animation", buffer, filename: "animation.gif" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("129");
+    expect(botInstance.api.sendAnimation).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "animation caption" }),
+    );
+  });
+
+  it("should send gif as animation", async () => {
+    const buffer = Buffer.from("test-gif");
+    const messageId = await plugin.send("12345", {
+      text: "gif caption",
+      media: [{ type: "gif", buffer, filename: "image.gif" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("129");
+    expect(botInstance.api.sendAnimation).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "gif caption" }),
+    );
+  });
+
+  it("should send document message", async () => {
+    const buffer = Buffer.from("test-document");
+    const messageId = await plugin.send("12345", {
+      text: "doc caption",
+      media: [{ type: "document", buffer, filename: "file.pdf" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("125");
+    expect(botInstance.api.sendDocument).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "doc caption" }),
+    );
+  });
+
+  it("should send unknown media type as document", async () => {
+    const buffer = Buffer.from("test-unknown");
+    const messageId = await plugin.send("12345", {
+      text: "unknown caption",
+      media: [{ type: "unknown" as any, buffer, filename: "file.xyz" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("125");
+    expect(botInstance.api.sendDocument).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "unknown caption" }),
+    );
+  });
+
+  it("should fall back to text when media has no buffer", async () => {
+    const messageId = await plugin.send("12345", {
+      text: "fallback text",
+      media: [{ type: "photo", buffer: undefined } as any],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("123");
+    expect(botInstance.api.sendMessage).toHaveBeenCalledWith("12345", "fallback text", expect.any(Object));
+    expect(botInstance.api.sendPhoto).not.toHaveBeenCalled();
+  });
+
+  it("should retry with plain text on parse error", async () => {
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+
+    // Make sendMessage throw a parse error first time
+    botInstance.api.sendMessage
+      .mockRejectedValueOnce(new Error("Bad Request: can't parse entities"))
+      .mockResolvedValueOnce({ message_id: 999 });
+
+    const messageId = await plugin.send("12345", {
+      text: "test *bold* text",
+    });
+
+    expect(messageId).toBe("999");
+    // Should have called sendMessage twice - first with HTML, then with plain text
+    expect(botInstance.api.sendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("should pass reply_markup with media messages", async () => {
+    const buffer = Buffer.from("test-image");
+    const messageId = await plugin.send("12345", {
+      text: "photo with buttons",
+      media: [{ type: "photo", buffer }],
+      buttons: [[{ text: "Button1", callbackData: "cb1" }]],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("124");
+    expect(botInstance.api.sendPhoto).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({
+        caption: "photo with buttons",
+        reply_markup: {
+          inline_keyboard: [[{ text: "Button1", callback_data: "cb1" }]],
+        },
+      }),
+    );
+  });
+
+  it("should pass parse_mode as HTML for media messages", async () => {
+    const buffer = Buffer.from("test-image");
+    const messageId = await plugin.send("12345", {
+      text: "caption with *markdown*",
+      media: [{ type: "photo", buffer }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("124");
+    expect(botInstance.api.sendPhoto).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({
+        parse_mode: "HTML",
+      }),
     );
   });
 

@@ -1,5 +1,17 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../../config";
+import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../../config/schema/acp-policy";
+import {
+  getAcpRuntimeBackend,
+  requireAcpRuntimeBackend,
+} from "../../../acp/runtime/registry";
+import {
+  listAcpSessionEntries,
+  readAcpSessionEntry,
+  upsertAcpSessionMeta,
+} from "../../../acp/runtime/session-meta";
+import { resolveSessionKey } from "../../../acp/session-key-utils";
+import type { SessionAcpMeta } from "../../../acp/types";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { AgentManager } from "../../agent-manager";
@@ -308,6 +320,451 @@ export async function handlePromptDigestCommand(params: {
   }
 
   await channel.send(peerId, { text: lines.join("\n") });
+}
+
+export async function handleAcpCommand(params: {
+  sessionKey: string;
+  agentId: string;
+  message: InboundMessage;
+  channel: ChannelPlugin;
+  peerId: string;
+  args: string;
+  config: MoziConfig;
+}): Promise<void> {
+  const { sessionKey, agentId, message, channel, peerId, args, config } = params;
+  const raw = args.trim();
+  if (!raw) {
+    await channel.send(peerId, {
+      text: [
+        "ACP commands:",
+        "  /acp spawn [backend] [--agent=<id>] [--mode=persistent|oneshot] [--cwd=<path>]",
+        "  /acp status <sessionKeyOrLabel>",
+        "  /acp cancel <sessionKeyOrLabel>",
+        "  /acp list",
+      ].join("\n"),
+    });
+    return;
+  }
+
+  const parsed = parseAcpSubcommand(raw);
+  if (!parsed) {
+    await channel.send(peerId, {
+      text: `Unsupported /acp command: ${raw}. Use /acp for help.`,
+    });
+    return;
+  }
+
+  if (!isAcpEnabledByPolicy(config)) {
+    await channel.send(peerId, { text: "ACP is disabled by policy (acp.enabled=false)." });
+    return;
+  }
+
+  if (parsed.subcommand === "spawn") {
+    await handleAcpSpawnFromRuntime({
+      channel,
+      peerId,
+      agentId,
+      sessionKey,
+      message,
+      config,
+      backendInput: parsed.backend,
+      modeInput: parsed.mode,
+      cwdInput: parsed.cwd,
+      agentInput: parsed.agent,
+    });
+    return;
+  }
+
+  if (parsed.subcommand === "list") {
+    await handleAcpListFromRuntime({ channel, peerId });
+    return;
+  }
+
+  if (parsed.subcommand === "status") {
+    await handleAcpStatusFromRuntime({
+      channel,
+      peerId,
+      keyOrLabel: parsed.target,
+      config,
+      json: parsed.json,
+    });
+    return;
+  }
+
+  if (parsed.subcommand === "cancel") {
+    await handleAcpCancelFromRuntime({ channel, peerId, keyOrLabel: parsed.target, config });
+    return;
+  }
+
+  await channel.send(peerId, {
+    text: `Unsupported /acp command: ${raw}. Use /acp for help.`,
+  });
+}
+
+type ParsedAcpSubcommand =
+  | {
+      subcommand: "spawn";
+      backend?: string;
+      agent?: string;
+      mode?: string;
+      cwd?: string;
+    }
+  | { subcommand: "status"; target: string; json: boolean }
+  | { subcommand: "cancel"; target: string }
+  | { subcommand: "list" };
+
+function parseAcpSubcommand(input: string): ParsedAcpSubcommand | null {
+  const tokens = input.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const sub = tokens[0]?.toLowerCase();
+  if (sub === "list") {
+    return { subcommand: "list" };
+  }
+
+  if (sub === "status") {
+    const target = tokens[1]?.trim();
+    if (!target) {
+      return null;
+    }
+    const json = tokens.slice(2).some((token) => token === "--json");
+    return { subcommand: "status", target, json };
+  }
+
+  if (sub === "cancel") {
+    const target = tokens[1]?.trim();
+    if (!target) {
+      return null;
+    }
+    return { subcommand: "cancel", target };
+  }
+
+  if (sub === "spawn") {
+    const optionTokens = tokens.slice(1);
+    let backend: string | undefined;
+    let agent: string | undefined;
+    let mode: string | undefined;
+    let cwd: string | undefined;
+
+    for (const token of optionTokens) {
+      if (token.startsWith("--agent=")) {
+        agent = token.slice("--agent=".length).trim() || undefined;
+        continue;
+      }
+      if (token.startsWith("--mode=")) {
+        mode = token.slice("--mode=".length).trim() || undefined;
+        continue;
+      }
+      if (token.startsWith("--cwd=")) {
+        cwd = token.slice("--cwd=".length).trim() || undefined;
+        continue;
+      }
+      if (!token.startsWith("-") && !backend) {
+        backend = token;
+      }
+    }
+
+    return { subcommand: "spawn", backend, agent, mode, cwd };
+  }
+
+  return null;
+}
+
+async function handleAcpSpawnFromRuntime(params: {
+  channel: ChannelPlugin;
+  peerId: string;
+  agentId: string;
+  sessionKey: string;
+  message: InboundMessage;
+  config: MoziConfig;
+  backendInput?: string;
+  modeInput?: string;
+  cwdInput?: string;
+  agentInput?: string;
+}): Promise<void> {
+  const { channel, peerId, agentId, sessionKey, config, backendInput, modeInput, cwdInput, agentInput } =
+    params;
+
+  if (!isAcpDispatchEnabledByPolicy(config)) {
+    await channel.send(peerId, {
+      text: "ACP dispatch is disabled by policy (acp.dispatch.enabled=false).",
+    });
+    return;
+  }
+
+  const resolvedBackend = (backendInput ?? config.acp?.backend ?? "").trim();
+  if (!resolvedBackend) {
+    await channel.send(peerId, {
+      text: "ACP backend is required. Use /acp spawn <backend> or set acp.backend in config.",
+    });
+    return;
+  }
+
+  const resolvedMode = (modeInput ?? "persistent").trim().toLowerCase();
+  if (resolvedMode !== "persistent" && resolvedMode !== "oneshot") {
+    await channel.send(peerId, {
+      text: `Invalid ACP mode: ${modeInput}. Use persistent or oneshot.`,
+    });
+    return;
+  }
+
+  const resolvedAgent =
+    (agentInput ?? config.acp?.defaultAgent ?? config.acp?.allowedAgents?.[0] ?? agentId).trim();
+  if (!resolvedAgent) {
+    await channel.send(peerId, { text: "Unable to resolve ACP agent." });
+    return;
+  }
+
+  const existing = readAcpSessionEntry({ sessionKey });
+  if (existing?.acp) {
+    await channel.send(peerId, {
+      text: `ACP session already exists for this chat: ${sessionKey}`,
+    });
+    return;
+  }
+
+  const cwd = (cwdInput ?? "").trim() || process.cwd();
+
+  let runtimeBackend: ReturnType<typeof requireAcpRuntimeBackend>;
+  try {
+    runtimeBackend = requireAcpRuntimeBackend(resolvedBackend);
+  } catch (error) {
+    await channel.send(peerId, {
+      text: `ACP backend unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return;
+  }
+
+  const now = Date.now();
+  const meta: SessionAcpMeta = {
+    backend: runtimeBackend.id,
+    agent: resolvedAgent,
+    runtimeSessionName: sessionKey,
+    mode: resolvedMode,
+    cwd,
+    state: "idle",
+    lastActivityAt: now,
+  };
+
+  try {
+    const handle = await runtimeBackend.runtime.ensureSession({
+      sessionKey,
+      agent: resolvedAgent,
+      mode: resolvedMode,
+      cwd,
+    });
+
+    upsertAcpSessionMeta({
+      sessionKey,
+      mutate: () => ({
+        ...meta,
+        identity: {
+          state: "resolved",
+          acpxRecordId: handle.acpxRecordId,
+          acpxSessionId: handle.backendSessionId,
+          agentSessionId: handle.agentSessionId,
+          source: "ensure",
+          lastUpdatedAt: now,
+        },
+      }),
+    });
+
+    await channel.send(peerId, {
+      text: [
+        "ACP session spawned.",
+        `sessionKey: ${sessionKey}`,
+        `backend: ${runtimeBackend.id}`,
+        `agent: ${resolvedAgent}`,
+        `mode: ${resolvedMode}`,
+      ].join("\n"),
+    });
+  } catch (error) {
+    await channel.send(peerId, {
+      text: `Failed to spawn ACP session: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+}
+
+async function handleAcpListFromRuntime(params: {
+  channel: ChannelPlugin;
+  peerId: string;
+}): Promise<void> {
+  const { channel, peerId } = params;
+  const sessions = listAcpSessionEntries();
+  if (sessions.length === 0) {
+    await channel.send(peerId, { text: "No ACP sessions found." });
+    return;
+  }
+
+  const lines = ["ACP sessions:"];
+  for (const session of sessions) {
+    if (!session.acp) {
+      continue;
+    }
+    lines.push(
+      `- ${session.sessionKey} · backend=${session.acp.backend} · agent=${session.acp.agent} · state=${session.acp.state}`,
+    );
+  }
+
+  await channel.send(peerId, { text: lines.join("\n") });
+}
+
+async function handleAcpStatusFromRuntime(params: {
+  channel: ChannelPlugin;
+  peerId: string;
+  keyOrLabel: string;
+  config: MoziConfig;
+  json: boolean;
+}): Promise<void> {
+  const { channel, peerId, keyOrLabel, config, json } = params;
+
+  const resolvedKey =
+    (await resolveSessionKey({
+      keyOrLabel,
+      config,
+    })) ?? keyOrLabel.trim();
+  const entry = readAcpSessionEntry({ sessionKey: resolvedKey });
+  const meta = entry?.acp;
+
+  if (!meta) {
+    await channel.send(peerId, { text: `ACP session not found: ${keyOrLabel}` });
+    return;
+  }
+
+  if (json) {
+    await channel.send(peerId, {
+      text: JSON.stringify(
+        {
+          sessionKey: resolvedKey,
+          backend: meta.backend,
+          agent: meta.agent,
+          state: meta.state,
+          mode: meta.mode,
+          runtimeSessionName: meta.runtimeSessionName,
+          cwd: meta.cwd,
+          identity: meta.identity,
+          lastActivityAt: meta.lastActivityAt,
+          lastError: meta.lastError,
+        },
+        null,
+        2,
+      ),
+    });
+    return;
+  }
+
+  const backend = getAcpRuntimeBackend(meta.backend);
+  const lines = [
+    "ACP session status:",
+    `sessionKey: ${resolvedKey}`,
+    `runtime: ${meta.runtimeSessionName}`,
+    `backend: ${meta.backend}`,
+    `agent: ${meta.agent}`,
+    `state: ${meta.state}`,
+    `mode: ${meta.mode}`,
+    `cwd: ${meta.cwd ?? ""}`,
+  ];
+
+  if (meta.identity?.agentSessionId && backend?.runtime.getStatus) {
+    try {
+      const runtimeStatus = await backend.runtime.getStatus({
+        handle: {
+          sessionKey: resolvedKey,
+          backend: meta.backend,
+          runtimeSessionName: meta.runtimeSessionName,
+          cwd: meta.cwd,
+          backendSessionId: meta.identity.acpxSessionId,
+          agentSessionId: meta.identity.agentSessionId,
+        },
+      });
+      if (runtimeStatus?.summary) {
+        lines.push(`runtimeStatus: ${runtimeStatus.summary}`);
+      }
+    } catch {
+      // keep runtime status optional
+    }
+  }
+
+  if (meta.lastError) {
+    lines.push(`lastError: ${meta.lastError}`);
+  }
+
+  await channel.send(peerId, { text: lines.join("\n") });
+}
+
+async function handleAcpCancelFromRuntime(params: {
+  channel: ChannelPlugin;
+  peerId: string;
+  keyOrLabel: string;
+  config: MoziConfig;
+}): Promise<void> {
+  const { channel, peerId, keyOrLabel, config } = params;
+
+  const resolvedKey =
+    (await resolveSessionKey({
+      keyOrLabel,
+      config,
+    })) ?? keyOrLabel.trim();
+  const entry = readAcpSessionEntry({ sessionKey: resolvedKey });
+  const meta = entry?.acp;
+
+  if (!meta) {
+    await channel.send(peerId, { text: `ACP session not found: ${keyOrLabel}` });
+    return;
+  }
+
+  const backend = getAcpRuntimeBackend(meta.backend);
+  if (!backend) {
+    await channel.send(peerId, {
+      text: `ACP backend not available: ${meta.backend}`,
+    });
+    return;
+  }
+
+  if (meta.state !== "running") {
+    await channel.send(peerId, {
+      text: `ACP session is not running (state=${meta.state}).`,
+    });
+    return;
+  }
+
+  try {
+    if (meta.identity?.agentSessionId) {
+      await backend.runtime.close({
+        handle: {
+          sessionKey: resolvedKey,
+          backend: meta.backend,
+          runtimeSessionName: meta.runtimeSessionName,
+          cwd: meta.cwd,
+          backendSessionId: meta.identity.acpxSessionId,
+          agentSessionId: meta.identity.agentSessionId,
+        },
+        reason: "cancelled-by-user",
+      });
+    }
+
+    upsertAcpSessionMeta({
+      sessionKey: resolvedKey,
+      mutate: (current) => {
+        if (!current) {
+          return null;
+        }
+        return {
+          ...current,
+          state: "idle",
+          lastActivityAt: Date.now(),
+        };
+      },
+    });
+
+    await channel.send(peerId, { text: `ACP session cancelled: ${resolvedKey}` });
+  } catch (error) {
+    await channel.send(peerId, {
+      text: `Failed to cancel ACP session: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
 }
 
 function formatTokens(tokens: number): string {

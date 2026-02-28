@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentManager } from "../../..";
 import type { PromptMode } from "../../../agent-manager/prompt-builder";
+import type { TapeService } from "../../../../tape/tape-service.js";
 import type { PromptAgent } from "./prompt-runner";
 
 export type PromptCoordinatorAgentManager = {
@@ -26,12 +27,16 @@ export type PromptCoordinatorAgentManager = {
     sessionKey: string,
     agentId: string,
   ): Promise<{ success: boolean; tokensReclaimed?: number; reason?: string }>;
-  updateSessionContext(sessionKey: string, messages: AgentMessage[]): void;
   getContextUsage(sessionKey: string): {
     usedTokens: number;
     totalTokens: number;
     percentage: number;
   } | null;
+  /**
+   * Returns a TapeService for the given session, or null/undefined if tape is not available.
+   * Used for recording each turn to the tape (sole persistence path for session history).
+   */
+  getTapeService(sessionKey: string): TapeService | null | undefined;
 };
 
 export function toPromptCoordinatorAgentManager(
@@ -59,8 +64,7 @@ export function toPromptCoordinatorAgentManager(
       agentManager.updateSessionMetadata(sessionKey, metadata),
     compactSession: async (sessionKey, agentId) =>
       await agentManager.compactSession(sessionKey, agentId),
-    updateSessionContext: (sessionKey, messages) =>
-      agentManager.updateSessionContext(sessionKey, messages),
     getContextUsage: (sessionKey) => agentManager.getContextUsage(sessionKey),
+    getTapeService: (sessionKey) => agentManager.getTapeService(sessionKey),
   };
 }
