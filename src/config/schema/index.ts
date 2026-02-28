@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AcpConfigSchema } from "./acp";
 import { AgentsSchema } from "./agents";
 import { BrowserConfigSchema } from "./browser";
 import { ChannelsSchema } from "./channels";
@@ -34,6 +35,7 @@ export const MoziConfigSchema = z
     // Legacy compatibility: top-level cron block (prefer runtime.cron)
     cron: RuntimeCronConfigSchema.optional(),
     extensions: ExtensionsConfigSchema.optional(),
+    acp: AcpConfigSchema.optional(),
   })
   .strict()
   .superRefine((config, ctx) => {

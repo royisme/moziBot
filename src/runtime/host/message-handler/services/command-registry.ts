@@ -81,10 +81,17 @@ export interface MessageCommandRegistryDeps {
     args: string;
   }): Promise<void>;
   onHeartbeat(params: { agentId: string; peerId: string; args: string }): Promise<void>;
+  onAcp(params: {
+    sessionKey: string;
+    agentId: string;
+    message: InboundMessage;
+    peerId: string;
+    args: string;
+  }): Promise<void>;
 }
 
 const HELP_TEXT =
-  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/skills List available skills\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]";
+  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/skills List available skills\n/switch provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]\n/acp spawn [backend] Spawn ACP session\n/acp status <session> Show ACP session status\n/acp cancel <session> Cancel ACP session\n/acp list List ACP sessions";
 
 export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps): CommandHandlerMap {
   const withInbound = (ctx: CommandDispatchContext): InboundMessage =>
@@ -223,6 +230,15 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
     },
     heartbeat: async (ctx, args) => {
       await deps.onHeartbeat({ agentId: ctx.agentId, peerId: ctx.peerId, args });
+    },
+    acp: async (ctx, args) => {
+      await deps.onAcp({
+        sessionKey: ctx.sessionKey,
+        agentId: ctx.agentId,
+        message: withInbound(ctx),
+        peerId: ctx.peerId,
+        args,
+      });
     },
   });
 }

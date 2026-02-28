@@ -110,6 +110,14 @@ export function createMessageCommandHandlerMap(params: {
       peerId: string;
       args: string;
     }) => Promise<void>;
+    onAcp: (params: {
+      sessionKey: string;
+      agentId: string;
+      message: InboundMessage;
+      channel: ChannelPlugin;
+      peerId: string;
+      args: string;
+    }) => Promise<void>;
   };
 }): CommandHandlerMap {
   const { channel, deps } = params;
@@ -179,6 +187,9 @@ export function createMessageCommandHandlerMap(params: {
     },
     onHeartbeat: async ({ agentId, peerId, args }) => {
       await deps.onHeartbeat({ agentId, channel, peerId, args });
+    },
+    onAcp: async ({ sessionKey, agentId, message, peerId, args }) => {
+      await deps.onAcp({ sessionKey, agentId, message, channel, peerId, args });
     },
   };
 

@@ -1,6 +1,88 @@
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * Parses a command string into command and arguments.
+ * Does NOT use shell expansion - returns raw argv.
+ */
+export function parseCommandToArgv(command: string): { command: string; argv: string[] } {
+  const tokens: string[] = [];
+  let current = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i];
+
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\" && !inSingleQuote) {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+
+    if (char === " " && !inSingleQuote && !inDoubleQuote) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  if (tokens.length === 0) {
+    return { command: "", argv: [] };
+  }
+
+  return {
+    command: tokens[0],
+    argv: tokens.slice(1),
+  };
+}
+
+/**
+ * Resolves a command for Windows compatibility.
+ * On Windows, non-.exe commands (like npm, pnpm) require their .cmd extension.
+ */
+export function resolveCommand(command: string): string {
+  if (process.platform !== "win32") {
+    return command;
+  }
+  const basename = path.basename(command).toLowerCase();
+  // Skip if already has an extension (.cmd, .exe, .bat, etc.)
+  const ext = path.extname(basename);
+  if (ext) {
+    return command;
+  }
+  // Common npm-related commands that need .cmd extension on Windows
+  const cmdCommands = ["npm", "pnpm", "yarn", "npx", "bun", "node"];
+  if (cmdCommands.includes(basename)) {
+    return `${command}.cmd`;
+  }
+  return command;
+}
+
 export function getShellConfig(): { shell: string; args: string[] } {
   if (process.platform === "win32") {
     return {

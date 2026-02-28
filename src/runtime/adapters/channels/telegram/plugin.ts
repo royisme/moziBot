@@ -232,6 +232,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
       { command: "reset", description: "Reset the current session" },
       { command: "compact", description: "Compact session context" },
       { command: "restart", description: "Restart runtime" },
+      { command: "acp", description: "ACP session management (use /acp for help)" },
     ];
 
     try {

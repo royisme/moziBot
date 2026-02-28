@@ -1,5 +1,7 @@
 import {
   Client,
+  Command,
+  CommandInteraction,
   type MessagePayloadFile,
   type MessagePayloadObject,
   MessageCreateListener,
@@ -7,7 +9,12 @@ import {
   serializePayload,
 } from "@buape/carbon";
 import { GatewayIntents, GatewayPlugin } from "@buape/carbon/gateway";
-import { Routes, type APIAttachment, type APIEmbed } from "discord-api-types/v10";
+import {
+  ApplicationCommandOptionType,
+  Routes,
+  type APIAttachment,
+  type APIEmbed,
+} from "discord-api-types/v10";
 import { EventEmitter } from "node:events";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -120,6 +127,164 @@ export class DiscordPlugin extends BaseChannelPlugin {
     });
   }
 
+  /**
+   * Register ACP slash commands for Discord
+   */
+  private async registerAcpCommands(client: Client): Promise<void> {
+    // Store reference to plugin for use in command handler
+    const plugin = this;
+
+    // ACP parent command with subcommands
+    class AcpCommand extends Command {
+      name = "acp";
+      description = "Manage ACP (Agent Client Protocol) sessions";
+      defer = true;
+      options = [
+        {
+          name: "spawn",
+          description: "Spawn a new ACP session",
+          type: ApplicationCommandOptionType.Subcommand,
+          options: [
+            {
+              name: "backend",
+              description: "The backend to use (e.g., openai-codex)",
+              type: ApplicationCommandOptionType.String,
+              required: true,
+            },
+            {
+              name: "agent",
+              description: "Agent ID to use",
+              type: ApplicationCommandOptionType.String,
+              required: false,
+            },
+            {
+              name: "mode",
+              description: "Session mode (persistent or oneshot)",
+              type: ApplicationCommandOptionType.String,
+              required: false,
+              choices: [
+                { name: "Persistent", value: "persistent" },
+                { name: "Oneshot", value: "oneshot" },
+              ],
+            },
+            {
+              name: "cwd",
+              description: "Working directory",
+              type: ApplicationCommandOptionType.String,
+              required: false,
+            },
+          ],
+        },
+        {
+          name: "status",
+          description: "Show status of an ACP session",
+          type: ApplicationCommandOptionType.Subcommand,
+          options: [
+            {
+              name: "session",
+              description: "Session key or label",
+              type: ApplicationCommandOptionType.String,
+              required: true,
+            },
+          ],
+        },
+        {
+          name: "cancel",
+          description: "Cancel an ACP session",
+          type: ApplicationCommandOptionType.Subcommand,
+          options: [
+            {
+              name: "session",
+              description: "Session key or label",
+              type: ApplicationCommandOptionType.String,
+              required: true,
+            },
+          ],
+        },
+        {
+          name: "list",
+          description: "List all ACP sessions",
+          type: ApplicationCommandOptionType.Subcommand,
+        },
+      ];
+
+      // Spawn subcommand
+      async run(interaction: CommandInteraction): Promise<void> {
+        const subcommand = interaction.options.getSubcommandGroup(false) ||
+                          interaction.options.getSubcommand(false) ||
+                          "";
+
+        const args = this.buildArgsFromInteraction(interaction, subcommand);
+        await this.handleAcpCommand(interaction, subcommand, args, plugin);
+      }
+
+      private buildArgsFromInteraction(interaction: CommandInteraction, subcommand: string): string {
+        const parts: string[] = [subcommand];
+
+        // Get all options
+        const backend = interaction.options.getString("backend");
+        const agent = interaction.options.getString("agent");
+        const mode = interaction.options.getString("mode");
+        const cwd = interaction.options.getString("cwd");
+        const session = interaction.options.getString("session");
+
+        if (backend) parts.push(backend);
+        if (agent) parts.push(`--agent=${agent}`);
+        if (mode) parts.push(`--mode=${mode}`);
+        if (cwd) parts.push(`--cwd=${cwd}`);
+        if (session) parts.push(session);
+
+        return parts.join(" ");
+      }
+
+      private async handleAcpCommand(
+        interaction: CommandInteraction,
+        subcommand: string,
+        args: string,
+        plugin: DiscordPlugin,
+      ): Promise<void> {
+        // Build a synthetic inbound message for the command handler
+        const inbound: InboundMessage = {
+          id: interaction.id,
+          channel: plugin.id,
+          peerId: interaction.channel?.id || "unknown",
+          peerType: interaction.guildId ? "group" : "dm",
+          senderId: interaction.user.id,
+          senderName: interaction.user.username,
+          text: `/acp ${args}`,
+          timestamp: new Date(),
+          raw: {
+            interactionId: interaction.id,
+            userId: interaction.user.id,
+            channelId: interaction.channel?.id,
+            guildId: interaction.guildId,
+          },
+        };
+
+        // Emit the message for command processing
+        plugin.emitInboundMessage(inbound);
+
+        // Acknowledge the interaction
+        await interaction.reply({
+          content: `Processing /acp ${args}...`,
+          ephemeral: true,
+        });
+      }
+    }
+
+    // Register commands with Carbon client
+    try {
+      const commands = [new AcpCommand()];
+      for (const cmd of commands) {
+        client.commands.push(cmd);
+      }
+      await client.handleDeployRequest();
+      logger.info("Discord ACP slash commands registered");
+    } catch (error) {
+      logger.warn({ error }, "Failed to register Discord ACP slash commands");
+    }
+  }
+
   private async connectInternal(): Promise<void> {
     if (this.status === "connecting" || this.status === "connected") {
       return;
@@ -168,7 +333,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
           token: this.config.botToken,
           disableDeployRoute: true,
           disableEventsRoute: true,
-          disableInteractionsRoute: true,
+          disableInteractionsRoute: false,
         },
         { listeners },
         [gateway],
@@ -188,6 +353,9 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
       this.client = client;
       this.gateway = gateway;
+
+      // Register ACP slash commands
+      await this.registerAcpCommands(client);
 
       readyTimeout = setTimeout(() => {
         settleReady?.({ error: new Error("Discord gateway ready timeout") });

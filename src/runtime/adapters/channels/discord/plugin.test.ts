@@ -10,6 +10,8 @@ type MockClient = {
     type?: string;
     handle: (data: unknown, client: MockClient) => Promise<void>;
   }>;
+  commands: Array<unknown>;
+  handleDeployRequest: ReturnType<typeof vi.fn>;
   rest: {
     post: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
@@ -53,6 +55,8 @@ const mockState = vi.hoisted(() => {
   ) {
     const client: MockClient = {
       listeners: handlers?.listeners ?? [],
+      commands: [],
+      handleDeployRequest: vi.fn().mockResolvedValue({}),
       rest: {
         post: vi.fn().mockResolvedValue({ id: "sent-123" }),
         put: vi.fn().mockResolvedValue({}),
@@ -88,6 +92,25 @@ vi.mock("@buape/carbon", () => ({
   Client: mockState.ClientMock,
   ReadyListener: mockState.MockReadyListener,
   MessageCreateListener: mockState.MockMessageCreateListener,
+  Command: class MockCommand {
+    name = "mock";
+    description = "mock command";
+    defer = false;
+    options = [];
+    async run(_interaction: unknown): Promise<void> {}
+  },
+  CommandInteraction: class MockCommandInteraction {
+    id = "interaction-1";
+    user = { id: "user-1", username: "testuser" };
+    channel = { id: "channel-1" };
+    guildId = null;
+    options = {
+      getSubcommand: () => null,
+      getSubcommandGroup: () => null,
+      getString: () => null,
+    };
+    async reply(_payload: unknown): Promise<void> {}
+  },
   serializePayload: (payload: unknown) => payload,
 }));
 

@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_process";
-import { spawn } from "node:child_process";
 import { killProcessTree } from "../../kill-tree.js";
+import { resolveCommand } from "../../shell-utils.js";
+import { spawnWithFallback } from "../../spawn-utils.js";
 import type { ManagedRunStdin, SpawnProcessAdapter } from "../types.js";
 import { toStringEnv } from "./env.js";
 
@@ -14,10 +15,12 @@ export async function createChildAdapter(params: {
   input?: string;
   stdinMode?: "inherit" | "pipe-open" | "pipe-closed";
 }): Promise<ChildAdapter> {
-  const [cmd, ...args] = params.argv;
-  if (!cmd) {
+  if (params.argv.length === 0) {
     throw new Error("spawn argv cannot be empty");
   }
+
+  const resolvedArgv = [...params.argv];
+  resolvedArgv[0] = resolveCommand(resolvedArgv[0]);
 
   const stdinMode = params.stdinMode ?? (params.input !== undefined ? "pipe-closed" : "inherit");
 
@@ -34,20 +37,14 @@ export async function createChildAdapter(params: {
     windowsVerbatimArguments: params.windowsVerbatimArguments,
   };
 
-  let child: ChildProcessWithoutNullStreams;
-  try {
-    child = spawn(cmd, args, options) as ChildProcessWithoutNullStreams;
-  } catch (err) {
-    if (useDetached) {
-      // Retry without detached (e.g. EBADF in some environments)
-      child = spawn(cmd, args, {
-        ...options,
-        detached: false,
-      }) as ChildProcessWithoutNullStreams;
-    } else {
-      throw err;
-    }
-  }
+  const spawned = await spawnWithFallback({
+    argv: resolvedArgv,
+    options,
+    fallbacks: [{ label: "no-detach", options: { detached: false } }],
+    retryCodes: ["EBADF"],
+  });
+
+  const child = spawned.child as ChildProcessWithoutNullStreams;
 
   if (child.stdin) {
     if (params.input !== undefined) {

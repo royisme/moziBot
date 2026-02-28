@@ -158,6 +158,7 @@ export class MessageHandler {
           sessionManager: deps.sessionManager!,
           subAgentRegistry: deps.subAgentRegistry!,
           currentSessionKey: params.sessionKey,
+          config: this.config,
         }),
         ...createBrowserTools({
           getConfig: () => this.config,

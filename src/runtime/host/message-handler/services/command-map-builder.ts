@@ -12,6 +12,7 @@ import {
   handleStatusCommand as handleStatusCommandService,
   handleContextCommand as handleContextCommandService,
   handlePromptDigestCommand as handlePromptDigestCommandService,
+  handleAcpCommand as handleAcpCommandService,
 } from "../../commands/session";
 import { renderAssistantReply } from "../../reply-utils";
 import { handleAuthCommand as handleAuthCommandService } from "./auth-command";
@@ -424,6 +425,17 @@ export function buildCommandHandlerMap(params: {
           resolveHomeDir,
           logger,
           toError: (error) => toErrorService(error),
+        });
+      },
+      onAcp: async ({ sessionKey, agentId, message, channel, peerId, args }) => {
+        await handleAcpCommandService({
+          sessionKey,
+          agentId,
+          message,
+          channel,
+          peerId,
+          args,
+          config,
         });
       },
     },

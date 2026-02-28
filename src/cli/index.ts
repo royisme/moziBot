@@ -4,6 +4,7 @@ import "../runtime/pi-package-dir";
 import { APP_VERSION } from "../version";
 import { runtimeCommand } from "./runtime";
 import { sandboxCommand } from "./sandbox";
+import { acpCommand } from "./commands/acp";
 
 const program = new Command()
   .name("mozi")
@@ -36,6 +37,7 @@ function resolveActionOptions(first: unknown, second?: unknown): Record<string, 
 
 program.addCommand(runtimeCommand);
 program.addCommand(sandboxCommand);
+program.addCommand(acpCommand);
 
 program
   .command("init")
