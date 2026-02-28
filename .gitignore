@@ -70,3 +70,4 @@ data
 # Test runtime sandbox (keep structure, ignore generated artifacts)
 tests/runtime/*
 !tests/runtime/.gitkeep
+.data
