@@ -276,6 +276,23 @@ skillsCmd
     await listSkills(options);
   });
 
+// Codex OAuth login
+authCmd
+  .command("codex-oauth")
+  .description("Log in with OpenAI Codex via OAuth and save credentials")
+  .option("-c, --config <path>", "Config file path (used to resolve base directory)")
+  .option("--remote", "Remote/VPS mode: show URL instead of opening browser")
+  .action(async (options) => {
+    const { loginOpenAICodexOAuth } = await import("../commands/codex-oauth");
+    const { loadConfig, resolveConfigPath } = await import("../config/loader");
+    let baseDir: string | undefined;
+    if (options.config) {
+      const result = loadConfig(resolveConfigPath(options.config));
+      baseDir = result.config?.paths?.baseDir;
+    }
+    await loginOpenAICodexOAuth({ baseDir, isRemote: Boolean(options.remote) });
+  });
+
 program.parse();
 
 export { program };

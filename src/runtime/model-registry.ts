@@ -23,10 +23,38 @@ export class ModelRegistry {
       }
     }
 
+    // For the openai-codex provider: if gpt-5.3-codex is registered but
+    // gpt-5.3-codex-spark is not, synthesize the spark variant automatically.
+    // This mirrors the openclaw applyOpenAICodexSparkFallback pattern so users
+    // don't need to manually add the spark model to their config.
+    this.applyCodexSparkFallback();
+
     const cliModels = listCliBackendModels(this.config);
     for (const spec of cliModels) {
       this.models.set(this.key(spec.provider, spec.id), spec);
     }
+  }
+
+  private applyCodexSparkFallback() {
+    const CODEX_PROVIDER = "openai-codex";
+    const BASE_MODEL_ID = "gpt-5.3-codex";
+    const SPARK_MODEL_ID = "gpt-5.3-codex-spark";
+
+    const sparkKey = this.key(CODEX_PROVIDER, SPARK_MODEL_ID);
+    if (this.models.has(sparkKey)) {
+      // Spark model is already explicitly configured; nothing to do.
+      return;
+    }
+
+    const baseKey = this.key(CODEX_PROVIDER, BASE_MODEL_ID);
+    const baseSpec = this.models.get(baseKey);
+    if (!baseSpec) {
+      // Base model not configured; skip synthesizing spark.
+      return;
+    }
+
+    // Synthesize the spark variant from the base model spec.
+    this.models.set(sparkKey, { ...baseSpec, id: SPARK_MODEL_ID });
   }
 
   private buildSpec(provider: ProviderConfig, model: ModelDefinition): ModelSpec {

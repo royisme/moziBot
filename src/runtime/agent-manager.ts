@@ -1,4 +1,5 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
+import type { Api, Model, StreamOptions, StreamFunction } from "@mariozechner/pi-ai";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { type AgentTool, type ThinkingLevel } from "@mariozechner/pi-agent-core";
 import {
   AuthStorage as PiAuthStorage,
@@ -119,6 +120,22 @@ function normalizePiInputCapabilities(
     (item): item is "text" | "image" => item === "text" || item === "image",
   );
   return normalized.length > 0 ? normalized : ["text"];
+}
+
+/**
+ * Creates a stream function wrapper that defaults to "auto" transport
+ * (WebSocket-first, SSE fallback) for OpenAI Codex providers.
+ * When transport is explicitly set in options it overrides the default.
+ */
+export function createCodexDefaultTransportWrapper(
+  baseStreamFn?: StreamFunction,
+): StreamFunction {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) =>
+    underlying(model, context, {
+      ...options,
+      transport: options?.transport ?? "auto",
+    });
 }
 
 export class AgentManager {
@@ -265,6 +282,9 @@ export class AgentManager {
         baseUrl,
         apiKey: providerConfig.apiKey,
         headers: providerConfig.headers,
+        ...(providerConfig.api === "openai-codex-responses"
+          ? { streamSimple: createCodexDefaultTransportWrapper() }
+          : {}),
         models: models.map((model) => ({
           id: model.id,
           name: model.name ?? model.id,

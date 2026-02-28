@@ -3,6 +3,7 @@ import type { ModelDefinition, ProviderConfig } from "./types";
 
 const ENV_MAP: Record<string, string> = {
   openai: "OPENAI_API_KEY",
+  "openai-codex": "OPENAI_CODEX_API_KEY",
   anthropic: "ANTHROPIC_API_KEY",
   google: "GEMINI_API_KEY",
 };
