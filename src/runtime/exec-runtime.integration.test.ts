@@ -38,7 +38,7 @@ afterEach(() => {
 describe("one-shot execution", () => {
   it("runs echo and captures stdout", async () => {
     const result = await runtime.execute({
-      command: "echo hello-integration",
+      argv: ["echo", "hello-integration"],
       agentId: "agent-1",
       sessionKey: "session-1",
     });
@@ -52,7 +52,7 @@ describe("one-shot execution", () => {
 
   it("captures non-zero exit code", async () => {
     const result = await runtime.execute({
-      command: "sh -c 'exit 42'",
+      argv: ["sh", "-c", "exit 42"],
       agentId: "agent-1",
       sessionKey: "session-1",
     });
@@ -65,7 +65,7 @@ describe("one-shot execution", () => {
 
   it("captures stderr separately", async () => {
     const result = await runtime.execute({
-      command: "sh -c 'echo out; echo err >&2'",
+      argv: ["sh", "-c", "echo out; echo err >&2"],
       agentId: "agent-1",
       sessionKey: "session-1",
     });
@@ -81,7 +81,7 @@ describe("one-shot execution", () => {
     const chunks: string[] = [];
     const result = await runtime.execute(
       {
-        command: "sh -c 'echo line1; echo line2; echo line3'",
+        argv: ["sh", "-c", "echo line1; echo line2; echo line3"],
         agentId: "agent-1",
         sessionKey: "session-1",
       },
@@ -97,7 +97,7 @@ describe("one-shot execution", () => {
 
   it("registers process in registry and marks exited", async () => {
     await runtime.execute({
-      command: "echo registry-test",
+      argv: ["echo", "registry-test"],
       agentId: "agent-1",
       sessionKey: "session-1",
     });
@@ -111,7 +111,7 @@ describe("one-shot execution", () => {
 
   it("respects timeout", async () => {
     const result = await runtime.execute({
-      command: "sleep 100",
+      argv: ["sleep", "100"],
       agentId: "agent-1",
       sessionKey: "session-1",
       timeoutSec: 1,
@@ -128,7 +128,7 @@ describe("one-shot execution", () => {
 describe("background execution", () => {
   it("returns backgrounded result immediately", async () => {
     const result = await runtime.execute({
-      command: "sleep 10",
+      argv: ["sleep", "10"],
       agentId: "agent-1",
       sessionKey: "session-1",
       background: true,
@@ -144,7 +144,7 @@ describe("background execution", () => {
 
   it("registers backgrounded process in registry", async () => {
     await runtime.execute({
-      command: "sleep 10",
+      argv: ["sleep", "10"],
       agentId: "agent-1",
       sessionKey: "session-1",
       background: true,
@@ -159,7 +159,7 @@ describe("background execution", () => {
 describe("yieldMs execution", () => {
   it("yields after specified time with output so far", async () => {
     const result = await runtime.execute({
-      command: "sh -c 'echo started; sleep 10'",
+      argv: ["sh", "-c", "echo started; sleep 10"],
       agentId: "agent-1",
       sessionKey: "session-1",
       yieldMs: 500,
@@ -176,7 +176,7 @@ describe("yieldMs execution", () => {
 
   it("completes normally if process finishes before yieldMs", async () => {
     const result = await runtime.execute({
-      command: "echo fast",
+      argv: ["echo", "fast"],
       agentId: "agent-1",
       sessionKey: "session-1",
       yieldMs: 5000,
@@ -193,7 +193,7 @@ describe("yieldMs execution", () => {
 describe("PTY execution", () => {
   it("runs a command in PTY mode", async () => {
     const result = await runtime.execute({
-      command: "echo pty-output",
+      argv: ["echo", "pty-output"],
       agentId: "agent-1",
       sessionKey: "session-1",
       pty: true,
@@ -210,7 +210,7 @@ describe("PTY execution", () => {
 describe("command validation (real boundary)", () => {
   it("rejects commands not in allowlist", async () => {
     const result = await runtime.execute({
-      command: "curl https://example.com",
+      argv: ["curl", "https://example.com"],
       agentId: "agent-1",
       sessionKey: "session-1",
     });
@@ -223,7 +223,7 @@ describe("command validation (real boundary)", () => {
 
   it("rejects cwd outside workspace", async () => {
     const result = await runtime.execute({
-      command: "echo hello",
+      argv: ["echo", "hello"],
       cwd: "/etc",
       agentId: "agent-1",
       sessionKey: "session-1",

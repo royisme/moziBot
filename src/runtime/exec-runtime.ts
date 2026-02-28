@@ -1,8 +1,73 @@
 import { type ProcessRegistry } from "../process/process-registry.js";
-import { type SandboxBoundary, resolveCwd, buildSafeEnv, validateCommand } from "./sandbox/config.js";
+import { type SandboxBoundary, resolveCwd, buildSafeEnv, validateCommand, BLOCKED_ENV_KEYS } from "./sandbox/config.js";
 import { getProcessSupervisor, type ManagedRun, type RunExit } from "../process/supervisor/index.js";
-import { getShellConfig, sanitizeBinaryOutput } from "../process/shell-utils.js";
+import { resolveCommand, sanitizeBinaryOutput } from "../process/shell-utils.js";
 import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
+import { logger } from "../logger.js";
+import { resolveSystemRunCommand, formatExecCommand } from "../infra/system-run-command.js";
+
+// List of dangerous host environment variable names (uppercase)
+const DANGEROUS_HOST_ENV_VAR_NAMES = new Set([
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "NODE_OPTIONS",
+  "BUN_OPTIONS",
+  "_",
+]);
+
+/**
+ * Sanitize inherited host env before merge so dangerous variables from process.env
+ * are not propagated into non-sandboxed executions.
+ */
+export function sanitizeHostBaseEnv(env: Record<string, string>): Record<string, string> {
+  const sanitized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    const upperKey = key.toUpperCase();
+    if (upperKey === "PATH") {
+      sanitized[key] = value;
+      continue;
+    }
+    if (isDangerousHostEnvVarName(upperKey)) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+/**
+ * Check if an environment variable name is dangerous (should not be inherited from host).
+ */
+function isDangerousHostEnvVarName(name: string): boolean {
+  return DANGEROUS_HOST_ENV_VAR_NAMES.has(name) || BLOCKED_ENV_KEYS.has(name);
+}
+
+/**
+ * Centralized sanitization helper.
+ * Throws an error if dangerous variables or PATH modifications are detected on the host.
+ */
+export function validateHostEnv(env: Record<string, string>): void {
+  for (const key of Object.keys(env)) {
+    const upperKey = key.toUpperCase();
+
+    // 1. Block known dangerous variables (Fail Closed)
+    if (isDangerousHostEnvVarName(upperKey)) {
+      throw new Error(
+        `Security Violation: Environment variable '${key}' is forbidden during host execution.`,
+      );
+    }
+
+    // 2. Strictly block PATH modification on host
+    // Allowing custom PATH on the gateway/node can lead to binary hijacking.
+    if (upperKey === "PATH") {
+      throw new Error(
+        "Security Violation: Custom 'PATH' variable is forbidden during host execution.",
+      );
+    }
+  }
+}
 
 export type AuthResolver = {
   getValue: (params: {
@@ -13,7 +78,8 @@ export type AuthResolver = {
 };
 
 export type ExecRequest = {
-  command: string;
+  argv: string[];             // true argv to execute (first-class citizen)
+  rawCommand?: string;        // display/approval text (optional, must be consistent with argv)
   cwd?: string;
   env?: Record<string, string>;
   authRefs?: string[];
@@ -54,9 +120,22 @@ export class ExecRuntime {
   }
 
   async execute(request: ExecRequest, onUpdate?: ExecUpdateCallback): Promise<ExecResult> {
+    // 0. Resolve and validate argv via resolveSystemRunCommand (consistency check)
+    const resolved = resolveSystemRunCommand({
+      command: request.argv,
+      rawCommand: request.rawCommand ?? null,
+    });
+    if (!resolved.ok) {
+      return { type: "error", message: resolved.message };
+    }
+
     // 1. Validate command against allowlist
-    const cmdValidation = validateCommand(request.command, this.boundary.allowlist);
-    if (!cmdValidation.ok) {
+    // Use argv[0] (the actual binary) for allowlist validation.
+    // When it's a shell wrapper, argv[0] is the shell name (e.g. "bash");
+    // the inline shellCommand is only for display/approval purposes.
+    const cmdForValidation = resolved.argv[0] ?? "";
+    const cmdValidation = validateCommand(cmdForValidation, this.boundary.allowlist);
+    if (cmdValidation.ok === false) {
       return { type: "error", message: cmdValidation.reason };
     }
 
@@ -120,18 +199,20 @@ export class ExecRuntime {
     onUpdate?: ExecUpdateCallback,
   ): Promise<ExecResult> {
     const jobId = this.generateJobId();
+    const cmdDisplay = formatExecCommand(request.argv);
 
     this.registry.addSession({
       id: jobId,
       sessionId: request.sessionKey,
       agentId: request.agentId,
-      command: request.command,
+      command: cmdDisplay,
       cwd,
       backgrounded: false,
       pty: request.pty ?? false,
     });
 
-    const { shell, args: shellArgs } = getShellConfig();
+    const resolvedCommand = resolveCommand(request.argv[0] ?? "");
+    const parsedArgs = request.argv.slice(1);
     let stdoutBuf = "";
     let stderrBuf = "";
 
@@ -158,18 +239,37 @@ export class ExecRuntime {
       },
     };
 
+    let usingPty = request.pty ?? false;
+    let ptyWarning: string | undefined;
+
     try {
-      if (request.pty) {
-        managedRun = await getProcessSupervisor().spawn({
-          ...spawnBase,
-          mode: "pty",
-          ptyCommand: request.command,
-        });
+      if (usingPty) {
+        try {
+          managedRun = await getProcessSupervisor().spawn({
+            ...spawnBase,
+            mode: "pty",
+            ptyCommand: formatExecCommand(request.argv),
+          });
+        } catch (ptyErr) {
+          // PTY spawn failed, fallback to child mode
+          logger.warn(
+            { err: ptyErr, argv: request.argv },
+            "exec: PTY spawn failed; retrying without PTY",
+          );
+          ptyWarning = `Warning: PTY spawn failed (${ptyErr instanceof Error ? ptyErr.message : String(ptyErr)}); retrying without PTY for \`${cmdDisplay}\`.`;
+          usingPty = false;
+          managedRun = await getProcessSupervisor().spawn({
+            ...spawnBase,
+            mode: "child",
+            argv: [resolvedCommand, ...parsedArgs],
+            stdinMode: "pipe-closed",
+          });
+        }
       } else {
         managedRun = await getProcessSupervisor().spawn({
           ...spawnBase,
           mode: "child",
-          argv: [shell, ...shellArgs, request.command],
+          argv: [resolvedCommand, ...parsedArgs],
           stdinMode: "pipe-closed",
         });
       }
@@ -185,7 +285,7 @@ export class ExecRuntime {
       signal: exit.exitSignal != null ? String(exit.exitSignal) : null,
     });
 
-    return this.exitToCompleted(exit, stdoutBuf, stderrBuf);
+    return this.exitToCompleted(exit, stdoutBuf, stderrBuf, ptyWarning);
   }
 
   private async executeVibebox(
@@ -198,7 +298,7 @@ export class ExecRuntime {
         sessionKey: request.sessionKey,
         agentId: request.agentId,
         workspaceDir: this.boundary.workspaceDir,
-        command: request.command,
+        command: formatExecCommand(request.argv),
         cwd,
         env,
       });
@@ -223,18 +323,20 @@ export class ExecRuntime {
     onUpdate?: ExecUpdateCallback,
   ): Promise<ExecResult> {
     const jobId = this.generateJobId();
+    const cmdDisplay = formatExecCommand(request.argv);
 
     this.registry.addSession({
       id: jobId,
       sessionId: request.sessionKey,
       agentId: request.agentId,
-      command: request.command,
+      command: cmdDisplay,
       cwd,
       backgrounded: true,
       pty: request.pty ?? false,
     });
 
-    const { shell, args: shellArgs } = getShellConfig();
+    const resolvedCommand = resolveCommand(request.argv[0] ?? "");
+    const parsedArgs = request.argv.slice(1);
     let outputBuf = "";
 
     const spawnBase = {
@@ -260,18 +362,37 @@ export class ExecRuntime {
     };
 
     let managedRun: ManagedRun;
+    let usingPty = request.pty ?? false;
+    let ptyWarning: string | undefined;
+
     try {
-      if (request.pty) {
-        managedRun = await getProcessSupervisor().spawn({
-          ...spawnBase,
-          mode: "pty",
-          ptyCommand: request.command,
-        });
+      if (usingPty) {
+        try {
+          managedRun = await getProcessSupervisor().spawn({
+            ...spawnBase,
+            mode: "pty",
+            ptyCommand: formatExecCommand(request.argv),
+          });
+        } catch (ptyErr) {
+          // PTY spawn failed, fallback to child mode
+          logger.warn(
+            { err: ptyErr, argv: request.argv },
+            "exec: PTY spawn failed; retrying without PTY",
+          );
+          ptyWarning = `Warning: PTY spawn failed (${ptyErr instanceof Error ? ptyErr.message : String(ptyErr)}); retrying without PTY for \`${cmdDisplay}\`.`;
+          usingPty = false;
+          managedRun = await getProcessSupervisor().spawn({
+            ...spawnBase,
+            mode: "child",
+            argv: [resolvedCommand, ...parsedArgs],
+            stdinMode: "pipe-open",
+          });
+        }
       } else {
         managedRun = await getProcessSupervisor().spawn({
           ...spawnBase,
           mode: "child",
-          argv: [shell, ...shellArgs, request.command],
+          argv: [resolvedCommand, ...parsedArgs],
           stdinMode: "pipe-open",
         });
       }
@@ -324,7 +445,7 @@ export class ExecRuntime {
         if (resolved) return;
         resolved = true;
         clearTimeout(timer);
-        resolve(this.exitToCompleted(exit, outputBuf, ""));
+        resolve(this.exitToCompleted(exit, outputBuf, "", ptyWarning));
       }).catch(() => {
         if (resolved) return;
         resolved = true;
@@ -334,12 +455,39 @@ export class ExecRuntime {
     });
   }
 
-  private exitToCompleted(exit: RunExit, stdout: string, stderr: string): ExecResult {
+  private exitToCompleted(
+    exit: RunExit,
+    stdout: string,
+    stderr: string,
+    ptyWarning?: string,
+  ): ExecResult {
     const exitCode =
       exit.exitCode ?? (exit.timedOut ? 124 : exit.exitSignal != null ? 128 : 1);
+
+    // Shell exit codes 126 (not executable) and 127 (command not found) are
+    // unrecoverable infrastructure failures that should surface as real errors
+    // rather than silently completing - e.g. `python: command not found`.
+    const isShellFailure = exitCode === 126 || exitCode === 127;
+
+    // Prepend PTY warning to stdout if present
+    const outputWithWarning = ptyWarning ? `${ptyWarning}\n\n${stdout}` : stdout;
+
+    // Combine stdout and stderr for error reporting
+    const combinedOutput = stderr ? `${outputWithWarning}\n${stderr}` : outputWithWarning;
+
+    if (isShellFailure) {
+      const reason = exitCode === 127 ? "Command not found" : "Command not executable (permission denied)";
+      return {
+        type: "error",
+        message: combinedOutput
+          ? `${combinedOutput}\n\n${reason}`
+          : reason,
+      };
+    }
+
     return {
       type: "completed",
-      stdout,
+      stdout: outputWithWarning,
       stderr,
       exitCode,
     };

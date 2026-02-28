@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ExecRuntime, type ExecRequest, type ExecResult } from "./exec-runtime.js";
+import { ExecRuntime } from "./exec-runtime.js";
 import { ProcessRegistry } from "../process/process-registry.js";
 import type { SandboxBoundary } from "./sandbox/config.js";
 import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
@@ -81,7 +81,7 @@ describe("ExecRuntime", () => {
       });
 
       const result = await runtime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         agentId: "agent-1",
         sessionKey: "session-1",
       });
@@ -100,7 +100,7 @@ describe("ExecRuntime", () => {
       );
 
       const result = await runtime.execute({
-        command: "bash -c 'exit 1'",
+        argv: ["bash", "-c", "exit 1"],
         agentId: "agent-1",
         sessionKey: "session-1",
       });
@@ -124,7 +124,7 @@ describe("ExecRuntime", () => {
       const restrictedRuntime = new ExecRuntime(mockRegistry, restrictedBoundary);
 
       const result = await restrictedRuntime.execute({
-        command: "cat /etc/passwd",
+        argv: ["cat", "/etc/passwd"],
         agentId: "agent-1",
         sessionKey: "session-1",
       });
@@ -137,7 +137,7 @@ describe("ExecRuntime", () => {
 
     it("should allow commands in allowlist", async () => {
       const result = await runtime.execute({
-        command: "ls -la",
+        argv: ["ls", "-la"],
         agentId: "agent-1",
         sessionKey: "session-1",
       });
@@ -149,7 +149,7 @@ describe("ExecRuntime", () => {
   describe("cwd validation", () => {
     it("should reject cwd outside workspace", async () => {
       const result = await runtime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         cwd: "/etc",
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -163,7 +163,7 @@ describe("ExecRuntime", () => {
 
     it("should accept cwd within workspace", async () => {
       const result = await runtime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         cwd: "/test/workspace/subdir",
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -176,7 +176,7 @@ describe("ExecRuntime", () => {
   describe("protected env vars", () => {
     it("should reject protected auth env vars in env", async () => {
       const result = await runtime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         env: { MY_API_KEY: "secret" },
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -190,7 +190,7 @@ describe("ExecRuntime", () => {
 
     it("should allow non-protected env vars", async () => {
       const result = await runtime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         env: { MY_VAR: "value" },
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -205,7 +205,7 @@ describe("ExecRuntime", () => {
       const runtimeWithoutAuth = new ExecRuntime(mockRegistry, boundary, undefined, []);
 
       const result = await runtimeWithoutAuth.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         authRefs: ["MY_API_KEY"],
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -226,7 +226,7 @@ describe("ExecRuntime", () => {
       );
 
       const result = await runtimeWithAuth.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         authRefs: ["DENIED_KEY"],
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -243,7 +243,7 @@ describe("ExecRuntime", () => {
       const runtimeWithAuth = new ExecRuntime(mockRegistry, boundary, mockAuthResolver as any, ["MY_API_KEY"]);
 
       const result = await runtimeWithAuth.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         authRefs: ["MY_API_KEY"],
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -265,7 +265,7 @@ describe("ExecRuntime", () => {
       );
 
       const result = await runtimeWithAuth.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         authRefs: ["MY_API_KEY"],
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -290,7 +290,7 @@ describe("ExecRuntime", () => {
       });
 
       const result = await runtime.execute({
-        command: "bash -c 'while true; do sleep 1; done'",
+        argv: ["bash", "-c", "while true; do sleep 1; done"],
         background: true,
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -316,7 +316,7 @@ describe("ExecRuntime", () => {
       }));
 
       const result = await runtime.execute({
-        command: "bash -c 'while true; do sleep 1; done'",
+        argv: ["bash", "-c", "while true; do sleep 1; done"],
         yieldMs: 10,
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -359,7 +359,7 @@ describe("ExecRuntime", () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
 
       const result = await vibeboxRuntime.execute({
-        command: "echo hello",
+        argv: ["echo", "hello"],
         agentId: "agent-1",
         sessionKey: "session-1",
       });
@@ -379,35 +379,35 @@ describe("ExecRuntime", () => {
       (mockVibeboxExecutor.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("vibebox bridge failed"));
 
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ command: "echo hello", agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "error", message: "vibebox bridge failed" });
     });
 
     it("should return error for background execution in vibebox mode", async () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ command: "echo hello", background: true, agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], background: true, agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "error", message: "Background and yield execution modes are not supported in vibebox sandbox mode." });
     });
 
     it("should return error for yieldMs execution in vibebox mode", async () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ command: "echo hello", yieldMs: 5000, agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], yieldMs: 5000, agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "error", message: "Background and yield execution modes are not supported in vibebox sandbox mode." });
     });
 
     it("should return error when vibebox mode is set but no VibeboxExecutor is injected", async () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary);
-      const result = await vibeboxRuntime.execute({ command: "echo hello", agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "error", message: "Vibebox mode requires a VibeboxExecutor instance." });
     });
 
     it("should still validate allowlist before delegating to vibebox", async () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ command: "cat /etc/passwd", agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["cat", "/etc/passwd"], agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "error", message: "command not allowed: cat" });
       expect(mockVibeboxExecutor.exec).not.toHaveBeenCalled();
@@ -417,7 +417,7 @@ describe("ExecRuntime", () => {
       (mockVibeboxExecutor.exec as ReturnType<typeof vi.fn>).mockResolvedValue({ stdout: "", stderr: "command not found", exitCode: 127 });
 
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ command: "echo hello", agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
 
       expect(result).toEqual({ type: "completed", stdout: "", stderr: "command not found", exitCode: 127 });
     });

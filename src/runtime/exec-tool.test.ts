@@ -55,19 +55,23 @@ describe("createExecTool", () => {
       timeoutSec: 60,
     });
 
-    // normalizeArgs sets defaults for background and pty
-    expect(mockExecute).toHaveBeenCalledWith({
-      command: "echo hello",
-      cwd: "/test",
-      env: { MY_VAR: "value" },
-      authRefs: ["MY_KEY"],
-      yieldMs: 5000,
-      background: false,
-      pty: true,
-      timeoutSec: 60,
-      agentId: "agent-1",
-      sessionKey: "session-1",
-    });
+    // normalizeArgs wraps string command in sh -lc argv
+    expect(mockExecute).toHaveBeenCalledWith(
+      {
+        argv: ["/bin/sh", "-lc", "echo hello"],
+        rawCommand: "echo hello",
+        cwd: "/test",
+        env: { MY_VAR: "value" },
+        authRefs: ["MY_KEY"],
+        yieldMs: 5000,
+        background: false,
+        pty: true,
+        timeoutSec: 60,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      },
+      undefined,
+    );
   });
 
   it("should handle missing optional args gracefully", async () => {
@@ -89,19 +93,23 @@ describe("createExecTool", () => {
       command: "echo hello",
     });
 
-    // Should have command + agentId + sessionKey, and normalize adds defaults for missing
-    expect(mockExecute).toHaveBeenCalledWith({
-      command: "echo hello",
-      cwd: undefined,
-      env: undefined,
-      authRefs: undefined,
-      yieldMs: undefined,
-      background: false,
-      pty: false,
-      timeoutSec: undefined,
-      agentId: "agent-1",
-      sessionKey: "session-1",
-    });
+    // Should have argv wrapped in sh -lc + agentId + sessionKey, and normalize adds defaults for missing
+    expect(mockExecute).toHaveBeenCalledWith(
+      {
+        argv: ["/bin/sh", "-lc", "echo hello"],
+        rawCommand: "echo hello",
+        cwd: undefined,
+        env: undefined,
+        authRefs: undefined,
+        yieldMs: undefined,
+        background: false,
+        pty: false,
+        timeoutSec: undefined,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      },
+      undefined,
+    );
   });
 
   it("should handle invalid args gracefully", async () => {
@@ -120,26 +128,30 @@ describe("createExecTool", () => {
 
     // Pass invalid/missing args
     await tool.execute("tool-call-1", {
-      command: 123 as any, // invalid - should be string
+      command: 123 as any, // invalid - should be string, defaults to empty string -> empty argv
       cwd: null as any, // invalid
       env: "not an object" as any, // invalid
       authRefs: [1, 2, 3] as any, // invalid - becomes empty array after filter
     });
 
-    // Should default to empty command, and default booleans to false
+    // Should default to empty argv, and default booleans to false
     // authRefs becomes [] because invalid values are filtered out
-    expect(mockExecute).toHaveBeenCalledWith({
-      command: "",
-      cwd: undefined,
-      env: undefined,
-      authRefs: [],
-      yieldMs: undefined,
-      background: false,
-      pty: false,
-      timeoutSec: undefined,
-      agentId: "agent-1",
-      sessionKey: "session-1",
-    });
+    expect(mockExecute).toHaveBeenCalledWith(
+      {
+        argv: [],
+        rawCommand: undefined,
+        cwd: undefined,
+        env: undefined,
+        authRefs: [],
+        yieldMs: undefined,
+        background: false,
+        pty: false,
+        timeoutSec: undefined,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      },
+      undefined,
+    );
   });
 });
 
