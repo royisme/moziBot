@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { logger } from "../../../logger";
+import { reminders } from "../../../storage/db";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { RuntimeKernel } from "../../core/kernel";
 import type { Schedule } from "../cron/types";
-import { logger } from "../../../logger";
-import { reminders } from "../../../storage/db";
 import { computeNextRun } from "./schedule";
 
 export class ReminderRunner {

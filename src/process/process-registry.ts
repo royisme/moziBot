@@ -1,8 +1,7 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { logger } from "../logger";
+import Database, { type Database as DatabaseType } from "better-sqlite3";
 
 export type ProcessStatus = "running" | "exited";
 
@@ -139,9 +138,9 @@ export class ProcessRegistry {
 
   appendOutput(id: string, output: string): void {
     try {
-      const existing = this.db.prepare("SELECT output_tail, total_output_chars FROM process_sessions WHERE id = ?").get(id) as
-        | { output_tail: string; total_output_chars: number }
-        | undefined;
+      const existing = this.db
+        .prepare("SELECT output_tail, total_output_chars FROM process_sessions WHERE id = ?")
+        .get(id) as { output_tail: string; total_output_chars: number } | undefined;
 
       if (!existing) {
         return;
@@ -153,7 +152,9 @@ export class ProcessRegistry {
         newTail = newTail.slice(-OUTPUT_TAIL_MAX_LENGTH);
       }
 
-      this.db.prepare("UPDATE process_sessions SET output_tail = ?, total_output_chars = ? WHERE id = ?").run(newTail, newTotalChars, id);
+      this.db
+        .prepare("UPDATE process_sessions SET output_tail = ?, total_output_chars = ? WHERE id = ?")
+        .run(newTail, newTotalChars, id);
     } catch {
       // Ignore if database is closed
     }
@@ -162,7 +163,9 @@ export class ProcessRegistry {
   markExited(params: { id: string; exitCode: number | null; signal: string | null }): void {
     try {
       this.db
-        .prepare("UPDATE process_sessions SET status = ?, exit_code = ?, signal = ?, ended_at = ? WHERE id = ?")
+        .prepare(
+          "UPDATE process_sessions SET status = ?, exit_code = ?, signal = ?, ended_at = ? WHERE id = ?",
+        )
         .run("exited", params.exitCode, params.signal, Date.now(), params.id);
     } catch {
       // Ignore if database is closed
@@ -204,9 +207,10 @@ export class ProcessRegistry {
         .all(sessionId) as Record<string, unknown>[];
       return rows.map((row) => this.rowToRecord(row));
     }
-    const rows = this.db
-      .prepare("SELECT * FROM process_sessions")
-      .all() as Record<string, unknown>[];
+    const rows = this.db.prepare("SELECT * FROM process_sessions").all() as Record<
+      string,
+      unknown
+    >[];
     return rows.map((row) => this.rowToRecord(row));
   }
 
@@ -300,9 +304,7 @@ export class ProcessRegistry {
   private pruneExpiredSessions(): void {
     const cutoff = Date.now() - this.jobTtlMs;
     this.db
-      .prepare(
-        "DELETE FROM process_sessions WHERE status = 'exited' AND started_at < ?",
-      )
+      .prepare("DELETE FROM process_sessions WHERE status = 'exited' AND started_at < ?")
       .run(cutoff);
   }
 

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import { logger } from "../../../logger";
+import type { ChannelPlugin } from "../../adapters/channels/plugin";
 
 type HomeResolver = {
   getHomeDir: (agentId: string) => string | undefined;

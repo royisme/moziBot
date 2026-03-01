@@ -31,10 +31,12 @@ export function createRunRegistry(): RunRegistry {
   const records = new Map<string, RunRecord>();
 
   const prune = () => {
-    if (records.size <= MAX_RECORDS) return;
+    if (records.size <= MAX_RECORDS) {
+      return;
+    }
     const exited = [...records.values()]
       .filter((r) => r.state === "exited")
-      .sort((a, b) => a.updatedAtMs - b.updatedAtMs);
+      .toSorted((a, b) => a.updatedAtMs - b.updatedAtMs);
     const toDelete = records.size - MAX_RECORDS;
     for (let i = 0; i < toDelete && i < exited.length; i++) {
       records.delete(exited[i].runId);
@@ -59,18 +61,30 @@ export function createRunRegistry(): RunRegistry {
     },
   ) => {
     const record = records.get(runId);
-    if (!record) return;
+    if (!record) {
+      return;
+    }
     record.state = state;
     record.updatedAtMs = Date.now();
-    if (extra?.pid !== undefined) record.pid = extra.pid;
-    if (extra?.terminationReason !== undefined) record.terminationReason = extra.terminationReason;
-    if (extra?.exitCode !== undefined) record.exitCode = extra.exitCode;
-    if (extra?.exitSignal !== undefined) record.exitSignal = extra.exitSignal;
+    if (extra?.pid !== undefined) {
+      record.pid = extra.pid;
+    }
+    if (extra?.terminationReason !== undefined) {
+      record.terminationReason = extra.terminationReason;
+    }
+    if (extra?.exitCode !== undefined) {
+      record.exitCode = extra.exitCode;
+    }
+    if (extra?.exitSignal !== undefined) {
+      record.exitSignal = extra.exitSignal;
+    }
   };
 
   const touchOutput = (runId: string) => {
     const record = records.get(runId);
-    if (!record) return;
+    if (!record) {
+      return;
+    }
     const now = Date.now();
     record.lastOutputAtMs = now;
     record.updatedAtMs = now;

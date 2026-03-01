@@ -1,15 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { fetchCodexUsage } from "../commands/codex-usage";
 import type { MoziConfig } from "../config";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
-import { fetchCodexUsage } from "../commands/codex-usage";
 
 // ---------------------------------------------------------------------------
 // Helper: build minimal MoziConfig with an openai-codex provider block
 // ---------------------------------------------------------------------------
-function createCodexConfig(
-  models: { id: string }[] = [{ id: "gpt-5.3-codex" }],
-): MoziConfig {
+function createCodexConfig(models: { id: string }[] = [{ id: "gpt-5.3-codex" }]): MoziConfig {
   return {
     models: {
       providers: {
@@ -143,10 +141,7 @@ describe("ModelRegistry.applyCodexSparkFallback — spark not overwritten when e
   });
 
   it("keeps both base and explicit spark models in registry", () => {
-    const config = createCodexConfig([
-      { id: "gpt-5.3-codex" },
-      { id: "gpt-5.3-codex-spark" },
-    ]);
+    const config = createCodexConfig([{ id: "gpt-5.3-codex" }, { id: "gpt-5.3-codex-spark" }]);
 
     const registry = new ModelRegistry(config);
 
@@ -272,7 +267,7 @@ describe("fetchCodexUsage — HTTP error handling", () => {
     });
 
     // Temporarily monkey-patch AuthStorage.create so fetchCodexUsage uses our in-memory storage
-    const originalCreate = AuthStorage.create;
+    const originalCreate = AuthStorage.create.bind(AuthStorage);
     AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockResolvedValue({
@@ -305,7 +300,7 @@ describe("fetchCodexUsage — HTTP error handling", () => {
       } as import("@mariozechner/pi-coding-agent").OAuthCredential,
     });
 
-    const originalCreate = AuthStorage.create;
+    const originalCreate = AuthStorage.create.bind(AuthStorage);
     AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockResolvedValue({
@@ -338,7 +333,7 @@ describe("fetchCodexUsage — HTTP error handling", () => {
       } as import("@mariozechner/pi-coding-agent").OAuthCredential,
     });
 
-    const originalCreate = AuthStorage.create;
+    const originalCreate = AuthStorage.create.bind(AuthStorage);
     AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
@@ -368,7 +363,7 @@ describe("fetchCodexUsage — HTTP error handling", () => {
       } as import("@mariozechner/pi-coding-agent").OAuthCredential,
     });
 
-    const originalCreate = AuthStorage.create;
+    const originalCreate = AuthStorage.create.bind(AuthStorage);
     AuthStorage.create = () => inMemoryStorage;
 
     const responseBody = {

@@ -1,3 +1,5 @@
+import { logger } from "../logger";
+import { expandQueryForFts } from "./query-expansion";
 import type {
   MemoryEmbeddingProbeResult,
   MemorySearchManager,
@@ -7,8 +9,6 @@ import type {
   SearchOptions,
   SyncParams,
 } from "./types";
-import { logger } from "../logger";
-import { expandQueryForFts } from "./query-expansion";
 
 const LOW_RECALL_MIN_RESULTS = 2;
 

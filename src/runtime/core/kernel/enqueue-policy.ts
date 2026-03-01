@@ -1,7 +1,7 @@
-import type { InboundMessage } from "../../adapters/channels/types";
-import type { SessionManager } from "../../host/sessions/manager";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
+import type { InboundMessage } from "../../adapters/channels/types";
+import type { SessionManager } from "../../host/sessions/manager";
 import { QueueMode, PeerType, SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
 

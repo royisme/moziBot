@@ -2,8 +2,8 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { McpServerEntry } from "../../config/schema/extensions";
-import type { ExtensionDiagnostic, LoadedExtension } from "../types";
 import { logger } from "../../logger";
+import type { ExtensionDiagnostic, LoadedExtension } from "../types";
 
 const DEFAULT_TIMEOUT = 30000;
 

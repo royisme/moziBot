@@ -1,3 +1,4 @@
+import { withConnection } from "../connection";
 import type {
   MultimodalMessage,
   MultimodalMessagePart,
@@ -6,7 +7,6 @@ import type {
   MultimodalCapabilitySnapshot,
   MultimodalRawEvent,
 } from "../types";
-import { withConnection } from "../connection";
 
 export const multimodal = {
   createMessage: (message: MultimodalMessage) =>

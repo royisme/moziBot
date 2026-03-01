@@ -1,10 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { MoziConfig } from "../../../config";
-import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../../config/schema/acp-policy";
-import {
-  getAcpRuntimeBackend,
-  requireAcpRuntimeBackend,
-} from "../../../acp/runtime/registry";
+import { getAcpRuntimeBackend, requireAcpRuntimeBackend } from "../../../acp/runtime/registry";
 import {
   listAcpSessionEntries,
   readAcpSessionEntry,
@@ -12,11 +7,16 @@ import {
 } from "../../../acp/runtime/session-meta";
 import { resolveSessionKey } from "../../../acp/session-key-utils";
 import type { SessionAcpMeta } from "../../../acp/types";
+import type { MoziConfig } from "../../../config";
+import {
+  isAcpDispatchEnabledByPolicy,
+  isAcpEnabledByPolicy,
+} from "../../../config/schema/acp-policy";
+import { resolveMemoryBackendConfig } from "../../../memory/backend-config";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { AgentManager } from "../../agent-manager";
 import type { ReasoningLevel } from "../../model/thinking";
-import { resolveMemoryBackendConfig } from "../../../memory/backend-config";
 
 export async function handleWhoamiCommand(params: {
   message: InboundMessage;
@@ -484,8 +484,17 @@ async function handleAcpSpawnFromRuntime(params: {
   cwdInput?: string;
   agentInput?: string;
 }): Promise<void> {
-  const { channel, peerId, agentId, sessionKey, config, backendInput, modeInput, cwdInput, agentInput } =
-    params;
+  const {
+    channel,
+    peerId,
+    agentId,
+    sessionKey,
+    config,
+    backendInput,
+    modeInput,
+    cwdInput,
+    agentInput,
+  } = params;
 
   if (!isAcpDispatchEnabledByPolicy(config)) {
     await channel.send(peerId, {
@@ -510,8 +519,12 @@ async function handleAcpSpawnFromRuntime(params: {
     return;
   }
 
-  const resolvedAgent =
-    (agentInput ?? config.acp?.defaultAgent ?? config.acp?.allowedAgents?.[0] ?? agentId).trim();
+  const resolvedAgent = (
+    agentInput ??
+    config.acp?.defaultAgent ??
+    config.acp?.allowedAgents?.[0] ??
+    agentId
+  ).trim();
   if (!resolvedAgent) {
     await channel.send(peerId, { text: "Unable to resolve ACP agent." });
     return;

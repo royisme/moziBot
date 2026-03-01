@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import {
@@ -8,17 +10,9 @@ import {
   SessionManager as PiSessionManager,
   SettingsManager as PiSettingsManager,
 } from "@mariozechner/pi-coding-agent";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { ExtensionRegistry } from "../../extensions";
-import type { ModelRegistry } from "../model-registry";
-import type { SandboxConfig } from "../sandbox/types";
-import type { SessionStore } from "../session-store";
-import type { SubagentRegistry } from "../subagent-registry";
-import type { ModelSpec } from "../types";
-import type { AuthResolver, ExecRuntime } from "../exec-runtime";
-import { autoCompleteBootstrapIfReady, ensureHome } from "../../agents/home";
 import { logger } from "../../logger";
 import { emitSessionTranscriptUpdate } from "../../memory/session-transcript-events";
 import {
@@ -29,8 +23,14 @@ import {
   resolveContextWindowInfo,
 } from "../context-management";
 import { computeEffectiveSettings, pruneContextMessages } from "../context-pruning";
+import type { AuthResolver, ExecRuntime } from "../exec-runtime";
+import type { ModelRegistry } from "../model-registry";
 import { sanitizePromptInputForModel } from "../payload-sanitizer";
+import type { SandboxConfig } from "../sandbox/types";
+import type { SessionStore } from "../session-store";
 import { resolveSessionFormat } from "../session-store";
+import type { SubagentRegistry } from "../subagent-registry";
+import type { ModelSpec } from "../types";
 import {
   type AgentEntry,
   resolveContextPruningConfig,

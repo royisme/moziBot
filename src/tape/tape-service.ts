@@ -1,9 +1,19 @@
-import type { TapeEntry, TapeEntryKind, AnchorPayload, AnchorSummary, TapeInfo } from './types.js';
-import { createMessage, createToolCall, createToolResult, createAnchor, createEvent, createSystem } from './types.js';
-import { TapeStore } from './tape-store.js';
+import { TapeStore } from "./tape-store.js";
+import type { TapeEntry, TapeEntryKind, AnchorPayload, AnchorSummary, TapeInfo } from "./types.js";
+import {
+  createMessage,
+  createToolCall,
+  createToolResult,
+  createAnchor,
+  createEvent,
+  createSystem,
+} from "./types.js";
 
 export class TapeService {
-  constructor(private readonly tapeName: string, private readonly store: TapeStore) {}
+  constructor(
+    private readonly tapeName: string,
+    private readonly store: TapeStore,
+  ) {}
 
   // --- Core append operations ---
 
@@ -29,14 +39,16 @@ export class TapeService {
 
   // --- Anchor / Handoff ---
 
-  handoff(name: string, state?: AnchorPayload['state']): TapeEntry {
+  handoff(name: string, state?: AnchorPayload["state"]): TapeEntry {
     return this.store.append(this.tapeName, createAnchor(name, state));
   }
 
   ensureBootstrapAnchor(): void {
     const entries = this.store.read(this.tapeName);
-    if (entries && entries.some(e => e.kind === 'anchor')) return;
-    this.handoff('session/start', { owner: 'human' });
+    if (entries && entries.some((e) => e.kind === "anchor")) {
+      return;
+    }
+    this.handoff("session/start", { owner: "human" });
   }
 
   // --- Fork / Merge ---
@@ -46,7 +58,9 @@ export class TapeService {
     const forkName = this.store.fork(this.tapeName);
     return {
       forkName,
-      restore: () => { this.store.reset(forkName); },
+      restore: () => {
+        this.store.reset(forkName);
+      },
     };
   }
 
@@ -58,12 +72,12 @@ export class TapeService {
 
   info(): TapeInfo {
     const entries = this.store.read(this.tapeName) ?? [];
-    const anchors = entries.filter(e => e.kind === 'anchor');
-    const lastAnchor = anchors.length > 0 ? (anchors[anchors.length - 1].payload.name as string) ?? null : null;
+    const anchors = entries.filter((e) => e.kind === "anchor");
+    const lastAnchor =
+      anchors.length > 0 ? ((anchors[anchors.length - 1].payload.name as string) ?? null) : null;
     const lastAnchorId = anchors.length > 0 ? anchors[anchors.length - 1].id : 0;
-    const entriesSinceLastAnchor = lastAnchorId > 0
-      ? entries.filter(e => e.id > lastAnchorId).length
-      : entries.length;
+    const entriesSinceLastAnchor =
+      lastAnchorId > 0 ? entries.filter((e) => e.id > lastAnchorId).length : entries.length;
 
     return {
       name: this.tapeName,
@@ -76,9 +90,9 @@ export class TapeService {
 
   anchors(limit: number = 20): AnchorSummary[] {
     const entries = this.store.read(this.tapeName) ?? [];
-    const anchorEntries = entries.filter(e => e.kind === 'anchor');
-    return anchorEntries.slice(-limit).map(e => ({
-      name: (e.payload.name as string) ?? '-',
+    const anchorEntries = entries.filter((e) => e.kind === "anchor");
+    return anchorEntries.slice(-limit).map((e) => ({
+      name: (e.payload.name as string) ?? "-",
       state: (e.payload.state as Record<string, unknown>) ?? {},
     }));
   }
@@ -86,11 +100,11 @@ export class TapeService {
   /** Get all entries after the last anchor, optionally filtered by kinds. */
   fromLastAnchor(kinds?: TapeEntryKind[]): TapeEntry[] {
     const entries = this.store.read(this.tapeName) ?? [];
-    const anchors = entries.filter(e => e.kind === 'anchor');
+    const anchors = entries.filter((e) => e.kind === "anchor");
     const lastAnchorId = anchors.length > 0 ? anchors[anchors.length - 1].id : 0;
-    let result = entries.filter(e => e.id > lastAnchorId);
+    let result = entries.filter((e) => e.id > lastAnchorId);
     if (kinds && kinds.length > 0) {
-      result = result.filter(e => kinds.includes(e.kind));
+      result = result.filter((e) => kinds.includes(e.kind));
     }
     return result;
   }
@@ -98,13 +112,15 @@ export class TapeService {
   /** Get entries between two named anchors. */
   betweenAnchors(startName: string, endName: string, kinds?: TapeEntryKind[]): TapeEntry[] {
     const entries = this.store.read(this.tapeName) ?? [];
-    const anchors = entries.filter(e => e.kind === 'anchor');
-    const startAnchor = anchors.find(e => e.payload.name === startName);
-    const endAnchor = [...anchors].reverse().find(e => e.payload.name === endName);
-    if (!startAnchor || !endAnchor) return [];
-    let result = entries.filter(e => e.id > startAnchor.id && e.id < endAnchor.id);
+    const anchors = entries.filter((e) => e.kind === "anchor");
+    const startAnchor = anchors.find((e) => e.payload.name === startName);
+    const endAnchor = [...anchors].toReversed().find((e) => e.payload.name === endName);
+    if (!startAnchor || !endAnchor) {
+      return [];
+    }
+    let result = entries.filter((e) => e.id > startAnchor.id && e.id < endAnchor.id);
     if (kinds && kinds.length > 0) {
-      result = result.filter(e => kinds.includes(e.kind));
+      result = result.filter((e) => kinds.includes(e.kind));
     }
     return result;
   }
@@ -112,12 +128,14 @@ export class TapeService {
   /** Get entries after a named anchor. */
   afterAnchor(anchorName: string, kinds?: TapeEntryKind[]): TapeEntry[] {
     const entries = this.store.read(this.tapeName) ?? [];
-    const anchors = entries.filter(e => e.kind === 'anchor');
-    const anchor = [...anchors].reverse().find(e => e.payload.name === anchorName);
-    if (!anchor) return [];
-    let result = entries.filter(e => e.id > anchor.id);
+    const anchors = entries.filter((e) => e.kind === "anchor");
+    const anchor = [...anchors].toReversed().find((e) => e.payload.name === anchorName);
+    if (!anchor) {
+      return [];
+    }
+    let result = entries.filter((e) => e.id > anchor.id);
     if (kinds && kinds.length > 0) {
-      result = result.filter(e => kinds.includes(e.kind));
+      result = result.filter((e) => kinds.includes(e.kind));
     }
     return result;
   }
@@ -125,7 +143,9 @@ export class TapeService {
   /** Simple text search across tape entry payloads. */
   search(query: string, limit: number = 20): TapeEntry[] {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return [];
+    if (!normalized) {
+      return [];
+    }
     const entries = this.store.read(this.tapeName) ?? [];
     const results: TapeEntry[] = [];
     // Search in reverse (newest first)

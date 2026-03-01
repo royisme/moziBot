@@ -81,7 +81,9 @@ function runTaskkill(args: string[]): void {
 function killProcessTreeWindows(pid: number, graceMs: number): void {
   runTaskkill(["/T", "/PID", String(pid)]);
   setTimeout(() => {
-    if (!isProcessAlive(pid)) return;
+    if (!isProcessAlive(pid)) {
+      return;
+    }
     runTaskkill(["/F", "/T", "/PID", String(pid)]);
   }, graceMs).unref();
 }

@@ -1,5 +1,5 @@
-import type { ComponentStatus } from "./types";
 import { logger } from "../../logger";
+import type { ComponentStatus } from "./types";
 
 export type HealthChecker = () => Promise<ComponentStatus>;
 

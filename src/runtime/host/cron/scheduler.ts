@@ -1,7 +1,7 @@
 import * as parser from "cron-parser";
-import type { CronJob, Schedule } from "./types";
 import { logger } from "../../../logger";
 import { ChannelRegistry } from "../../adapters/channels/registry";
+import type { CronJob, Schedule } from "./types";
 
 export class CronScheduler {
   private jobs: Map<string, CronJob> = new Map();

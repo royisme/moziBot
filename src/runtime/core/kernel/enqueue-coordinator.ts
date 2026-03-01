@@ -1,6 +1,6 @@
-import type { InboundMessage } from "../../adapters/channels/types";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
+import type { InboundMessage } from "../../adapters/channels/types";
 import { continuationRegistry } from "../continuation";
 
 export async function handleStopCommand(params: {

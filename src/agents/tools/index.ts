@@ -1,5 +1,4 @@
 import type { z } from "zod";
-import type { SessionToolsContext } from "./sessions";
 import {
   type MemoryToolsContext,
   memoryGet,
@@ -7,6 +6,7 @@ import {
   memorySearch,
   memorySearchSchema,
 } from "./memory";
+import type { SessionToolsContext } from "./sessions";
 import {
   sessionsHistory,
   sessionsHistorySchema,
@@ -17,13 +17,6 @@ import {
   sessionsSpawn,
   sessionsSpawnSchema,
 } from "./sessions";
-import {
-  sessionsAcpSpawn,
-  sessionsAcpSpawnSchema,
-  shouldUseAcpSpawn,
-  initializeAcpSubAgent,
-  type SessionAcpToolsContext,
-} from "./sessions-acp";
 
 export { sessionsStatus, sessionsStatusSchema, sessionsStatusDescription } from "./sessions-status";
 

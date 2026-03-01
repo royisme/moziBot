@@ -1,8 +1,4 @@
-import type {
-  SessionAcpIdentity,
-  SessionAcpIdentitySource,
-  SessionAcpMeta,
-} from "../types";
+import type { SessionAcpIdentity, SessionAcpIdentitySource, SessionAcpMeta } from "../types";
 import type { AcpRuntimeHandle, AcpRuntimeStatus } from "./types";
 
 function normalizeText(value: unknown): string | undefined {

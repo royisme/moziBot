@@ -1,4 +1,9 @@
-export { ProcessRegistry, getProcessRegistry, setProcessRegistry, closeProcessRegistry } from "./process-registry.js";
+export {
+  ProcessRegistry,
+  getProcessRegistry,
+  setProcessRegistry,
+  closeProcessRegistry,
+} from "./process-registry.js";
 export type { ProcessRecord, ProcessSessionRecord, ProcessStatus } from "./process-registry.js";
 
 export {

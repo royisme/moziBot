@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import type { MoziConfig } from "../../../../config";
-import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
 import { SttService } from "../../../media-understanding/stt-service";
 import { TtsService } from "../../../tts/tts-service";
 import { BaseChannelPlugin } from "../plugin";
+import type { InboundMessage, MediaAttachment, OutboundMessage } from "../types";
 
 export interface LocalDesktopPluginConfig {
   enabled?: boolean;

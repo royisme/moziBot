@@ -1,7 +1,7 @@
 import os from "node:os";
 import path from "node:path";
-import type { MoziConfig } from "../../config";
 import { SkillLoader } from "../../agents/skills/loader";
+import type { MoziConfig } from "../../config";
 import { type ExtensionRegistry, initExtensionsAsync, loadExtensions } from "../../extensions";
 
 type SkillLoaderContext = {

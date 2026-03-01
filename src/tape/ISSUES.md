@@ -143,7 +143,7 @@
 **File**: `src/runtime/sandbox/config.ts` line 80
 **Severity**: Bug
 **Status**: ✅ Fixed
-**Description**: `blockedKeys.includes(upper)` uppercases the *override key* but not the *blockedEnvKeys entries*. If `blockedEnvKeys` contains lowercase values like `["path"]`, the comparison with `"PATH"` fails silently. Original `host-exec.ts` used a pre-uppercased `Set`.
+**Description**: `blockedKeys.includes(upper)` uppercases the _override key_ but not the _blockedEnvKeys entries_. If `blockedEnvKeys` contains lowercase values like `["path"]`, the comparison with `"PATH"` fails silently. Original `host-exec.ts` used a pre-uppercased `Set`.
 **Fix**: Normalize blockedKeys: `const blockedKeys = (boundary.blockedEnvKeys ?? Array.from(BLOCKED_ENV_KEYS)).map(k => k.toUpperCase())`.
 
 ## ISSUE-18: supervisor.ts — waitForExit conflates stdout and stderr

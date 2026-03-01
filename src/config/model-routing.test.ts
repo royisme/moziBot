@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MoziConfig } from "./schema";
 import { resolveAgentModelRouting } from "./model-routing";
+import type { MoziConfig } from "./schema";
 
 describe("model routing", () => {
   it("preserves explicit empty fallbacks override", () => {

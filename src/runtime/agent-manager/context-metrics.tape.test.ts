@@ -11,15 +11,15 @@
  */
 
 import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildMessagesFromTape, createTapeService } from "../../tape/integration.js";
+import { TapeService } from "../../tape/tape-service.js";
+import { TapeStore } from "../../tape/tape-store.js";
 import type { SessionStore } from "../session-store";
 import { compactSession } from "./context-metrics";
-import { TapeStore } from "../../tape/tape-store.js";
-import { TapeService } from "../../tape/tape-service.js";
-import { buildMessagesFromTape, createTapeService } from "../../tape/integration.js";
 
 // ---- Mock hooks so they don't interfere ----
 const hookMocks = vi.hoisted(() => ({
@@ -217,7 +217,13 @@ describe("compactSession tape anchor dual-write (TAPE-2)", () => {
           handoff: () => {
             throw new Error("Tape I/O error");
           },
-          info: () => ({ name: "test", entries: 0, anchors: 0, lastAnchor: null, entriesSinceLastAnchor: 0 }),
+          info: () => ({
+            name: "test",
+            entries: 0,
+            anchors: 0,
+            lastAnchor: null,
+            entriesSinceLastAnchor: 0,
+          }),
         } as unknown as TapeService;
       },
     });

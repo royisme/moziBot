@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ExecRuntime } from "./exec-runtime.js";
 import { ProcessRegistry } from "../process/process-registry.js";
-import type { SandboxBoundary } from "./sandbox/config.js";
-import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
 import { setProcessSupervisor, resetProcessSupervisor } from "../process/supervisor/index.js";
 import type { ProcessSupervisor, ManagedRun, RunExit } from "../process/supervisor/index.js";
+import { ExecRuntime } from "./exec-runtime.js";
+import type { AuthResolver } from "./exec-runtime.js";
+import type { SandboxBoundary } from "./sandbox/config.js";
+import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
 
 // Helper: create a mock ManagedRun that resolves with given exit
 function mockManagedRun(exit: RunExit, pid = 12345): ManagedRun {
@@ -74,11 +75,13 @@ describe("ExecRuntime", () => {
   describe("execute (one-shot)", () => {
     it("should execute a simple command and capture stdout", async () => {
       let stdoutCb: ((chunk: string) => void) | undefined;
-      mockSupervisor.spawn = vi.fn().mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
-        stdoutCb = input.onStdout;
-        stdoutCb?.("hello\n");
-        return mockManagedRun({ ...defaultExit, exitCode: 0 });
-      });
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
+          stdoutCb = input.onStdout;
+          stdoutCb?.("hello\n");
+          return mockManagedRun({ ...defaultExit, exitCode: 0 });
+        });
 
       const result = await runtime.execute({
         argv: ["echo", "hello"],
@@ -95,9 +98,9 @@ describe("ExecRuntime", () => {
     });
 
     it("should capture non-zero exit code", async () => {
-      mockSupervisor.spawn = vi.fn().mockResolvedValue(
-        mockManagedRun({ ...defaultExit, exitCode: 1 })
-      );
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 1 }));
 
       const result = await runtime.execute({
         argv: ["bash", "-c", "exit 1"],
@@ -221,7 +224,7 @@ describe("ExecRuntime", () => {
       const runtimeWithAuth = new ExecRuntime(
         mockRegistry,
         boundary,
-        { getValue: vi.fn().mockResolvedValue("secret-value") } as any,
+        { getValue: vi.fn().mockResolvedValue("secret-value") } as AuthResolver,
         ["ALLOWED_KEY"],
       );
 
@@ -240,7 +243,12 @@ describe("ExecRuntime", () => {
 
     it("should resolve allowed auth refs", async () => {
       const mockAuthResolver = { getValue: vi.fn().mockResolvedValue("secret-value") };
-      const runtimeWithAuth = new ExecRuntime(mockRegistry, boundary, mockAuthResolver as any, ["MY_API_KEY"]);
+      const runtimeWithAuth = new ExecRuntime(
+        mockRegistry,
+        boundary,
+        mockAuthResolver as AuthResolver,
+        ["MY_API_KEY"],
+      );
 
       const result = await runtimeWithAuth.execute({
         argv: ["echo", "hello"],
@@ -260,7 +268,7 @@ describe("ExecRuntime", () => {
       const runtimeWithAuth = new ExecRuntime(
         mockRegistry,
         boundary,
-        { getValue: vi.fn().mockResolvedValue(null) } as any,
+        { getValue: vi.fn().mockResolvedValue(null) } as AuthResolver,
         ["MY_API_KEY"],
       );
 
@@ -334,6 +342,7 @@ describe("ExecRuntime", () => {
   describe("vibebox execution", () => {
     let vibeboxBoundary: SandboxBoundary;
     let mockVibeboxExecutor: VibeboxExecutor;
+    let mockVibeboxExec: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
       vibeboxBoundary = {
@@ -342,21 +351,28 @@ describe("ExecRuntime", () => {
         blockedEnvKeys: ["PATH"],
         mode: "vibebox",
       };
+      mockVibeboxExec = vi.fn();
       mockVibeboxExecutor = {
-        exec: vi.fn(),
+        exec: mockVibeboxExec,
         probe: vi.fn(),
         stop: vi.fn(),
       } as unknown as VibeboxExecutor;
     });
 
     it("should delegate one-shot execution to VibeboxExecutor", async () => {
-      (mockVibeboxExecutor.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      mockVibeboxExec.mockResolvedValue({
         stdout: "vibebox output",
         stderr: "",
         exitCode: 0,
       });
 
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
 
       const result = await vibeboxRuntime.execute({
         argv: ["echo", "hello"],
@@ -364,8 +380,13 @@ describe("ExecRuntime", () => {
         sessionKey: "session-1",
       });
 
-      expect(result).toEqual({ type: "completed", stdout: "vibebox output", stderr: "", exitCode: 0 });
-      expect(mockVibeboxExecutor.exec).toHaveBeenCalledWith({
+      expect(result).toEqual({
+        type: "completed",
+        stdout: "vibebox output",
+        stderr: "",
+        exitCode: 0,
+      });
+      expect(mockVibeboxExec).toHaveBeenCalledWith({
         sessionKey: "session-1",
         agentId: "agent-1",
         workspaceDir: "/test/workspace",
@@ -376,50 +397,120 @@ describe("ExecRuntime", () => {
     });
 
     it("should return error when VibeboxExecutor throws", async () => {
-      (mockVibeboxExecutor.exec as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("vibebox bridge failed"));
+      mockVibeboxExec.mockRejectedValue(new Error("vibebox bridge failed"));
 
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
+      const result = await vibeboxRuntime.execute({
+        argv: ["echo", "hello"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
       expect(result).toEqual({ type: "error", message: "vibebox bridge failed" });
     });
 
     it("should return error for background execution in vibebox mode", async () => {
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], background: true, agentId: "agent-1", sessionKey: "session-1" });
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
+      const result = await vibeboxRuntime.execute({
+        argv: ["echo", "hello"],
+        background: true,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
-      expect(result).toEqual({ type: "error", message: "Background and yield execution modes are not supported in vibebox sandbox mode." });
+      expect(result).toEqual({
+        type: "error",
+        message: "Background and yield execution modes are not supported in vibebox sandbox mode.",
+      });
     });
 
     it("should return error for yieldMs execution in vibebox mode", async () => {
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], yieldMs: 5000, agentId: "agent-1", sessionKey: "session-1" });
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
+      const result = await vibeboxRuntime.execute({
+        argv: ["echo", "hello"],
+        yieldMs: 5000,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
-      expect(result).toEqual({ type: "error", message: "Background and yield execution modes are not supported in vibebox sandbox mode." });
+      expect(result).toEqual({
+        type: "error",
+        message: "Background and yield execution modes are not supported in vibebox sandbox mode.",
+      });
     });
 
     it("should return error when vibebox mode is set but no VibeboxExecutor is injected", async () => {
       const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary);
-      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
+      const result = await vibeboxRuntime.execute({
+        argv: ["echo", "hello"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
-      expect(result).toEqual({ type: "error", message: "Vibebox mode requires a VibeboxExecutor instance." });
+      expect(result).toEqual({
+        type: "error",
+        message: "Vibebox mode requires a VibeboxExecutor instance.",
+      });
     });
 
     it("should still validate allowlist before delegating to vibebox", async () => {
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ argv: ["cat", "/etc/passwd"], agentId: "agent-1", sessionKey: "session-1" });
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
+      const result = await vibeboxRuntime.execute({
+        argv: ["cat", "/etc/passwd"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
       expect(result).toEqual({ type: "error", message: "command not allowed: cat" });
-      expect(mockVibeboxExecutor.exec).not.toHaveBeenCalled();
+      expect(mockVibeboxExec).not.toHaveBeenCalled();
     });
 
     it("should pass non-zero exit code from vibebox through", async () => {
-      (mockVibeboxExecutor.exec as ReturnType<typeof vi.fn>).mockResolvedValue({ stdout: "", stderr: "command not found", exitCode: 127 });
+      mockVibeboxExec.mockResolvedValue({ stdout: "", stderr: "command not found", exitCode: 127 });
 
-      const vibeboxRuntime = new ExecRuntime(mockRegistry, vibeboxBoundary, undefined, [], mockVibeboxExecutor);
-      const result = await vibeboxRuntime.execute({ argv: ["echo", "hello"], agentId: "agent-1", sessionKey: "session-1" });
+      const vibeboxRuntime = new ExecRuntime(
+        mockRegistry,
+        vibeboxBoundary,
+        undefined,
+        [],
+        mockVibeboxExecutor,
+      );
+      const result = await vibeboxRuntime.execute({
+        argv: ["echo", "hello"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
 
-      expect(result).toEqual({ type: "completed", stdout: "", stderr: "command not found", exitCode: 127 });
+      expect(result).toEqual({
+        type: "completed",
+        stdout: "",
+        stderr: "command not found",
+        exitCode: 127,
+      });
     });
   });
 });

@@ -1,10 +1,10 @@
+import fs from "node:fs/promises";
+import { resolve, join } from "node:path";
 import {
   loadSkillsFromDir,
   formatSkillsForPrompt,
   type Skill,
 } from "@mariozechner/pi-coding-agent";
-import fs from "node:fs/promises";
-import { resolve, join } from "node:path";
 import { logger } from "../../logger";
 
 type SkillLoaderOptions = {

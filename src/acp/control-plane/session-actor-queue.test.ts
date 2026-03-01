@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { SessionActorQueue } from "./session-actor-queue";
 
 describe("SessionActorQueue", () => {
@@ -62,10 +62,12 @@ describe("SessionActorQueue", () => {
     it("should continue queue after operation failure", async () => {
       const executionOrder: number[] = [];
 
-      await queue.run("session1", async () => {
-        executionOrder.push(1);
-        throw new Error("test error");
-      }).catch(() => {});
+      await queue
+        .run("session1", async () => {
+          executionOrder.push(1);
+          throw new Error("test error");
+        })
+        .catch(() => {});
 
       await queue.run("session1", async () => {
         executionOrder.push(2);
@@ -80,7 +82,7 @@ describe("SessionActorQueue", () => {
         resolveFirst = resolve;
       });
 
-      queue.run("session1", async () => {
+      void queue.run("session1", async () => {
         await firstPromise;
       });
 
@@ -111,11 +113,11 @@ describe("SessionActorQueue", () => {
         resolve2 = resolve;
       });
 
-      queue.run("session1", async () => {
+      void queue.run("session1", async () => {
         await promise1;
       });
 
-      queue.run("session2", async () => {
+      void queue.run("session2", async () => {
         await promise2;
       });
 
@@ -133,16 +135,15 @@ describe("SessionActorQueue", () => {
     });
 
     it("should return pending count for specific session", async () => {
-      let resolve: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolve;
+      const promise = new Promise<void>((_resolve) => {
+        // never resolves - intentionally left pending
       });
 
-      queue.run("session1", async () => {
+      void queue.run("session1", async () => {
         await promise;
       });
 
-      queue.run("session1", async () => {});
+      void queue.run("session1", async () => {});
 
       expect(queue.getPendingCountForSession("session1")).toBe(2);
     });
@@ -173,7 +174,7 @@ describe("SessionActorQueue", () => {
         resolve = r;
       });
 
-      queue.run("session1", async () => {
+      void queue.run("session1", async () => {
         await promise;
       });
 

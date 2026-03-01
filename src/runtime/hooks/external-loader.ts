@@ -1,11 +1,11 @@
-import { createJiti } from "jiti";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createJiti } from "jiti";
 import type { MoziConfig } from "../../config";
-import type { RuntimeHookHandlerMap, RuntimeHookName } from "./types";
 import { logger } from "../../logger";
 import { registerRuntimeHook } from "./index";
+import type { RuntimeHookHandlerMap, RuntimeHookName } from "./types";
 
 type RuntimeHookDefinition = {
   hookName: RuntimeHookName;

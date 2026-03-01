@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LoadedExtension } from "./types";
 import { ExtensionRegistry } from "./registry";
+import type { LoadedExtension } from "./types";
 
 function makeExtension(
   id: string,

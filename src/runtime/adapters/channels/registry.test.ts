@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { InboundMessage, OutboundMessage } from "./types";
 import { BaseChannelPlugin } from "./plugin";
 import { ChannelRegistry } from "./registry";
+import type { InboundMessage, OutboundMessage } from "./types";
 
 // Mock logger
 vi.mock("../../../logger", () => ({

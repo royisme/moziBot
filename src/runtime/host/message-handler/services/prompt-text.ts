@@ -1,6 +1,6 @@
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
-import type { InboundMessage } from "../../../adapters/channels/types";
 import { buildProviderInputPayload } from "../../../../multimodal/provider-payload";
+import type { InboundMessage } from "../../../adapters/channels/types";
 
 export function buildRawTextWithTranscription(rawText: string, transcript: string | null): string {
   if (!transcript) {

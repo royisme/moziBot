@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import type { AcpRuntime, AcpRuntimeHandle } from "../runtime/types";
 import { RuntimeCache } from "./runtime-cache";
 import type { CachedRuntimeState } from "./runtime-cache";
-import type { AcpRuntime, AcpRuntimeHandle } from "../runtime/types";
 
 function createMockRuntimeState(): CachedRuntimeState {
   return {
@@ -98,7 +98,7 @@ describe("RuntimeCache", () => {
       const state = createMockRuntimeState();
       cache.set("key1", state, { now: now1 });
 
-      const now2 = now1 + 1000;
+      const _now2 = now1 + 1000;
       cache.peek("key1");
 
       expect(cache.getLastTouchedAt("key1")).toBe(now1);

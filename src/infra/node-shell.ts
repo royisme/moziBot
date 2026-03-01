@@ -3,7 +3,9 @@
  * Aligns with openclaw's buildNodeShellCommand convention.
  */
 export function buildShellCommand(command: string, platform?: string | null): string[] {
-  const normalized = String(platform ?? "").trim().toLowerCase();
+  const normalized = String(platform ?? "")
+    .trim()
+    .toLowerCase();
   if (normalized.startsWith("win")) {
     return ["cmd.exe", "/d", "/s", "/c", command];
   }

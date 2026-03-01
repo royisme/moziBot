@@ -1,6 +1,6 @@
-import { parse as parseJsonc } from "jsonc-parser";
 import fs from "node:fs";
 import path from "node:path";
+import { parse as parseJsonc } from "jsonc-parser";
 
 export const INCLUDE_KEY = "$include";
 const MAX_INCLUDE_DEPTH = 10;

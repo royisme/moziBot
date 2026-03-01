@@ -2,18 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { MoziConfig } from "../config";
-import type { ResolvedMemoryBackendConfig, ResolvedQmdConfig } from "./backend-config";
-import type {
-  MemoryEmbeddingProbeResult,
-  MemoryProviderStatus,
-  MemorySearchManager,
-  MemorySearchResult,
-  ReadFileParams,
-  ReadFileResult,
-  SearchOptions,
-  SyncParams,
-} from "./types";
 import { logger } from "../logger";
+import type { ResolvedMemoryBackendConfig, ResolvedQmdConfig } from "./backend-config";
 import { resolveHomeDir } from "./backend-config";
 import { buildCollectionIndex, ensureCollections } from "./qmd/collections";
 import { QmdDocResolver } from "./qmd/doc-resolver";
@@ -28,6 +18,16 @@ import {
 import { clampResultsByInjectedChars, extractSnippetLines } from "./qmd/snippet";
 import { applyRecallPostProcessing } from "./recall";
 import { onSessionTranscriptUpdate } from "./session-transcript-events";
+import type {
+  MemoryEmbeddingProbeResult,
+  MemoryProviderStatus,
+  MemorySearchManager,
+  MemorySearchResult,
+  ReadFileParams,
+  ReadFileResult,
+  SearchOptions,
+  SyncParams,
+} from "./types";
 
 export class QmdMemoryManager implements MemorySearchManager {
   static async create(params: {

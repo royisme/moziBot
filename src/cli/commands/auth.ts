@@ -1,6 +1,6 @@
-import { input } from "@inquirer/prompts";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { input } from "@inquirer/prompts";
 import pc from "picocolors";
 import { resolveConfigPath } from "../../config/loader";
 

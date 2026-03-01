@@ -1,6 +1,6 @@
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
-import type { OutboundMessage } from "../../../adapters/channels/types";
 import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
+import type { OutboundMessage } from "../../../adapters/channels/types";
 import { renderAssistantReply } from "../../reply-utils";
 
 /**

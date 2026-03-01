@@ -1,9 +1,9 @@
-import { Type } from "@sinclair/typebox";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "@sinclair/typebox";
 import { z } from "zod";
-import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
 import { registerBuiltinExtension } from "../loader";
+import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
 
 const GroqTranscriptionConfigSchema = z.object({
   apiKeyEnv: z.string().default("GROQ_API_KEY"),

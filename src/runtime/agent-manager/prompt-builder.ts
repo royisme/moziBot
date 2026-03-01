@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import type { SkillLoader } from "../../agents/skills/loader";
-import type { InboundMessage } from "../adapters/channels/types";
-import type { SandboxConfig } from "../sandbox/types";
 import { checkBootstrapState, loadHomeFiles, type BootstrapState } from "../../agents/home";
+import type { SkillLoader } from "../../agents/skills/loader";
 import { loadWorkspaceFiles } from "../../agents/workspace";
 import { sanitizePromptLiteral } from "../../security/prompt-literal";
+import type { InboundMessage } from "../adapters/channels/types";
 import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
+import type { SandboxConfig } from "../sandbox/types";
 
 export function buildChannelContext(message: InboundMessage): string {
   const lines: string[] = ["# Channel Context"];

@@ -1,11 +1,11 @@
-import { execa } from "execa";
 import { randomUUID } from "node:crypto";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { execa } from "execa";
 import type { MoziConfig } from "../../config";
-import type { InboundMessage, MediaAttachment } from "../adapters/channels/types";
 import { logger } from "../../logger";
+import type { InboundMessage, MediaAttachment } from "../adapters/channels/types";
 
 type VoiceSttConfig = NonNullable<NonNullable<MoziConfig["voice"]>["stt"]>;
 type RemoteSttConfig = NonNullable<VoiceSttConfig["remote"]>;

@@ -27,10 +27,10 @@ import {
   formatToolTitle,
   inferToolKind,
 } from "./event-mapper";
+import type { AcpBridgeRuntimeAdapter } from "./runtime-adapter";
 import { parseSessionMeta, resetSessionIfNeeded, resolveSessionKey } from "./session-mapper";
 import { defaultAcpSessionStore, type AcpSessionStore } from "./session-store";
 import { ACP_AGENT_INFO, type AcpServerOptions } from "./types";
-import type { AcpBridgeRuntimeAdapter } from "./runtime-adapter";
 
 // Maximum allowed prompt size (2MB) to prevent DoS via memory exhaustion (CWE-400, GHSA-cxpw-2g23-2vgw)
 const MAX_PROMPT_BYTES = 2 * 1024 * 1024;

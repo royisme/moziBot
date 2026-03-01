@@ -1,7 +1,7 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
 import fs from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { Type } from "@sinclair/typebox";
 import type { SkillLoader } from "../agents/skills/loader";
 
 export function createSkillsNoteTool(params: {

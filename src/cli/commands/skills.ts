@@ -1,6 +1,6 @@
 import chalk from "chalk";
-import type { MoziConfig } from "../../config";
 import { buildSkillStatusEntries, type SkillStatusEntry } from "../../agents/skills/status";
+import type { MoziConfig } from "../../config";
 import { loadConfig } from "../../config/loader";
 import { initExtensionsAsync, loadExtensions } from "../../extensions";
 import { resolveWorkspaceDir, type AgentEntry } from "../../runtime/agent-manager/config-resolver";

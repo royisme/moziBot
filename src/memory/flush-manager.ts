@@ -1,8 +1,8 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ResolvedMemoryPersistenceConfig } from "./backend-config";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { logger } from "../logger";
+import type { ResolvedMemoryPersistenceConfig } from "./backend-config";
 
 export interface FlushMetadata {
   lastAttemptedCycle: number;

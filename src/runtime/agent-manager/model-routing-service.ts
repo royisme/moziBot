@@ -1,8 +1,8 @@
 import type { MoziConfig } from "../../config";
+import { resolveAgentModelRouting } from "../../config/model-routing";
 import type { ModelRegistry } from "../model-registry";
 import type { SessionStore } from "../session-store";
 import type { AgentEntry } from "./config-resolver";
-import { resolveAgentModelRouting } from "../../config/model-routing";
 
 type ModalityInput = "text" | "image" | "audio" | "video" | "file";
 type NonTextModalityInput = "image" | "audio" | "video" | "file";

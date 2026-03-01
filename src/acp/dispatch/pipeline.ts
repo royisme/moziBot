@@ -1,10 +1,10 @@
-import type { InboundMessage } from "../../runtime/adapters/channels/types";
 import type { MoziConfig } from "../../config/schema";
-import { resolveAcpDispatchPolicyError } from "../policy";
+import type { InboundMessage } from "../../runtime/adapters/channels/types";
 import type { AcpBridgeEvent, AcpBridgeRuntimeAdapter } from "../bridge/runtime-adapter";
+import { resolveAcpDispatchPolicyError } from "../policy";
+import { readAcpSessionEntry, upsertAcpSessionMeta } from "../runtime/session-meta";
 import { isAcpSessionKey, resolveSessionKey } from "../session-key-utils";
 import type { SessionAcpMeta } from "../types";
-import { readAcpSessionEntry, upsertAcpSessionMeta } from "../runtime/session-meta";
 import {
   createAcpReplyProjector,
   type AcpProjectedReply,
@@ -61,7 +61,9 @@ function trimOrUndefined(value: string | undefined | null): string | undefined {
 
 function looksLikeSessionKey(value: string): boolean {
   const text = value.trim();
-  if (!text) return false;
+  if (!text) {
+    return false;
+  }
   return isAcpSessionKey(text) || text.includes(":");
 }
 
@@ -223,7 +225,10 @@ export class AcpDispatchPipeline {
    * @returns The dispatch result containing session key and metadata
    * @throws Error if no valid session can be resolved
    */
-  async dispatch(params: { message: InboundMessage; sessionKey?: string }): Promise<AcpDispatchResult> {
+  async dispatch(params: {
+    message: InboundMessage;
+    sessionKey?: string;
+  }): Promise<AcpDispatchResult> {
     const { message, sessionKey } = params;
 
     const policyError = resolveAcpDispatchPolicyError(this.config);

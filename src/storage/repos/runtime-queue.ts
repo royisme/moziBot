@@ -1,5 +1,5 @@
-import type { RuntimeQueueItem } from "../types";
 import { withConnection } from "../connection";
+import type { RuntimeQueueItem } from "../types";
 
 export const runtimeQueue = {
   enqueue: (item: {

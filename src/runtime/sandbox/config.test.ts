@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   SandboxBoundary,
   resolveCwd,
@@ -103,7 +103,9 @@ describe("SandboxBoundary", () => {
         mode: "off",
         blockedEnvKeys: ["CUSTOM_KEY"],
       };
-      expect(() => buildSafeEnv(customBoundary, { CUSTOM_KEY: "value" })).toThrow("env CUSTOM_KEY is not allowed");
+      expect(() => buildSafeEnv(customBoundary, { CUSTOM_KEY: "value" })).toThrow(
+        "env CUSTOM_KEY is not allowed",
+      );
     });
 
     it("should block uppercase overrides when blockedEnvKeys entries are lowercase", () => {
@@ -112,7 +114,9 @@ describe("SandboxBoundary", () => {
         mode: "off",
         blockedEnvKeys: ["path"],
       };
-      expect(() => buildSafeEnv(customBoundary, { PATH: "/usr/bin" })).toThrow("env PATH is not allowed");
+      expect(() => buildSafeEnv(customBoundary, { PATH: "/usr/bin" })).toThrow(
+        "env PATH is not allowed",
+      );
     });
 
     it("should not block keys not in blockedEnvKeys", () => {
@@ -127,7 +131,6 @@ describe("SandboxBoundary", () => {
   });
 
   describe("validateCommand", () => {
-
     it("should allow command when no allowlist", () => {
       const result = validateCommand("ls -la", undefined);
       expect(result.ok).toBe(true);

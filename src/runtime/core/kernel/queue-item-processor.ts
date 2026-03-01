@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { logger } from "../../../logger";
+import { runtimeQueue, type RuntimeQueueItem } from "../../../storage/db";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { MessageHandler } from "../../host/message-handler";
 import type { SessionManager } from "../../host/sessions/manager";
-import type { RuntimeErrorPolicy } from "../contracts";
-import { logger } from "../../../logger";
-import { runtimeQueue, type RuntimeQueueItem } from "../../../storage/db";
 import { SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
+import type { RuntimeErrorPolicy } from "../contracts";
 
 export async function processQueueItem(params: {
   queueItem: RuntimeQueueItem;

@@ -1,8 +1,8 @@
-import { execa } from "execa";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { execa } from "execa";
 import { afterEach, describe, expect, it } from "vitest";
 
 let baseDir = "";

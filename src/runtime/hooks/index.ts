@@ -1,6 +1,6 @@
-import type { RuntimeHookHandlerMap, RuntimeHookName } from "./types";
 import { logger } from "../../logger";
 import { createRuntimeHookRunner, RuntimeHookRegistry } from "./runner";
+import type { RuntimeHookHandlerMap, RuntimeHookName } from "./types";
 
 const globalRegistry = new RuntimeHookRegistry();
 const globalRunner = createRuntimeHookRunner(globalRegistry, {

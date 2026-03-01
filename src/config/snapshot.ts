@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import type { MoziConfig } from "./schema";
 import { loadConfig, resolveConfigPath, type ConfigLoadResult } from "./loader";
+import type { MoziConfig } from "./schema";
 
 export interface ConfigSnapshot {
   path: string;

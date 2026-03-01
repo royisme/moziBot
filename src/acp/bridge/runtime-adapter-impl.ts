@@ -1,7 +1,7 @@
 import type { MoziConfig } from "../../config/schema";
-import type { AcpBridgeRuntimeAdapter } from "./runtime-adapter";
 import { requireAcpRuntimeBackend } from "../runtime/registry";
 import { readAcpSessionEntry, upsertAcpSessionMeta } from "../runtime/session-meta";
+import type { AcpBridgeRuntimeAdapter } from "./runtime-adapter";
 
 export type AcpBridgeRuntimeAdapterOptions = {
   config: MoziConfig;
@@ -15,14 +15,12 @@ export type AcpBridgeRuntimeAdapterOptions = {
 export function createAcpBridgeRuntimeAdapter(
   options: AcpBridgeRuntimeAdapterOptions,
 ): AcpBridgeRuntimeAdapter {
-  const { config, defaultSessionKey, verbose } = options;
-  const log = verbose
-    ? (msg: string) => process.stderr.write(`[acp-bridge] ${msg}\n`)
-    : () => {};
+  const { defaultSessionKey, verbose } = options;
+  const log = verbose ? (msg: string) => process.stderr.write(`[acp-bridge] ${msg}\n`) : () => {};
 
   return {
     async *sendMessage(params) {
-      const { sessionKey, text, attachments, signal } = params;
+      const { sessionKey, text, signal } = params;
 
       log(`sendMessage: session=${sessionKey}, text=${text.substring(0, 50)}...`);
 
@@ -78,7 +76,9 @@ export function createAcpBridgeRuntimeAdapter(
       upsertAcpSessionMeta({
         sessionKey,
         mutate: (current) => {
-          if (!current) return null;
+          if (!current) {
+            return null;
+          }
           return {
             ...current,
             state: "idle",
@@ -133,7 +133,9 @@ export function createAcpBridgeRuntimeAdapter(
       upsertAcpSessionMeta({
         sessionKey,
         mutate: (current) => {
-          if (!current) return null;
+          if (!current) {
+            return null;
+          }
           return {
             ...current,
             identity: undefined,
@@ -184,7 +186,13 @@ export function createAcpBridgeRuntimeAdapter(
 
 async function ensureRuntimeHandle(params: {
   sessionKey: string;
-  meta: { backend: string; agent: string; runtimeSessionName: string; cwd?: string; identity?: { acpxSessionId?: string; agentSessionId?: string; acpxRecordId?: string } };
+  meta: {
+    backend: string;
+    agent: string;
+    runtimeSessionName: string;
+    cwd?: string;
+    identity?: { acpxSessionId?: string; agentSessionId?: string; acpxRecordId?: string };
+  };
   backend: string;
 }): Promise<{
   sessionKey: string;
@@ -225,7 +233,9 @@ async function ensureRuntimeHandle(params: {
   upsertAcpSessionMeta({
     sessionKey,
     mutate: (current) => {
-      if (!current) return null;
+      if (!current) {
+        return null;
+      }
       return {
         ...current,
         identity: {

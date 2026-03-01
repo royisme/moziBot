@@ -1,8 +1,8 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { ProcessRegistry } from "./process-registry";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 
 describe("ProcessRegistry", () => {
   let tempDir: string;
@@ -304,7 +304,7 @@ describe("ProcessRegistry", () => {
 
     const record = registry.getStatus(processId);
     expect(record?.endedAt).toBeDefined();
-    expect(record?.endedAt!).toBeGreaterThanOrEqual(beforeExit);
-    expect(record?.endedAt!).toBeLessThanOrEqual(afterExit);
+    expect(record?.endedAt).toBeGreaterThanOrEqual(beforeExit);
+    expect(record?.endedAt).toBeLessThanOrEqual(afterExit);
   });
 });

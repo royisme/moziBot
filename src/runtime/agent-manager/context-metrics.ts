@@ -1,11 +1,11 @@
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
-import type { ModelRegistry } from "../model-registry";
-import type { SessionStore } from "../session-store";
+import { logger } from "../../logger";
+import { compactViaTape } from "../../tape/integration.js";
 import type { TapeService } from "../../tape/tape-service.js";
 import { estimateMessagesTokens, estimateTokens } from "../context-management";
 import { getRuntimeHookRunner } from "../hooks";
-import { logger } from "../../logger";
-import { compactViaTape } from "../../tape/integration.js";
+import type { ModelRegistry } from "../model-registry";
+import type { SessionStore } from "../session-store";
 
 export type ContextUsage = {
   usedTokens: number;
@@ -71,12 +71,15 @@ export async function compactSession(params: {
         if (tapeService) {
           const summary =
             typeof result === "object" && result !== null && "summary" in result
-              ? (result as { summary?: string }).summary ?? ""
+              ? ((result as { summary?: string }).summary ?? "")
               : "";
           compactViaTape(tapeService, summary);
         }
       } catch (tapeErr) {
-        logger.warn({ sessionKey, err: tapeErr }, "Tape compaction anchor write failed (non-fatal)");
+        logger.warn(
+          { sessionKey, err: tapeErr },
+          "Tape compaction anchor write failed (non-fatal)",
+        );
       }
     }
 

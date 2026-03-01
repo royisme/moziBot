@@ -1,6 +1,6 @@
-import { logger } from "../../../../logger";
-import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { logger } from "../../../../logger";
 
 const DATA_DIR = process.env.DATA_DIR ?? ".data";
 
@@ -34,12 +34,14 @@ export class TelegramUpdateDedup {
 
   markPending(updateId: number): void {
     this.pendingUpdateIds.add(updateId);
-    if (updateId > this.highWatermark) this.highWatermark = updateId;
+    if (updateId > this.highWatermark) {
+      this.highWatermark = updateId;
+    }
   }
 
   markDone(updateId: number): void {
     this.pendingUpdateIds.delete(updateId);
-    this.maybePersist();
+    void this.maybePersist();
   }
 
   private async maybePersist(): Promise<void> {
@@ -48,7 +50,11 @@ export class TelegramUpdateDedup {
     if (this.pendingUpdateIds.size === 0 && this.highWatermark > this.lastSafeUpdateId) {
       this.lastSafeUpdateId = this.highWatermark;
       try {
-        await writeFile(this.watermarkFile, JSON.stringify({ updateId: this.lastSafeUpdateId }), "utf-8");
+        await writeFile(
+          this.watermarkFile,
+          JSON.stringify({ updateId: this.lastSafeUpdateId }),
+          "utf-8",
+        );
       } catch (err) {
         logger.warn({ err }, "Failed to persist Telegram watermark");
       }

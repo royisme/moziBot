@@ -1,8 +1,8 @@
-import { config as loadDotEnv } from "dotenv";
-import { parse as parseJsonc } from "jsonc-parser";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { config as loadDotEnv } from "dotenv";
+import { parse as parseJsonc } from "jsonc-parser";
 import { replaceEnvVars } from "./env";
 import { processIncludes } from "./includes";
 import { MoziConfigSchema, type MoziConfig } from "./schema";

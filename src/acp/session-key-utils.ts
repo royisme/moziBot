@@ -1,4 +1,3 @@
-import type { MoziConfig } from "../config/schema";
 import { listAcpSessionEntries } from "./runtime/session-meta";
 
 /**
@@ -11,7 +10,9 @@ import { listAcpSessionEntries } from "./runtime/session-meta";
  */
 export function isAcpSessionKey(sessionKey: string | undefined | null): boolean {
   const raw = (sessionKey ?? "").trim();
-  if (!raw) return false;
+  if (!raw) {
+    return false;
+  }
   const normalized = raw.toLowerCase();
   return normalized.includes(":acp:");
 }
@@ -19,11 +20,8 @@ export function isAcpSessionKey(sessionKey: string | undefined | null): boolean 
 /**
  * Resolves a session key from a key or label.
  */
-export async function resolveSessionKey(params: {
-  keyOrLabel: string;
-  config: MoziConfig;
-}): Promise<string | null> {
-  const { keyOrLabel, config } = params;
+export async function resolveSessionKey(params: { keyOrLabel: string }): Promise<string | null> {
+  const { keyOrLabel } = params;
   const normalized = keyOrLabel.trim();
 
   // If it looks like a full session key, use it directly

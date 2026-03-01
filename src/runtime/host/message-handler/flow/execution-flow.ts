@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
-import type { ExecutionFlow } from "../contract";
-import type { FallbackInfo } from "../services/prompt-runner";
 import { getRuntimeHookRunner } from "../../../hooks";
 import { renderAssistantReply } from "../../reply-utils";
+import type { ExecutionFlow } from "../contract";
+import type { FallbackInfo } from "../services/prompt-runner";
 import { resolveCurrentReasoningLevel } from "../services/reasoning-level";
 import { StreamingBuffer } from "../services/streaming";
 import { resolveTerminalReplyDecision } from "../services/terminal-text-resolver";

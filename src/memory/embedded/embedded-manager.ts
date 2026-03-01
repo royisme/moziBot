@@ -1,10 +1,13 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
-import chokidar, { type FSWatcher } from "chokidar";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import Database, { type Database as DatabaseType } from "better-sqlite3";
+import chokidar, { type FSWatcher } from "chokidar";
 import type { MoziConfig } from "../../config";
+import { logger } from "../../logger";
 import type { ResolvedEmbeddedConfig, ResolvedMemoryBackendConfig } from "../backend-config";
+import { applyRecallPostProcessing } from "../recall";
+import { onSessionTranscriptUpdate } from "../session-transcript-events";
 import type {
   MemoryEmbeddingProbeResult,
   MemoryProviderStatus,
@@ -16,9 +19,6 @@ import type {
   SearchOptions,
   SyncParams,
 } from "../types";
-import { logger } from "../../logger";
-import { applyRecallPostProcessing } from "../recall";
-import { onSessionTranscriptUpdate } from "../session-transcript-events";
 import { createRemoteEmbeddingProvider, type EmbeddingProvider } from "./embedding-provider";
 import {
   buildFileEntry,

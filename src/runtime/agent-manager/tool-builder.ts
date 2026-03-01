@@ -2,21 +2,26 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { SkillLoader } from "../../agents/skills/loader";
 import type { MoziConfig } from "../../config";
 import type { ExtensionRegistry } from "../../extensions";
-import type { MemorySearchManager } from "../../memory/types";
-import type { SandboxConfig } from "../sandbox/types";
-import type { SubagentRegistry } from "../subagent-registry";
-import type { ModelSpec } from "../types";
-import type { AgentEntry } from "./config-resolver";
-import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
 import { logger } from "../../logger";
+import { getMemoryManager, getMemoryLifecycleOrchestrator } from "../../memory";
+import type { MemorySearchManager } from "../../memory/types";
 import { createRuntimeSecretBroker } from "../auth/broker";
-import { getRuntimeHookRunner } from "../hooks";
-import { createExecTool } from "../exec-tool";
 import { type AuthResolver, type ExecRuntime } from "../exec-runtime";
+import { createExecTool } from "../exec-tool";
+import { getRuntimeHookRunner } from "../hooks";
+import type { SandboxConfig } from "../sandbox/types";
 import { sanitizeTools } from "../schema-sanitizer";
 import { createSkillsNoteTool } from "../skills-note";
+import type { SubagentRegistry } from "../subagent-registry";
 import { filterTools } from "../tool-selection";
-import { createMemoryTools, createPiCodingTools, createProcessTools, createSubagentTool } from "../tools";
+import {
+  createMemoryTools,
+  createPiCodingTools,
+  createProcessTools,
+  createSubagentTool,
+} from "../tools";
+import type { ModelSpec } from "../types";
+import type { AgentEntry } from "./config-resolver";
 import {
   resolveToolAllowList,
   resolveExecAllowlist,

@@ -1,6 +1,6 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import Database, { type Database as DatabaseType } from "better-sqlite3";
 import { logger } from "../logger";
 import { runMigrations } from "./migrations";
 

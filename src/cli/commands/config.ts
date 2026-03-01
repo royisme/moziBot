@@ -1,6 +1,6 @@
-import JSON5 from "json5";
 import fs from "node:fs";
 import { promises as fsp } from "node:fs";
+import JSON5 from "json5";
 import type { MoziConfig } from "../../config";
 import {
   applyConfigOps,

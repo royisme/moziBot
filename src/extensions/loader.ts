@@ -1,9 +1,13 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import { createJiti } from "jiti";
 import fs from "node:fs";
 import path from "node:path";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { createJiti } from "jiti";
 import type { ExtensionsConfig } from "../config/schema/extensions";
+import { logger } from "../logger";
 import type { RuntimeHookName } from "../runtime/hooks/types";
+import { validateManifest } from "./manifest";
+import { McpClientManager } from "./mcp";
+import { ExtensionRegistry } from "./registry";
 import type {
   ExtensionCapabilities,
   ExtensionCommandDefinition,
@@ -15,10 +19,6 @@ import type {
   ExtensionHookDefinition,
   LoadedExtension,
 } from "./types";
-import { logger } from "../logger";
-import { validateManifest } from "./manifest";
-import { McpClientManager } from "./mcp";
-import { ExtensionRegistry } from "./registry";
 
 /**
  * Builtin extension factory function type.

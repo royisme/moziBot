@@ -1,8 +1,8 @@
 import pc from "picocolors";
+import { createAcpBridgeRuntimeAdapter } from "../../acp/bridge/runtime-adapter-impl";
+import { serveAcpBridge } from "../../acp/bridge/server";
 import { loadConfig } from "../../config/loader";
 import { isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { serveAcpBridge } from "../../acp/bridge/server";
-import { createAcpBridgeRuntimeAdapter } from "../../acp/bridge/runtime-adapter-impl";
 
 export type AcpBridgeOptions = {
   config?: string;

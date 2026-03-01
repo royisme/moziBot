@@ -1,5 +1,5 @@
-import type { AuthSecret } from "../types";
 import { withConnection } from "../connection";
+import type { AuthSecret } from "../types";
 
 export const authSecrets = {
   upsert: (secret: {

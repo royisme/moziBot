@@ -18,6 +18,7 @@ createExecTool also directly calls:
 ```
 
 **Problems:**
+
 1. `SandboxExecutor` is responsible for execution — sandbox should only define boundaries/config
 2. The `exec` tool has two execution paths: `SandboxExecutor.exec()` for one-shot, `ProcessSupervisor.start()` for background — inconsistent
 3. `host-exec.ts` uses `execFile` with a 120s timeout — cannot support long-running processes
@@ -63,7 +64,7 @@ export interface SandboxBoundary {
   workspaceDir: string;
   allowlist?: string[];
   blockedEnvKeys?: string[];
-  mode: 'off' | 'docker' | 'apple-vm' | 'vibebox';
+  mode: "off" | "docker" | "apple-vm" | "vibebox";
 }
 
 export function resolveCwd(boundary: SandboxBoundary, cwd?: string): string {
@@ -73,7 +74,7 @@ export function resolveCwd(boundary: SandboxBoundary, cwd?: string): string {
 
 export function buildSafeEnv(
   boundary: SandboxBoundary,
-  override?: Record<string, string>
+  override?: Record<string, string>,
 ): Record<string, string> {
   // Move from host-exec.ts
   // Filters blocked env keys
@@ -81,13 +82,14 @@ export function buildSafeEnv(
 
 export function validateCommand(
   command: string,
-  allowlist?: string[]
+  allowlist?: string[],
 ): { ok: true } | { ok: false; reason: string } {
   // Move command extraction + allowlist check from host-exec.ts
 }
 ```
 
 **Changes:**
+
 - `SandboxExecutor` interface loses `exec()` method — becomes `SandboxConfig` only
 - `host-exec.ts` becomes a thin wrapper or is deleted
 - `resolveCwd`, `buildSafeEnv`, `extractCommandNames` move to `config.ts`
@@ -164,12 +166,12 @@ export class ExecRuntime {
 
 ```typescript
 export function createExecTool(params: {
-  runtime: ExecRuntime;  // replaces executor: SandboxExecutor
+  runtime: ExecRuntime; // replaces executor: SandboxExecutor
   agentId: string;
   sessionKey: string;
 }): AgentTool {
   return {
-    name: 'exec',
+    name: "exec",
     execute: async (_toolCallId, args) => {
       const result = await params.runtime.execute({
         ...normalizeExecArgs(args),
@@ -185,23 +187,24 @@ export function createExecTool(params: {
 ### Phase 5: Update Tool Builder / Agent Manager
 
 Update `tool-builder.ts` and `agent-manager` to:
+
 1. Create `SandboxBoundary` from config (instead of `SandboxExecutor`)
 2. Create `ExecRuntime` with boundary + supervisor + registry
 3. Pass `ExecRuntime` to `createExecTool`
 
 ## File Change Summary
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/runtime/sandbox/config.ts` | **New** | Pure sandbox config + validation |
-| `src/runtime/exec-runtime.ts` | **New** | Unified execution runtime |
-| `src/runtime/sandbox/executor.ts` | **Delete** | Replaced by config.ts + exec-runtime.ts |
-| `src/runtime/sandbox/host-exec.ts` | **Delete** | Logic moves to config.ts + supervisor |
-| `src/runtime/sandbox/service.ts` | **Modify** | Becomes sandbox config provider only |
-| `src/runtime/sandbox/tool.ts` | **Rewrite** | Thin wrapper around ExecRuntime |
-| `src/process/supervisor.ts` | **Extend** | Add one-shot support (waitForExit) |
-| `src/runtime/agent-manager/tool-builder.ts` | **Modify** | Use ExecRuntime instead of SandboxExecutor |
-| `src/runtime/tools.ts` | **Modify** | Update tool creation |
+| File                                        | Action      | Description                                |
+| ------------------------------------------- | ----------- | ------------------------------------------ |
+| `src/runtime/sandbox/config.ts`             | **New**     | Pure sandbox config + validation           |
+| `src/runtime/exec-runtime.ts`               | **New**     | Unified execution runtime                  |
+| `src/runtime/sandbox/executor.ts`           | **Delete**  | Replaced by config.ts + exec-runtime.ts    |
+| `src/runtime/sandbox/host-exec.ts`          | **Delete**  | Logic moves to config.ts + supervisor      |
+| `src/runtime/sandbox/service.ts`            | **Modify**  | Becomes sandbox config provider only       |
+| `src/runtime/sandbox/tool.ts`               | **Rewrite** | Thin wrapper around ExecRuntime            |
+| `src/process/supervisor.ts`                 | **Extend**  | Add one-shot support (waitForExit)         |
+| `src/runtime/agent-manager/tool-builder.ts` | **Modify**  | Use ExecRuntime instead of SandboxExecutor |
+| `src/runtime/tools.ts`                      | **Modify**  | Update tool creation                       |
 
 ## Migration Strategy
 

@@ -1,8 +1,8 @@
 import type { IncomingMessage } from "node:http";
-import type { AddressInfo } from "node:net";
-import type { Duplex } from "node:stream";
 import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import net from "node:net";
+import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";

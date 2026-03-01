@@ -1,6 +1,6 @@
 import type { MoziConfig } from "../../config/schema";
-import type { SessionAcpMeta } from "../types";
 import { ACP_ERROR_CODES, AcpRuntimeError } from "../runtime/errors";
+import type { SessionAcpMeta } from "../types";
 
 export function resolveAcpAgentFromSessionKey(sessionKey: string, fallback = "main"): string {
   // Session keys have format: agent:{agentId}:...

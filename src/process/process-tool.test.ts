@@ -1,16 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { createProcessTool } from "./process-tool";
-import {
-  getProcessRegistry,
-  closeProcessRegistry,
-  resetProcessSupervisor,
-} from "./index";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { getProcessRegistry, closeProcessRegistry, resetProcessSupervisor } from "./index";
+import { createProcessTool } from "./process-tool";
 
-function text(result: Awaited<ReturnType<ReturnType<typeof createProcessTool>["execute"]>>, idx = 0): string {
-  const item = result.content[idx] as any;
+function text(
+  result: Awaited<ReturnType<ReturnType<typeof createProcessTool>["execute"]>>,
+  idx = 0,
+): string {
+  const item = result.content[idx] as { text?: string };
   return item.text ?? "";
 }
 

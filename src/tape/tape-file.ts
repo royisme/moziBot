@@ -1,6 +1,14 @@
-import { existsSync, unlinkSync, renameSync, appendFileSync, mkdirSync, statSync, readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import type { TapeEntry } from './types.js';
+import {
+  existsSync,
+  unlinkSync,
+  renameSync,
+  appendFileSync,
+  mkdirSync,
+  statSync,
+  readFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+import type { TapeEntry } from "./types.js";
 
 export class TapeFile {
   private _readEntries: TapeEntry[] = [];
@@ -19,9 +27,9 @@ export class TapeFile {
 
     // Read entire file on first call or if offset is 0 and we have no entries
     if (this._readOffset === 0 && this._readEntries.length === 0) {
-      const content = readFileSync(this.filePath, 'utf-8');
+      const content = readFileSync(this.filePath, "utf-8");
       if (content) {
-        const lines = content.split('\n').filter((line) => line.trim() !== '');
+        const lines = content.split("\n").filter((line) => line.trim() !== "");
         const entries: TapeEntry[] = [];
         for (const line of lines) {
           try {
@@ -34,7 +42,7 @@ export class TapeFile {
           }
         }
         this._readEntries = entries;
-        this._readOffset = Buffer.byteLength(content, 'utf-8');
+        this._readOffset = Buffer.byteLength(content, "utf-8");
         this._nextIdCache = entries.length > 0 ? entries[entries.length - 1].id + 1 : 1;
       } else {
         this._readEntries = [];
@@ -48,8 +56,8 @@ export class TapeFile {
         // Read as Buffer and slice by byte offset to handle multi-byte UTF-8 correctly
         const buffer = readFileSync(this.filePath);
         const newBuffer = buffer.subarray(this._readOffset);
-        const newContent = newBuffer.toString('utf-8');
-        const lines = newContent.split('\n').filter((line) => line.trim() !== '');
+        const newContent = newBuffer.toString("utf-8");
+        const lines = newContent.split("\n").filter((line) => line.trim() !== "");
         for (const line of lines) {
           try {
             const entry = JSON.parse(line) as TapeEntry;
@@ -72,11 +80,11 @@ export class TapeFile {
     return [...this._readEntries];
   }
 
-  append(entry: Omit<TapeEntry, 'id'>): TapeEntry {
+  append(entry: Omit<TapeEntry, "id">): TapeEntry {
     return this._appendInternal(entry);
   }
 
-  appendMany(entries: Omit<TapeEntry, 'id'>[]): TapeEntry[] {
+  appendMany(entries: Omit<TapeEntry, "id">[]): TapeEntry[] {
     const result: TapeEntry[] = [];
     for (const entry of entries) {
       result.push(this._appendInternal(entry));
@@ -84,7 +92,7 @@ export class TapeFile {
     return result;
   }
 
-  private _appendInternal(entry: Omit<TapeEntry, 'id'>): TapeEntry {
+  private _appendInternal(entry: Omit<TapeEntry, "id">): TapeEntry {
     const id = this._nextId();
     const fullEntry: TapeEntry = {
       ...entry,
@@ -98,12 +106,12 @@ export class TapeFile {
     }
 
     // Append to file
-    const line = JSON.stringify(fullEntry) + '\n';
-    appendFileSync(this.filePath, line, 'utf-8');
+    const line = JSON.stringify(fullEntry) + "\n";
+    appendFileSync(this.filePath, line, "utf-8");
 
     // Update internal state
     this._readEntries.push(fullEntry);
-    this._readOffset += Buffer.byteLength(line, 'utf-8');
+    this._readOffset += Buffer.byteLength(line, "utf-8");
     this._nextIdCache = id + 1;
 
     return fullEntry;
@@ -125,7 +133,7 @@ export class TapeFile {
 
     // Generate timestamp
     const now = new Date();
-    const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, 17) + 'Z';
+    const timestamp = now.toISOString().replace(/[:.]/g, "").slice(0, 17) + "Z";
     const newPath = `${this.filePath}.${timestamp}.bak`;
 
     renameSync(this.filePath, newPath);
@@ -150,8 +158,8 @@ export class TapeFile {
 
     // Write all entries to target
     for (const entry of entries) {
-      const line = JSON.stringify(entry) + '\n';
-      appendFileSync(target.filePath, line, 'utf-8');
+      const line = JSON.stringify(entry) + "\n";
+      appendFileSync(target.filePath, line, "utf-8");
     }
 
     // Let target build its own internal state by reading the file
@@ -165,7 +173,7 @@ export class TapeFile {
     const filteredEntries = sourceEntries.filter((entry) => entry.id >= fromId);
 
     for (const entry of filteredEntries) {
-      const { id, ...entryWithoutId } = entry;
+      const { id: _id, ...entryWithoutId } = entry;
       this._appendInternal(entryWithoutId);
     }
   }
@@ -186,15 +194,17 @@ export class TapeFile {
   }
 
   private _isValidEntry(entry: unknown): entry is TapeEntry {
-    if (typeof entry !== 'object' || entry === null) return false;
+    if (typeof entry !== "object" || entry === null) {
+      return false;
+    }
     const e = entry as Record<string, unknown>;
     return (
-      typeof e.id === 'number' &&
-      typeof e.kind === 'string' &&
-      ['message', 'tool_call', 'tool_result', 'anchor', 'event', 'system'].includes(e.kind) &&
-      typeof e.payload === 'object' &&
+      typeof e.id === "number" &&
+      typeof e.kind === "string" &&
+      ["message", "tool_call", "tool_result", "anchor", "event", "system"].includes(e.kind) &&
+      typeof e.payload === "object" &&
       e.payload !== null &&
-      typeof e.meta === 'object' &&
+      typeof e.meta === "object" &&
       e.meta !== null
     );
   }

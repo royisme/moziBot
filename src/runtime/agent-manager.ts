@@ -1,20 +1,13 @@
-import type { Api, Model, StreamOptions, StreamFunction } from "@mariozechner/pi-ai";
-import { streamSimple } from "@mariozechner/pi-ai";
+import os from "node:os";
+import path from "node:path";
 import { type AgentTool, type ThinkingLevel } from "@mariozechner/pi-agent-core";
+import type { Api, Model, StreamFunction } from "@mariozechner/pi-ai";
+import { streamSimple } from "@mariozechner/pi-ai";
 import {
   AuthStorage as PiAuthStorage,
   type AgentSession,
   ModelRegistry as PiCodingModelRegistry,
 } from "@mariozechner/pi-coding-agent";
-import os from "node:os";
-import path from "node:path";
-import type { MoziConfig } from "../config";
-import type { InboundMessage } from "./adapters/channels/types";
-import { type SandboxConfig, type SandboxProbeResult } from "./sandbox/types";
-import { SandboxService } from "./sandbox/service";
-import { VibeboxExecutor } from "./sandbox/vibebox-executor";
-import type { SubagentRegistry } from "./subagent-registry";
-import type { ModelSpec } from "./types";
 import {
   ensureHome,
   loadHomeFiles,
@@ -22,15 +15,17 @@ import {
   type BootstrapState,
 } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
+import type { MoziConfig } from "../config";
 import { type ExtensionRegistry } from "../extensions";
 import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
-import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
-import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
 import { createTapeStore, createTapeService, buildMessagesFromTape } from "../tape/integration.js";
 import type { TapeMessage } from "../tape/tape-context.js";
 import type { TapeService } from "../tape/tape-service.js";
 import { TapeStore } from "../tape/tape-store.js";
+import type { InboundMessage } from "./adapters/channels/types";
+import { createAndInitializeAgentSession } from "./agent-manager/agent-session-factory";
+import { resolveOrCreateAgentSession } from "./agent-manager/agent-session-orchestrator";
 // Extracted modules
 import {
   type AgentEntry,
@@ -84,7 +79,12 @@ import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
+import { SandboxService } from "./sandbox/service";
+import { type SandboxConfig, type SandboxProbeResult } from "./sandbox/types";
+import { VibeboxExecutor } from "./sandbox/vibebox-executor";
 import { SessionStore } from "./session-store";
+import type { SubagentRegistry } from "./subagent-registry";
+import type { ModelSpec } from "./types";
 
 export type { AgentEntry };
 
@@ -127,9 +127,7 @@ function normalizePiInputCapabilities(
  * (WebSocket-first, SSE fallback) for OpenAI Codex providers.
  * When transport is explicitly set in options it overrides the default.
  */
-export function createCodexDefaultTransportWrapper(
-  baseStreamFn?: StreamFunction,
-): StreamFunction {
+export function createCodexDefaultTransportWrapper(baseStreamFn?: StreamFunction): StreamFunction {
   const underlying = baseStreamFn ?? streamSimple;
   return (model, context, options) =>
     underlying(model, context, {
@@ -609,7 +607,11 @@ export class AgentManager {
       getProcessRegistry: () => import("../process/process-registry").ProcessRegistry;
     };
     const { createSandboxBoundary } = require("./sandbox/config") as {
-      createSandboxBoundary: (workspaceDir: string, config?: SandboxConfig, allowlist?: string[]) => import("./sandbox/config").SandboxBoundary;
+      createSandboxBoundary: (
+        workspaceDir: string,
+        config?: SandboxConfig,
+        allowlist?: string[],
+      ) => import("./sandbox/config").SandboxBoundary;
     };
 
     const { ExecRuntime } = require("./exec-runtime") as {
@@ -634,14 +636,14 @@ export class AgentManager {
     // ExecRuntime can delegate execution to the external vibebox binary bridge.
     let vibeboxExecutor: import("./sandbox/vibebox-executor").VibeboxExecutor | undefined;
     if (boundary.mode === "vibebox") {
-      const { VibeboxExecutor } = require("./sandbox/vibebox-executor") as {
+      const { VibeboxExecutor: VibeboxExecutorClass } = require("./sandbox/vibebox-executor") as {
         VibeboxExecutor: new (params: {
           config?: import("./sandbox/types").SandboxVibeboxConfig;
           defaultProvider?: "off" | "apple-vm" | "docker";
         }) => import("./sandbox/vibebox-executor").VibeboxExecutor;
       };
       const sandboxMode = params.sandboxConfig?.mode ?? "apple-vm";
-      vibeboxExecutor = new VibeboxExecutor({
+      vibeboxExecutor = new VibeboxExecutorClass({
         config: params.sandboxConfig?.apple?.vibebox,
         defaultProvider: sandboxMode === "docker" ? "docker" : "apple-vm",
       });
@@ -743,10 +745,10 @@ export class AgentManager {
       agentModelRefs: this.agentModelRefs,
       runtimeModelOverrides: this.runtimeModelOverrides,
       resolveDefaultAgentId: () => this.resolveDefaultAgentId(),
-      getAgentEntry: (agentId) => this.getAgentEntry(agentId),
-      resolveAgentModelRef: (agentId, entry) => this.resolveAgentModelRef(agentId, entry),
-      setSessionModel: async (sessionKey, modelRef, options) =>
-        await this.setSessionModel(sessionKey, modelRef, options),
+      getAgentEntry: (targetAgentId) => this.getAgentEntry(targetAgentId),
+      resolveAgentModelRef: (targetAgentId, agentEntry) =>
+        this.resolveAgentModelRef(targetAgentId, agentEntry),
+      setSessionModel: async (sk, mRef, opts) => await this.setSessionModel(sk, mRef, opts),
       createAndInitializeAgentSession: async (params) =>
         await createAndInitializeAgentSession({
           ...params,
@@ -911,7 +913,9 @@ export class AgentManager {
    */
   getMessagesFromTape(sessionKey: string): TapeMessage[] | null {
     const tapeService = this.getTapeService(sessionKey);
-    if (!tapeService) return null;
+    if (!tapeService) {
+      return null;
+    }
     return buildMessagesFromTape(tapeService);
   }
 
@@ -971,7 +975,10 @@ export class AgentManager {
       this.tapeServices.set(sessionKey, service);
       return service;
     } catch (err) {
-      logger.warn({ sessionKey, err }, "TapeService creation failed; tape dual-write disabled for session");
+      logger.warn(
+        { sessionKey, err },
+        "TapeService creation failed; tape dual-write disabled for session",
+      );
       return null;
     }
   }

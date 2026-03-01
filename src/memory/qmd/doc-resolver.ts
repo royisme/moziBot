@@ -1,7 +1,7 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
 import path from "node:path";
-import type { MemorySource } from "../types";
+import Database, { type Database as DatabaseType } from "better-sqlite3";
 import { logger } from "../../logger";
+import type { MemorySource } from "../types";
 import { buildSearchPath, type CollectionRoot } from "./path-utils";
 
 export class QmdDocResolver {

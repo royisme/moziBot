@@ -40,9 +40,7 @@ export const BLOCKED_ENV_KEYS = new Set([
  */
 export function resolveCwd(boundary: SandboxBoundary, cwd?: string): string {
   const base = path.resolve(boundary.workspaceDir);
-  const target = cwd
-    ? path.resolve(path.isAbsolute(cwd) ? cwd : path.join(base, cwd))
-    : base;
+  const target = cwd ? path.resolve(path.isAbsolute(cwd) ? cwd : path.join(base, cwd)) : base;
   const rel = path.relative(base, target);
   if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
     return target;
@@ -73,11 +71,13 @@ export function buildSafeEnv(
     return env;
   }
 
-  const blockedKeys = (boundary.blockedEnvKeys ?? Array.from(BLOCKED_ENV_KEYS)).map(k => k.toUpperCase());
+  const blockedKeys = new Set(
+    (boundary.blockedEnvKeys ?? Array.from(BLOCKED_ENV_KEYS)).map((k) => k.toUpperCase()),
+  );
 
   for (const [key, value] of Object.entries(override)) {
     const upper = key.toUpperCase();
-    if (blockedKeys.includes(upper)) {
+    if (blockedKeys.has(upper)) {
       throw new Error(`env ${key} is not allowed`);
     }
     env[key] = value;
@@ -258,8 +258,7 @@ export function createSandboxBoundary(
   // Detect vibebox configuration: mode is 'vibebox' when the apple backend is
   // explicitly set to vibebox, or when vibebox is explicitly enabled.
   const vibeboxEnabled =
-    config?.apple?.backend === "vibebox" ||
-    config?.apple?.vibebox?.enabled === true;
+    config?.apple?.backend === "vibebox" || config?.apple?.vibebox?.enabled === true;
 
   const effectiveMode: SandboxBoundary["mode"] = vibeboxEnabled
     ? "vibebox"

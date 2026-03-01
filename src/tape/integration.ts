@@ -6,11 +6,11 @@
  * bridge layer that will be used in Phase 3/4 to replace existing session management.
  */
 
-import { TapeStore } from './tape-store.js';
-import { TapeService } from './tape-service.js';
-import { selectMessages } from './tape-context.js';
-import type { TapeMessage } from './tape-context.js';
-import type { TapeInfo } from './types.js';
+import { selectMessages } from "./tape-context.js";
+import type { TapeMessage } from "./tape-context.js";
+import { TapeService } from "./tape-service.js";
+import { TapeStore } from "./tape-store.js";
+import type { TapeInfo } from "./types.js";
 
 /**
  * Create a TapeStore for a workspace.
@@ -25,10 +25,7 @@ export function createTapeStore(homePath: string, workspacePath: string): TapeSt
  * Create a TapeService for a session.
  * tapeName format: {prefix}:{sessionSlug}
  */
-export function createTapeService(
-  store: TapeStore,
-  tapeName: string,
-): TapeService {
+export function createTapeService(store: TapeStore, tapeName: string): TapeService {
   const service = new TapeService(tapeName, store);
   service.ensureBootstrapAnchor();
   return service;
@@ -65,7 +62,7 @@ export function recordTurnToTape(
     meta?: Record<string, unknown>;
   },
 ): void {
-  service.appendMessage('user', params.userMessage, params.meta);
+  service.appendMessage("user", params.userMessage, params.meta);
 
   if (params.toolCalls && params.toolCalls.length > 0) {
     service.appendToolCall(params.toolCalls, params.meta);
@@ -76,7 +73,7 @@ export function recordTurnToTape(
   }
 
   if (params.assistantMessage) {
-    service.appendMessage('assistant', params.assistantMessage, params.meta);
+    service.appendMessage("assistant", params.assistantMessage, params.meta);
   }
 }
 
@@ -90,8 +87,8 @@ export function compactViaTape(
   summary: string,
   nextSteps?: string[],
 ): TapeInfo {
-  service.handoff('auto-compact', {
-    owner: 'system',
+  service.handoff("auto-compact", {
+    owner: "system",
     summary,
     nextSteps,
   });

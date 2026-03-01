@@ -27,18 +27,18 @@ The atomic unit of the tape. Every interaction — messages, tool calls, anchors
 
 ```typescript
 type TapeEntryKind =
-  | 'message'      // LLM conversation message (user/assistant/system)
-  | 'tool_call'    // Tool invocation
-  | 'tool_result'  // Tool execution result
-  | 'anchor'       // Phase boundary / handoff marker
-  | 'event'        // System event (step.start, step.finish, etc.)
-  | 'system';      // Injected system instruction
+  | "message" // LLM conversation message (user/assistant/system)
+  | "tool_call" // Tool invocation
+  | "tool_result" // Tool execution result
+  | "anchor" // Phase boundary / handoff marker
+  | "event" // System event (step.start, step.finish, etc.)
+  | "system"; // Injected system instruction
 
 interface TapeEntry {
-  id: number;           // Monotonically increasing within a tape
+  id: number; // Monotonically increasing within a tape
   kind: TapeEntryKind;
   payload: Record<string, unknown>;
-  meta: Record<string, unknown>;  // timestamps, model info, etc.
+  meta: Record<string, unknown>; // timestamps, model info, etc.
 }
 ```
 
@@ -47,6 +47,7 @@ interface TapeEntry {
 A single `.tape.jsonl` file. Append-only. Each line is a JSON-serialized `TapeEntry`.
 
 Key properties:
+
 - **Append-only**: entries are never modified or deleted in the active tape
 - **Incremental reads**: tracks file offset to avoid re-reading on each access
 - **Thread-safe**: serialized writes via async mutex
@@ -58,10 +59,10 @@ A special `TapeEntry` with `kind: 'anchor'` that marks a phase boundary. Anchors
 
 ```typescript
 interface AnchorPayload {
-  name: string;           // e.g. "session/start", "phase-1", "task-complete"
+  name: string; // e.g. "session/start", "phase-1", "task-complete"
   state?: {
-    owner?: string;       // "human" | "agent"
-    summary?: string;     // Summary of preceding context
+    owner?: string; // "human" | "agent"
+    summary?: string; // Summary of preceding context
     nextSteps?: string[]; // Carry-forward instructions
     [key: string]: unknown;
   };
@@ -71,6 +72,7 @@ interface AnchorPayload {
 ### Handoff
 
 Creating an anchor is called a "handoff". It signals a transition point:
+
 - The LLM can trigger `tape.handoff` when context is getting long
 - The system triggers it on session reset, segment rotation, or overflow compaction
 - Each handoff carries optional summary/state that persists across the boundary
@@ -88,6 +90,7 @@ Main Tape: [entry1, entry2, ..., entryN]
 ```
 
 Benefits:
+
 - Failed/aborted interactions don't pollute the main tape
 - Concurrent inputs are isolated
 - The main tape only receives committed results
@@ -118,15 +121,15 @@ src/tape/
 
 ```typescript
 class TapeFile {
-  constructor(filePath: string)
+  constructor(filePath: string);
 
-  read(): TapeEntry[]              // Incremental read with offset tracking
-  append(entry: TapeEntry): void   // Auto-assigns ID, appends to file
-  appendMany(entries: TapeEntry[]): void
-  reset(): void                    // Delete file, clear cache
-  archive(): string | null         // Rename to timestamped .bak, return path
-  copyTo(target: TapeFile): void   // Full copy for fork
-  copyFrom(source: TapeFile, fromId: number): void  // Partial copy for merge
+  read(): TapeEntry[]; // Incremental read with offset tracking
+  append(entry: TapeEntry): void; // Auto-assigns ID, appends to file
+  appendMany(entries: TapeEntry[]): void;
+  reset(): void; // Delete file, clear cache
+  archive(): string | null; // Rename to timestamped .bak, return path
+  copyTo(target: TapeFile): void; // Full copy for fork
+  copyFrom(source: TapeFile, fromId: number): void; // Partial copy for merge
 }
 ```
 
@@ -134,16 +137,16 @@ class TapeFile {
 
 ```typescript
 class TapeStore {
-  constructor(tapesDir: string, workspacePath: string)
+  constructor(tapesDir: string, workspacePath: string);
 
-  list(): string[]                          // All tape names for this workspace
-  create(name: string): TapeFile            // Get or create a tape
-  fork(sourceName: string): string          // Fork → returns new tape name
-  merge(sourceName: string, targetName: string): void  // Merge fork back
-  reset(name: string): void
-  archive(name: string): string | null
-  read(name: string): TapeEntry[] | null
-  append(name: string, entry: TapeEntry): void
+  list(): string[]; // All tape names for this workspace
+  create(name: string): TapeFile; // Get or create a tape
+  fork(sourceName: string): string; // Fork → returns new tape name
+  merge(sourceName: string, targetName: string): void; // Merge fork back
+  reset(name: string): void;
+  archive(name: string): string | null;
+  read(name: string): TapeEntry[] | null;
+  append(name: string, entry: TapeEntry): void;
 }
 ```
 
@@ -153,33 +156,33 @@ File naming: `{workspaceHash}__{urlEncodedTapeName}.tape.jsonl`
 
 ```typescript
 class TapeService {
-  constructor(tapeName: string, store: TapeStore)
+  constructor(tapeName: string, store: TapeStore);
 
   // Core operations
-  appendMessage(role: string, content: string, meta?: Record<string, unknown>): void
-  appendToolCall(calls: ToolCallPayload[]): void
-  appendToolResult(results: ToolResultPayload[]): void
-  appendEvent(name: string, data: Record<string, unknown>): void
-  appendSystem(content: string): void
+  appendMessage(role: string, content: string, meta?: Record<string, unknown>): void;
+  appendToolCall(calls: ToolCallPayload[]): void;
+  appendToolResult(results: ToolResultPayload[]): void;
+  appendEvent(name: string, data: Record<string, unknown>): void;
+  appendSystem(content: string): void;
 
   // Anchor / Handoff
-  handoff(name: string, state?: AnchorPayload['state']): void
-  ensureBootstrapAnchor(): void
+  handoff(name: string, state?: AnchorPayload["state"]): void;
+  ensureBootstrapAnchor(): void;
 
   // Fork
-  forkTape(): { tapeName: string; restore: () => void }
-  mergeFork(forkName: string): void
+  forkTape(): { tapeName: string; restore: () => void };
+  mergeFork(forkName: string): void;
 
   // Queries
-  info(): TapeInfo
-  anchors(limit?: number): AnchorSummary[]
-  fromLastAnchor(kinds?: TapeEntryKind[]): TapeEntry[]
-  betweenAnchors(start: string, end: string, kinds?: TapeEntryKind[]): TapeEntry[]
-  afterAnchor(anchor: string, kinds?: TapeEntryKind[]): TapeEntry[]
-  search(query: string, limit?: number): TapeEntry[]
+  info(): TapeInfo;
+  anchors(limit?: number): AnchorSummary[];
+  fromLastAnchor(kinds?: TapeEntryKind[]): TapeEntry[];
+  betweenAnchors(start: string, end: string, kinds?: TapeEntryKind[]): TapeEntry[];
+  afterAnchor(anchor: string, kinds?: TapeEntryKind[]): TapeEntry[];
+  search(query: string, limit?: number): TapeEntry[];
 
   // Context reconstruction
-  selectMessages(opts?: { fromLastAnchor?: boolean }): AgentMessage[]
+  selectMessages(opts?: { fromLastAnchor?: boolean }): AgentMessage[];
 }
 ```
 
@@ -188,7 +191,7 @@ class TapeService {
 Stateless functions that convert `TapeEntry[]` into `AgentMessage[]`:
 
 ```typescript
-function selectMessages(entries: TapeEntry[]): AgentMessage[]
+function selectMessages(entries: TapeEntry[]): AgentMessage[];
 // Walks entries, builds:
 //   kind=message     → { role, content }
 //   kind=tool_call   → { role: 'assistant', tool_calls: [...] }
@@ -211,10 +214,11 @@ Files: `types.ts`, `tape-file.ts`, `tape-store.ts`, `index.ts`
 Add `tape-service.ts` and `tape-context.ts`. Wire dual-write into `SessionStore.update()` so that every session write also appends to the tape.
 
 Integration point in `prompt-coordinator.ts`:
+
 ```typescript
 // After prompt completes, also append to tape
-tapeService.appendMessage('user', text);
-tapeService.appendMessage('assistant', responseText);
+tapeService.appendMessage("user", text);
+tapeService.appendMessage("assistant", responseText);
 ```
 
 ### Phase 3: Anchor-based Context (P2)
@@ -222,11 +226,13 @@ tapeService.appendMessage('assistant', responseText);
 Replace `compactMessages()` as the primary context management strategy:
 
 Before (destructive):
+
 ```
 [msg1..msg500] → compact → [summary, msg480..msg500]
 ```
 
 After (non-destructive):
+
 ```
 [msg1..msg200] → handoff("phase-1", {summary}) → [msg201..msg500]
 Tape still has everything. LLM sees only post-anchor entries.
@@ -259,14 +265,14 @@ try {
 
 ## Mapping to Existing moziBot Components
 
-| moziBot Component | Tape Equivalent | Migration Path |
-|---|---|---|
-| `SessionStore.writeTranscript()` | `TapeFile.append()` | Dual-write → replace |
-| `SessionState.context[]` | `tapeService.selectMessages()` | Read from tape instead |
-| `rotateSegment()` | `tapeService.handoff()` | Map segment rotation to anchor |
-| `compactMessages()` | `fromLastAnchor()` | Anchor windowing replaces truncation |
-| `memory/flush-manager` | `tapeService.search()` + entries | Extract from tape for indexing |
-| `context-window-guard` | Anchor-triggered by token count | handoff when approaching limit |
+| moziBot Component                | Tape Equivalent                  | Migration Path                       |
+| -------------------------------- | -------------------------------- | ------------------------------------ |
+| `SessionStore.writeTranscript()` | `TapeFile.append()`              | Dual-write → replace                 |
+| `SessionState.context[]`         | `tapeService.selectMessages()`   | Read from tape instead               |
+| `rotateSegment()`                | `tapeService.handoff()`          | Map segment rotation to anchor       |
+| `compactMessages()`              | `fromLastAnchor()`               | Anchor windowing replaces truncation |
+| `memory/flush-manager`           | `tapeService.search()` + entries | Extract from tape for indexing       |
+| `context-window-guard`           | Anchor-triggered by token count  | handoff when approaching limit       |
 
 ## Testing Strategy
 

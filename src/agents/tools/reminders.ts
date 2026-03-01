@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Schedule } from "../../runtime/host/cron/types";
-import type { SessionToolsContext } from "./sessions";
 import { computeNextRun } from "../../runtime/host/reminders/schedule";
 import { reminders } from "../../storage/db";
+import type { SessionToolsContext } from "./sessions";
 
 const scheduleSchema = z.union([
   z.object({

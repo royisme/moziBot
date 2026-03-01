@@ -2,7 +2,7 @@ import type { InboundMessage } from "../types";
 
 interface PendingGroup {
   messages: InboundMessage[];
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 export class MediaGroupDebouncer {
@@ -20,7 +20,7 @@ export class MediaGroupDebouncer {
       clearTimeout(existing.timer);
       existing.messages.push(message);
     } else {
-      this.pending.set(groupId, { messages: [message], timer: null as any });
+      this.pending.set(groupId, { messages: [message], timer: null });
     }
 
     const group = this.pending.get(groupId)!;

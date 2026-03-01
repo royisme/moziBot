@@ -1,7 +1,7 @@
 import "./style.css";
-import type { AvatarRenderer, Phase } from "./renderers/types";
 import { Live2DRenderer } from "./renderers/live2d-renderer";
 import { OrbRenderer } from "./renderers/orb-renderer";
+import type { AvatarRenderer, Phase } from "./renderers/types";
 import { AudioCaptureService } from "./services/audio-capture";
 import { AudioPlaybackService } from "./services/audio-playback";
 import { MoziClient } from "./services/mozi-client";

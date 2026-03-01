@@ -1,12 +1,12 @@
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { AgentManager } from "../../agent-manager";
-import type { ParsedCommand } from "./parser";
 import {
   isReasoningLevel,
   isThinkingLevel,
   type ReasoningLevel,
   type ThinkingLevel,
 } from "../../model/thinking";
+import type { ParsedCommand } from "./parser";
 
 export function parseInlineOverrides(
   parsedCommand: ParsedCommand | null,

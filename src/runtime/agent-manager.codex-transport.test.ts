@@ -1,4 +1,9 @@
-import type { AssistantMessageEventStream, Context, Model, StreamOptions } from "@mariozechner/pi-ai";
+import type {
+  AssistantMessageEventStream,
+  Context,
+  Model,
+  StreamOptions,
+} from "@mariozechner/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 import { createCodexDefaultTransportWrapper } from "./agent-manager";
 
@@ -28,10 +33,16 @@ describe("createCodexDefaultTransportWrapper", () => {
 
   it("defaults to transport: auto when no transport is set", () => {
     const capturedOptions: (StreamOptions | undefined)[] = [];
-    const base = vi.fn((_model: Model<any>, _context: Context, options?: StreamOptions): AssistantMessageEventStream => {
-      capturedOptions.push(options);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        _model: Model<"openai-codex-responses">,
+        _context: Context,
+        options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedOptions.push(options);
+        return makeMockStream();
+      },
+    );
 
     const wrapped = createCodexDefaultTransportWrapper(base);
     wrapped(makeModel(), makeContext(), {});
@@ -42,10 +53,16 @@ describe("createCodexDefaultTransportWrapper", () => {
 
   it("preserves explicitly set transport value", () => {
     const capturedOptions: (StreamOptions | undefined)[] = [];
-    const base = vi.fn((_model: Model<any>, _context: Context, options?: StreamOptions): AssistantMessageEventStream => {
-      capturedOptions.push(options);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        _model: Model<"openai-codex-responses">,
+        _context: Context,
+        options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedOptions.push(options);
+        return makeMockStream();
+      },
+    );
 
     const wrapped = createCodexDefaultTransportWrapper(base);
     wrapped(makeModel(), makeContext(), { transport: "sse" });
@@ -56,10 +73,16 @@ describe("createCodexDefaultTransportWrapper", () => {
 
   it("preserves explicitly set websocket transport", () => {
     const capturedOptions: (StreamOptions | undefined)[] = [];
-    const base = vi.fn((_model: Model<any>, _context: Context, options?: StreamOptions): AssistantMessageEventStream => {
-      capturedOptions.push(options);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        _model: Model<"openai-codex-responses">,
+        _context: Context,
+        options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedOptions.push(options);
+        return makeMockStream();
+      },
+    );
 
     const wrapped = createCodexDefaultTransportWrapper(base);
     wrapped(makeModel(), makeContext(), { transport: "websocket" });
@@ -70,10 +93,16 @@ describe("createCodexDefaultTransportWrapper", () => {
 
   it("defaults to transport: auto when options is undefined", () => {
     const capturedOptions: (StreamOptions | undefined)[] = [];
-    const base = vi.fn((_model: Model<any>, _context: Context, options?: StreamOptions): AssistantMessageEventStream => {
-      capturedOptions.push(options);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        _model: Model<"openai-codex-responses">,
+        _context: Context,
+        options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedOptions.push(options);
+        return makeMockStream();
+      },
+    );
 
     const wrapped = createCodexDefaultTransportWrapper(base);
     wrapped(makeModel(), makeContext(), undefined);
@@ -84,10 +113,16 @@ describe("createCodexDefaultTransportWrapper", () => {
 
   it("preserves other options alongside transport default", () => {
     const capturedOptions: (StreamOptions | undefined)[] = [];
-    const base = vi.fn((_model: Model<any>, _context: Context, options?: StreamOptions): AssistantMessageEventStream => {
-      capturedOptions.push(options);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        _model: Model<"openai-codex-responses">,
+        _context: Context,
+        options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedOptions.push(options);
+        return makeMockStream();
+      },
+    );
 
     const wrapped = createCodexDefaultTransportWrapper(base);
     wrapped(makeModel(), makeContext(), { temperature: 0.5, maxTokens: 1024 });
@@ -99,13 +134,19 @@ describe("createCodexDefaultTransportWrapper", () => {
   });
 
   it("forwards model and context to underlying function", () => {
-    const capturedModels: Model<any>[] = [];
+    const capturedModels: Model<"openai-codex-responses">[] = [];
     const capturedContexts: Context[] = [];
-    const base = vi.fn((model: Model<any>, context: Context, _options?: StreamOptions): AssistantMessageEventStream => {
-      capturedModels.push(model);
-      capturedContexts.push(context);
-      return makeMockStream();
-    });
+    const base = vi.fn(
+      (
+        model: Model<"openai-codex-responses">,
+        context: Context,
+        _options?: StreamOptions,
+      ): AssistantMessageEventStream => {
+        capturedModels.push(model);
+        capturedContexts.push(context);
+        return makeMockStream();
+      },
+    );
 
     const model = makeModel();
     const context = makeContext();

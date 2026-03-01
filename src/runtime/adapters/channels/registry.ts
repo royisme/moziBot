@@ -1,6 +1,6 @@
+import { logger } from "../../../logger";
 import type { ChannelPlugin } from "./plugin";
 import type { InboundMessage } from "./types";
-import { logger } from "../../../logger";
 
 export class ChannelRegistry {
   private plugins: Map<string, ChannelPlugin> = new Map();

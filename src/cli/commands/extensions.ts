@@ -1,6 +1,6 @@
 import chalk from "chalk";
-import type { ExtensionDiagnostic, LoadedExtension } from "../../extensions";
 import { loadConfig } from "../../config/loader";
+import type { ExtensionDiagnostic, LoadedExtension } from "../../extensions";
 import { initExtensionsAsync, loadExtensions } from "../../extensions";
 
 async function loadRegistry() {

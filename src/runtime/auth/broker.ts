@@ -1,6 +1,6 @@
-import type { SecretBroker, SecretScope, SecretStore } from "./types";
 import { decryptSecret, encryptSecret, resolveMasterKey } from "./crypto";
 import { SqliteSecretStore } from "./store";
+import type { SecretBroker, SecretScope, SecretStore } from "./types";
 
 export class RuntimeSecretBroker implements SecretBroker {
   constructor(

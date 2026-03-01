@@ -1,7 +1,7 @@
-import type { Session } from "../runtime/host/sessions/types";
 import { type ContainerConfig, ContainerRuntime } from "../container/runtime";
 import { agentEvents } from "../infra/agent-events";
 import { logger } from "../logger";
+import type { Session } from "../runtime/host/sessions/types";
 
 export interface ExecutorConfig {
   containerImage: string;

@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import type { ExtensionManifest } from "../types";
 import { registerBuiltinExtension } from "../loader";
+import type { ExtensionManifest } from "../types";
 
 const OpenClawMemoryRecallConfigSchema = z
   .object({

@@ -115,11 +115,7 @@ export function buildDockerExecArgs(params: {
  * Assert that a path is within the sandbox and return resolved path.
  * Simplified implementation for moziBot.
  */
-async function assertSandboxPath(params: {
-  filePath: string;
-  cwd: string;
-  root: string;
-}) {
+async function assertSandboxPath(params: { filePath: string; cwd: string; root: string }) {
   // Resolve relative paths relative to cwd
   let resolved: string;
   if (path.isAbsolute(params.filePath)) {

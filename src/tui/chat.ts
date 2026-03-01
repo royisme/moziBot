@@ -1,7 +1,7 @@
 import { TUI, ProcessTerminal, Text, Input, Container } from "@mariozechner/pi-tui";
-import type { OutboundMessage, InboundMessage } from "../runtime/adapters/channels/types";
 import { loadConfig } from "../config";
 import { BaseChannelPlugin } from "../runtime/adapters/channels/plugin";
+import type { OutboundMessage, InboundMessage } from "../runtime/adapters/channels/types";
 import { MessageHandler } from "../runtime/host/message-handler";
 import { bootstrapSandboxes } from "../runtime/sandbox/bootstrap";
 import { LocalDesktopRuntimeClient } from "./runtime-client";

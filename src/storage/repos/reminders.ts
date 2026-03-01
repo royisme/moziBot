@@ -1,5 +1,5 @@
-import type { ReminderRecord } from "../types";
 import { withConnection } from "../connection";
+import type { ReminderRecord } from "../types";
 
 export const reminders = {
   create: (item: {

@@ -1,7 +1,7 @@
+import { inspect } from "node:util";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import type { z } from "zod";
-import { inspect } from "node:util";
 
 function formatToolResult(result: unknown): string {
   if (typeof result === "string") {

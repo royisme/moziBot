@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import { InputFile } from "grammy";
-import type { OutboundMessage } from "../types";
 import { logger } from "../../../../logger";
+import type { OutboundMessage } from "../types";
 import {
   chunkMessage,
   isTelegramMessageNotModifiedError,
@@ -15,8 +15,10 @@ const TELEGRAM_CAPTION_MAX_LENGTH = 1024;
 const MEDIA_URL_MAX_BYTES = 52_428_800; // 50MB
 
 function isThreadNotFoundError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = (error as any).message ?? "";
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const msg = (error as unknown as { message?: string }).message ?? "";
   return msg.includes("message thread not found") || msg.includes("TOPIC_CLOSED");
 }
 
@@ -40,9 +42,7 @@ export async function sendMessage(
       }
     : undefined;
 
-  const replyParameters = message.replyToId
-    ? { message_id: Number(message.replyToId) }
-    : undefined;
+  const replyParameters = message.replyToId ? { message_id: Number(message.replyToId) } : undefined;
   const disableNotification = message.silent === true;
   const messageThreadId = message.threadId ? Number(message.threadId) : undefined;
 
@@ -78,7 +78,14 @@ export async function sendMessage(
       if (!media.buffer) {
         // No buffer, send text only
         sentMessage = await sendTextWithChunking(
-          bot, chatId, rawText, htmlText, replyMarkup, replyParameters, disableNotification, threadId,
+          bot,
+          chatId,
+          rawText,
+          htmlText,
+          replyMarkup,
+          replyParameters,
+          disableNotification,
+          threadId,
         );
       } else {
         const inputFile = new InputFile(media.buffer, media.filename);
@@ -109,12 +116,13 @@ export async function sendMessage(
           case "video":
             if (media.asVideoNote) {
               sentMessage = await withTelegramRetry(
-                () => bot.api.sendVideoNote(chatId, inputFile, {
-                  reply_markup: replyMarkup,
-                  reply_parameters: replyParameters,
-                  disable_notification: disableNotification,
-                  message_thread_id: threadId,
-                }),
+                () =>
+                  bot.api.sendVideoNote(chatId, inputFile, {
+                    reply_markup: replyMarkup,
+                    reply_parameters: replyParameters,
+                    disable_notification: disableNotification,
+                    message_thread_id: threadId,
+                  }),
                 "sendVideoNote",
               );
             } else {
@@ -127,12 +135,13 @@ export async function sendMessage(
 
           case "video_note":
             sentMessage = await withTelegramRetry(
-              () => bot.api.sendVideoNote(chatId, inputFile, {
-                reply_markup: replyMarkup,
-                reply_parameters: replyParameters,
-                disable_notification: disableNotification,
-                message_thread_id: threadId,
-              }),
+              () =>
+                bot.api.sendVideoNote(chatId, inputFile, {
+                  reply_markup: replyMarkup,
+                  reply_parameters: replyParameters,
+                  disable_notification: disableNotification,
+                  message_thread_id: threadId,
+                }),
               "sendVideoNote",
             );
             break;
@@ -140,14 +149,15 @@ export async function sendMessage(
           case "audio":
             if (media.asVoice) {
               sentMessage = await withTelegramRetry(
-                () => bot.api.sendVoice(chatId, inputFile, {
-                  caption: effectiveCaption,
-                  parse_mode: parseMode,
-                  reply_markup: replyMarkup,
-                  reply_parameters: replyParameters,
-                  disable_notification: disableNotification,
-                  message_thread_id: threadId,
-                }),
+                () =>
+                  bot.api.sendVoice(chatId, inputFile, {
+                    caption: effectiveCaption,
+                    parse_mode: parseMode,
+                    reply_markup: replyMarkup,
+                    reply_parameters: replyParameters,
+                    disable_notification: disableNotification,
+                    message_thread_id: threadId,
+                  }),
                 "sendVoice",
               );
             } else {
@@ -160,14 +170,15 @@ export async function sendMessage(
 
           case "voice":
             sentMessage = await withTelegramRetry(
-              () => bot.api.sendVoice(chatId, inputFile, {
-                caption: effectiveCaption,
-                parse_mode: parseMode,
-                reply_markup: replyMarkup,
-                reply_parameters: replyParameters,
-                disable_notification: disableNotification,
-                message_thread_id: threadId,
-              }),
+              () =>
+                bot.api.sendVoice(chatId, inputFile, {
+                  caption: effectiveCaption,
+                  parse_mode: parseMode,
+                  reply_markup: replyMarkup,
+                  reply_parameters: replyParameters,
+                  disable_notification: disableNotification,
+                  message_thread_id: threadId,
+                }),
               "sendVoice",
             );
             break;
@@ -191,12 +202,28 @@ export async function sendMessage(
 
         // A3 — If caption was split, send text as follow-up
         if (needsCaptionSplit && htmlText) {
-          await sendTextWithChunking(bot, chatId, rawText, htmlText, undefined, undefined, undefined, threadId);
+          await sendTextWithChunking(
+            bot,
+            chatId,
+            rawText,
+            htmlText,
+            undefined,
+            undefined,
+            undefined,
+            threadId,
+          );
         }
       }
     } else {
       sentMessage = await sendTextWithChunking(
-        bot, chatId, rawText, htmlText, replyMarkup, replyParameters, disableNotification, threadId,
+        bot,
+        chatId,
+        rawText,
+        htmlText,
+        replyMarkup,
+        replyParameters,
+        disableNotification,
+        threadId,
       );
     }
 
@@ -210,7 +237,10 @@ export async function sendMessage(
       sentMessage = await doSend(messageThreadId);
     } catch (threadError) {
       if (isThreadNotFoundError(threadError) && messageThreadId !== undefined) {
-        logger.warn({ chatId, messageThreadId }, "Thread not found, retrying without message_thread_id");
+        logger.warn(
+          { chatId, messageThreadId },
+          "Thread not found, retrying without message_thread_id",
+        );
         sentMessage = await doSend(undefined);
       } else {
         throw threadError;
@@ -222,7 +252,14 @@ export async function sendMessage(
     if (isTelegramParseError(error) && rawText) {
       logger.warn({ error, chatId }, "Telegram HTML parse failed, retrying with plain text");
       const fallback = await sendTextWithChunking(
-        bot, chatId, rawText, rawText, replyMarkup, replyParameters, disableNotification, messageThreadId,
+        bot,
+        chatId,
+        rawText,
+        rawText,
+        replyMarkup,
+        replyParameters,
+        disableNotification,
+        messageThreadId,
       );
       return fallback.message_id.toString();
     }
@@ -245,13 +282,14 @@ async function sendTextWithChunking(
 
   if (textToSend.length <= TELEGRAM_MAX_MESSAGE_LENGTH) {
     return await withTelegramRetry(
-      () => bot.api.sendMessage(chatId, textToSend, {
-        parse_mode: "HTML",
-        reply_markup: replyMarkup,
-        reply_parameters: replyParameters,
-        disable_notification: disableNotification,
-        message_thread_id: messageThreadId,
-      }),
+      () =>
+        bot.api.sendMessage(chatId, textToSend, {
+          parse_mode: "HTML",
+          reply_markup: replyMarkup,
+          reply_parameters: replyParameters,
+          disable_notification: disableNotification,
+          message_thread_id: messageThreadId,
+        }),
       "sendMessage",
     );
   }
@@ -266,24 +304,26 @@ async function sendTextWithChunking(
 
     try {
       lastSentMessage = await withTelegramRetry(
-        () => bot.api.sendMessage(chatId, chunkHtml || chunk, {
-          parse_mode: "HTML",
-          reply_markup: isLastChunk ? replyMarkup : undefined,
-          reply_parameters: isLastChunk ? replyParameters : undefined,
-          disable_notification: disableNotification,
-          message_thread_id: messageThreadId,
-        }),
-        "sendMessage",
-      );
-    } catch (error) {
-      if (isTelegramParseError(error)) {
-        lastSentMessage = await withTelegramRetry(
-          () => bot.api.sendMessage(chatId, chunk, {
+        () =>
+          bot.api.sendMessage(chatId, chunkHtml || chunk, {
+            parse_mode: "HTML",
             reply_markup: isLastChunk ? replyMarkup : undefined,
             reply_parameters: isLastChunk ? replyParameters : undefined,
             disable_notification: disableNotification,
             message_thread_id: messageThreadId,
           }),
+        "sendMessage",
+      );
+    } catch (error) {
+      if (isTelegramParseError(error)) {
+        lastSentMessage = await withTelegramRetry(
+          () =>
+            bot.api.sendMessage(chatId, chunk, {
+              reply_markup: isLastChunk ? replyMarkup : undefined,
+              reply_parameters: isLastChunk ? replyParameters : undefined,
+              disable_notification: disableNotification,
+              message_thread_id: messageThreadId,
+            }),
           "sendMessage",
         );
       } else {
@@ -341,9 +381,10 @@ export async function editMsg(
   const htmlText = markdownToTelegramHtml(newText);
   try {
     await withTelegramRetry(
-      () => bot.api.editMessageText(peerId, parseInt(messageId), htmlText, {
-        parse_mode: "HTML",
-      }),
+      () =>
+        bot.api.editMessageText(peerId, parseInt(messageId), htmlText, {
+          parse_mode: "HTML",
+        }),
       "editMessageText",
     );
   } catch (error) {
@@ -377,4 +418,3 @@ export async function editMsg(
     }
   }
 }
-

@@ -1,9 +1,9 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MoziConfig } from "../../config";
+import { closeDb, initDb, reminders } from "../../storage/db";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
-import { closeDb, initDb, reminders } from "../../storage/db";
 import { MessageHandler } from "./message-handler";
 
 function createConfig(): MoziConfig {

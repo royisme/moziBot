@@ -5,12 +5,12 @@
  * in the pi-coding-agent auth.json file so the agent runtime can use them.
  */
 
-import { loginOpenAICodex, type OAuthCredentials } from "@mariozechner/pi-ai";
-import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { loginOpenAICodex, type OAuthCredentials } from "@mariozechner/pi-ai";
+import { AuthStorage } from "@mariozechner/pi-coding-agent";
 import pc from "picocolors";
 
 const PROVIDER_ID = "openai-codex";
@@ -85,7 +85,9 @@ export async function loginOpenAICodexOAuth(options?: {
   } else {
     console.log(pc.bold("OpenAI Codex OAuth"));
     console.log(pc.dim("Your browser will open for OpenAI authentication."));
-    console.log(pc.dim("If the callback does not auto-complete, paste the redirect URL when prompted."));
+    console.log(
+      pc.dim("If the callback does not auto-complete, paste the redirect URL when prompted."),
+    );
     console.log(pc.dim("OpenAI OAuth uses localhost:1455 for the callback."));
   }
   console.log();

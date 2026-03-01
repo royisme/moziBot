@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentManager } from "../../..";
-import type { PromptMode } from "../../../agent-manager/prompt-builder";
 import type { TapeService } from "../../../../tape/tape-service.js";
+import type { PromptMode } from "../../../agent-manager/prompt-builder";
 import type { PromptAgent } from "./prompt-runner";
 
 export type PromptCoordinatorAgentManager = {

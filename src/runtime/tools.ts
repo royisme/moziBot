@@ -8,7 +8,6 @@ import {
   createWriteTool,
 } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import type { MemorySearchManager } from "../memory/types";
 import {
   memoryGet,
   memoryGetSchema,
@@ -16,6 +15,7 @@ import {
   memorySearchSchema,
   type MemoryToolsContext,
 } from "../agents/tools/memory";
+import type { MemorySearchManager } from "../memory/types";
 import { createProcessTool } from "../process";
 import { SubagentRegistry } from "./subagent-registry";
 import { createZodTool } from "./tool-utils";
@@ -100,9 +100,6 @@ export function createPiCodingTools(workspaceDir: string): AgentTool[] {
   ];
 }
 
-export function createProcessTools(params: {
-  sessionKey: string;
-  agentId: string;
-}): AgentTool[] {
+export function createProcessTools(params: { sessionKey: string; agentId: string }): AgentTool[] {
   return [createProcessTool(params)];
 }

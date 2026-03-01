@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { logger } from "../logger";
 import type { InboundMessage, MediaAttachment } from "../runtime/adapters/channels/types";
 import type { ModelSpec } from "../runtime/types";
-import { logger } from "../logger";
 import { isDbInitialized, multimodal } from "../storage/db";
 import {
   negotiateDeliveryPlan,

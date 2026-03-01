@@ -1,7 +1,7 @@
-import type { Skill } from "@mariozechner/pi-coding-agent";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { Skill } from "@mariozechner/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MoziConfig } from "../../config";
 import { buildSkillStatusEntries } from "./status";

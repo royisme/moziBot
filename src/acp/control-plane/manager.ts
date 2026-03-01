@@ -1,21 +1,20 @@
 import type { MoziConfig } from "../../config/schema";
-import type { SessionAcpIdentity, SessionAcpMeta } from "../types";
 import { AcpRuntimeError } from "../runtime/errors";
+import { withAcpRuntimeErrorBoundary } from "../runtime/errors";
 import {
-  listAcpSessionEntries,
-  readAcpSessionEntry,
-  upsertAcpSessionMeta,
-} from "../runtime/session-meta";
-import { requireAcpRuntimeBackend } from "../runtime/registry";
-import { createIdentityFromEnsure, resolveSessionIdentityFromMeta } from "../runtime/session-identity";
+  createIdentityFromEnsure,
+  resolveSessionIdentityFromMeta,
+} from "../runtime/session-identity";
 import type {
-  AcpRuntime,
   AcpRuntimeCapabilities,
   AcpRuntimeEvent,
   AcpRuntimeHandle,
   AcpRuntimeSessionMode,
   AcpRuntimeStatus,
 } from "../runtime/types";
+import type { SessionAcpMeta } from "../types";
+import { reconcileManagerRuntimeSessionIdentifiers } from "./manager.identity-reconcile";
+import { applyManagerRuntimeControls } from "./manager.runtime-controls";
 import type {
   AcpCloseSessionInput,
   AcpCloseSessionResult,
@@ -23,7 +22,6 @@ import type {
   AcpManagerObservabilitySnapshot,
   AcpRunTurnInput,
   AcpSessionManagerDeps,
-  AcpSessionResolution,
   AcpSessionStatus,
   AcpStartupIdentityReconcileResult,
   ActiveTurnState,
@@ -35,20 +33,16 @@ import {
   resolveAcpAgentFromSessionKey,
   resolveMissingMetaError,
 } from "./manager.utils";
-import { reconcileManagerRuntimeSessionIdentifiers } from "./manager.identity-reconcile";
-import { applyManagerRuntimeControls } from "./manager.runtime-controls";
+import { resolveRuntimeIdleTtlMs } from "./manager.utils";
 import type { CachedRuntimeState } from "./runtime-cache";
 import { RuntimeCache } from "./runtime-cache";
-import { SessionActorQueue } from "./session-actor-queue";
 import {
   mergeRuntimeOptions,
   normalizeRuntimeOptions,
   resolveRuntimeOptionsFromMeta,
-  runtimeOptionsEqual,
   validateRuntimeOptionPatch,
 } from "./runtime-options";
-import { withAcpRuntimeErrorBoundary } from "../runtime/errors";
-import { resolveRuntimeIdleTtlMs } from "./manager.utils";
+import { SessionActorQueue } from "./session-actor-queue";
 
 /**
  * Core ACP session manager that orchestrates session lifecycle,
@@ -172,7 +166,7 @@ export class AcpSessionManager {
         : undefined;
 
     // Update meta with new identity
-    const updatedMeta = await this.deps.upsertSessionMeta({
+    const updatedMeta = this.deps.upsertSessionMeta({
       sessionKey,
       mutate: (current) => {
         if (!current) {
@@ -224,8 +218,8 @@ export class AcpSessionManager {
     return this.actorQueue.run(sessionKey, async () => {
       const now = Date.now();
       const turnStart = Date.now();
-      let turnCompleted = false;
-      let turnFailed = false;
+      let _turnCompleted = false;
+      let _turnFailed = false;
 
       try {
         // Get session meta
@@ -272,7 +266,7 @@ export class AcpSessionManager {
         });
 
         // Update meta state to running
-        await this.deps.upsertSessionMeta({
+        this.deps.upsertSessionMeta({
           sessionKey,
           mutate: (current) => {
             if (!current) {
@@ -351,7 +345,7 @@ export class AcpSessionManager {
           }
 
           // Update meta state to idle
-          await this.deps.upsertSessionMeta({
+          this.deps.upsertSessionMeta({
             sessionKey,
             mutate: (current) => {
               if (!current) {
@@ -365,7 +359,7 @@ export class AcpSessionManager {
             },
           });
 
-          turnCompleted = true;
+          _turnCompleted = true;
           this.completedTurnsTotal++;
 
           // Update turn stats
@@ -374,7 +368,7 @@ export class AcpSessionManager {
           this.activeTurns.delete(sessionKey);
         }
       } catch (error) {
-        turnFailed = true;
+        _turnFailed = true;
         this.failedTurnsTotal++;
 
         // Track error by code
@@ -384,7 +378,7 @@ export class AcpSessionManager {
         }
 
         // Update meta state to error
-        await this.deps.upsertSessionMeta({
+        this.deps.upsertSessionMeta({
           sessionKey,
           mutate: (current) => {
             if (!current) {
@@ -452,14 +446,14 @@ export class AcpSessionManager {
 
         // Clear meta if requested
         if (input.clearMeta) {
-          await this.deps.upsertSessionMeta({
+          this.deps.upsertSessionMeta({
             sessionKey,
             mutate: () => null,
           });
           metaCleared = true;
         } else {
           // Update meta state to idle
-          await this.deps.upsertSessionMeta({
+          this.deps.upsertSessionMeta({
             sessionKey,
             mutate: (current) => {
               if (!current) {
@@ -710,7 +704,7 @@ export class AcpSessionManager {
       });
 
       // Update meta
-      await this.deps.upsertSessionMeta({
+      this.deps.upsertSessionMeta({
         sessionKey: normalizedKey,
         mutate: (current) => {
           if (!current) {

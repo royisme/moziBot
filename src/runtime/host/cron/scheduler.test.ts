@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
-import type { CronJob } from "./types";
 import { ChannelRegistry } from "../../adapters/channels/registry";
 import { CronScheduler } from "./scheduler";
+import type { CronJob } from "./types";
 
 describe("CronScheduler", () => {
   let scheduler: CronScheduler;

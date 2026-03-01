@@ -1,9 +1,10 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
+import type { MoziConfig } from "../../config/schema";
+import { AcpRuntimeError } from "../runtime/errors";
+import type { AcpRuntime, AcpRuntimeHandle, AcpRuntimeEvent } from "../runtime/types";
+import type { SessionAcpMeta } from "../types";
 import { AcpSessionManager } from "./manager";
 import type { AcpSessionManagerDeps } from "./manager.types";
-import type { SessionAcpMeta } from "../types";
-import type { AcpRuntime, AcpRuntimeHandle, AcpRuntimeEvent } from "../runtime/types";
-import { AcpRuntimeError } from "../runtime/errors";
 
 // Mock store for session meta
 const mockStore = new Map<string, { acp: SessionAcpMeta }>();
@@ -24,25 +25,27 @@ function createMockDeps(overrides?: Partial<AcpSessionManagerDeps>): AcpSessionM
     return entries;
   });
 
-  const mockUpsertSessionMeta = vi.fn(({
-    sessionKey,
-    mutate,
-  }: {
-    sessionKey: string;
-    mutate: (current: SessionAcpMeta | undefined) => SessionAcpMeta | null | undefined;
-  }) => {
-    const current = mockStore.get(sessionKey);
-    const result = mutate(current?.acp);
-    if (result === null) {
-      mockStore.delete(sessionKey);
-      return null;
-    }
-    if (result === undefined) {
-      return current?.acp ?? null;
-    }
-    mockStore.set(sessionKey, { acp: result });
-    return result;
-  });
+  const mockUpsertSessionMeta = vi.fn(
+    ({
+      sessionKey,
+      mutate,
+    }: {
+      sessionKey: string;
+      mutate: (current: SessionAcpMeta | undefined) => SessionAcpMeta | null | undefined;
+    }) => {
+      const current = mockStore.get(sessionKey);
+      const result = mutate(current?.acp);
+      if (result === null) {
+        mockStore.delete(sessionKey);
+        return null;
+      }
+      if (result === undefined) {
+        return current?.acp ?? null;
+      }
+      mockStore.set(sessionKey, { acp: result });
+      return result;
+    },
+  );
 
   const mockRequireRuntimeBackend = vi.fn((backendId?: string) => {
     const mockBackend = {
@@ -117,7 +120,7 @@ describe("AcpSessionManager", () => {
 
       await expect(
         manager.ensureSession({
-          cfg: {} as any,
+          cfg: {} as MoziConfig,
           sessionKey: "test:main",
           agent: "main",
           mode: "persistent",
@@ -131,7 +134,7 @@ describe("AcpSessionManager", () => {
 
       const manager = new AcpSessionManager(createMockDeps());
       const handle = await manager.ensureSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         agent: "main",
         mode: "persistent",
@@ -149,7 +152,7 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager(deps);
 
       await manager.ensureSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         agent: "main",
         mode: "persistent",
@@ -157,13 +160,13 @@ describe("AcpSessionManager", () => {
 
       // Second call should use cached runtime
       await manager.ensureSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         agent: "main",
         mode: "persistent",
       });
 
-      const requireBackend = deps.requireRuntimeBackend as any;
+      const requireBackend = deps.requireRuntimeBackend as ReturnType<typeof vi.fn>;
       expect(requireBackend).toHaveBeenCalledTimes(1);
     });
   });
@@ -174,7 +177,7 @@ describe("AcpSessionManager", () => {
 
       await expect(
         manager.runTurn({
-          cfg: {} as any,
+          cfg: {} as MoziConfig,
           sessionKey: "test:main",
           text: "hello",
           mode: "prompt",
@@ -191,7 +194,7 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager(createMockDeps());
 
       await manager.runTurn({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         text: "hello",
         mode: "prompt",
@@ -214,21 +217,25 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager(deps);
 
       await manager.runTurn({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         text: "hello",
         mode: "prompt",
         requestId: "req-1",
       });
 
-      const upsertMeta = deps.upsertSessionMeta as any;
+      const upsertMeta = deps.upsertSessionMeta as ReturnType<typeof vi.fn>;
       const calls = upsertMeta.mock.calls;
 
       // Should have been called at least twice (running, then idle)
       expect(calls.length).toBeGreaterThanOrEqual(2);
 
       // Check state transitions
-      const states = calls.map((c: any) => c[0].mutate(mockMeta)?.state);
+      const states = calls.map(
+        (c: unknown[]) =>
+          (c[0] as { mutate: (m: SessionAcpMeta) => SessionAcpMeta | null }).mutate(mockMeta)
+            ?.state,
+      );
       expect(states).toContain("running");
       expect(states).toContain("idle");
     });
@@ -239,6 +246,7 @@ describe("AcpSessionManager", () => {
 
       const mockRuntime = createMockRuntime({
         runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield* [] as AcpRuntimeEvent[];
           throw new Error("test error");
         }),
       });
@@ -255,7 +263,7 @@ describe("AcpSessionManager", () => {
 
       await expect(
         manager.runTurn({
-          cfg: {} as any,
+          cfg: {} as MoziConfig,
           sessionKey: "test:main",
           text: "hello",
           mode: "prompt",
@@ -263,11 +271,15 @@ describe("AcpSessionManager", () => {
         }),
       ).rejects.toThrow("test error");
 
-      const upsertMeta = deps.upsertSessionMeta as any;
+      const upsertMeta = deps.upsertSessionMeta as ReturnType<typeof vi.fn>;
       const calls = upsertMeta.mock.calls;
 
       // Check state transitions to error
-      const states = calls.map((c: any) => c[0].mutate(mockMeta)?.state);
+      const states = calls.map(
+        (c: unknown[]) =>
+          (c[0] as { mutate: (m: SessionAcpMeta) => SessionAcpMeta | null }).mutate(mockMeta)
+            ?.state,
+      );
       expect(states).toContain("error");
     });
   });
@@ -282,7 +294,7 @@ describe("AcpSessionManager", () => {
 
       // First ensure to populate cache
       await manager.ensureSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         agent: "main",
         mode: "persistent",
@@ -290,7 +302,7 @@ describe("AcpSessionManager", () => {
 
       // Then close
       const result = await manager.closeSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         reason: "user requested",
       });
@@ -307,14 +319,14 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager(deps);
 
       await manager.ensureSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         agent: "main",
         mode: "persistent",
       });
 
       const result = await manager.closeSession({
-        cfg: {} as any,
+        cfg: {} as MoziConfig,
         sessionKey: "test:main",
         reason: "cleanup",
         clearMeta: true,
@@ -364,7 +376,7 @@ describe("AcpSessionManager", () => {
       const deps = createMockDeps();
       const manager = new AcpSessionManager(deps);
 
-      const result = await manager.reconcileIdentities({} as any);
+      const result = await manager.reconcileIdentities({} as MoziConfig);
 
       expect(result.checked).toBe(2);
       expect(result.resolved).toBe(2);
@@ -390,7 +402,7 @@ describe("AcpSessionManager", () => {
       });
 
       const manager = new AcpSessionManager(deps);
-      const result = await manager.reconcileIdentities({} as any);
+      const result = await manager.reconcileIdentities({} as MoziConfig);
 
       expect(result.checked).toBe(1);
       expect(result.failed).toBe(1);
@@ -458,7 +470,7 @@ describe("AcpSessionManager", () => {
       // Run multiple turns
       for (let i = 0; i < 3; i++) {
         await manager.runTurn({
-          cfg: {} as any,
+          cfg: {} as MoziConfig,
           sessionKey: "test:main",
           text: `message ${i}`,
           mode: "prompt",
@@ -475,7 +487,7 @@ describe("AcpSessionManager", () => {
   describe("evictIdleRuntimes", () => {
     it("should not evict when TTL is 0", () => {
       const manager = new AcpSessionManager(createMockDeps());
-      const evicted = manager.evictIdleRuntimes({} as any);
+      const evicted = manager.evictIdleRuntimes({} as MoziConfig);
       expect(evicted).toBe(0);
     });
   });
@@ -503,7 +515,7 @@ describe("AcpSessionManager", () => {
 
       try {
         await manager.ensureSession({
-          cfg: {} as any,
+          cfg: {} as MoziConfig,
           sessionKey: "test:main",
           agent: "main",
           mode: "persistent",

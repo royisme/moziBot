@@ -1,6 +1,6 @@
 // Tape System Type Definitions
 
-export type TapeEntryKind = 'message' | 'tool_call' | 'tool_result' | 'anchor' | 'event' | 'system';
+export type TapeEntryKind = "message" | "tool_call" | "tool_result" | "anchor" | "event" | "system";
 
 export interface TapeEntry {
   id: number;
@@ -36,10 +36,10 @@ export interface TapeInfo {
 export function createMessage(
   role: string,
   content: string,
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'message',
+    kind: "message",
     payload: { role, content },
     meta: meta ?? {},
   };
@@ -47,10 +47,10 @@ export function createMessage(
 
 export function createToolCall(
   calls: Record<string, unknown>[],
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'tool_call',
+    kind: "tool_call",
     payload: { calls },
     meta: meta ?? {},
   };
@@ -58,10 +58,10 @@ export function createToolCall(
 
 export function createToolResult(
   results: unknown[],
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'tool_result',
+    kind: "tool_result",
     payload: { results },
     meta: meta ?? {},
   };
@@ -69,11 +69,11 @@ export function createToolResult(
 
 export function createAnchor(
   name: string,
-  state?: AnchorPayload['state'],
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  state?: AnchorPayload["state"],
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'anchor',
+    kind: "anchor",
     payload: { name, state },
     meta: meta ?? {},
   };
@@ -82,10 +82,10 @@ export function createAnchor(
 export function createEvent(
   name: string,
   data: Record<string, unknown>,
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'event',
+    kind: "event",
     payload: { name, data },
     meta: meta ?? {},
   };
@@ -93,10 +93,10 @@ export function createEvent(
 
 export function createSystem(
   content: string,
-  meta?: Record<string, unknown>
-): Omit<TapeEntry, 'id'> {
+  meta?: Record<string, unknown>,
+): Omit<TapeEntry, "id"> {
   return {
-    kind: 'system',
+    kind: "system",
     payload: { content },
     meta: meta ?? {},
   };

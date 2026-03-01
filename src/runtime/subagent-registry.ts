@@ -1,9 +1,9 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
 import { Agent } from "@mariozechner/pi-agent-core";
-import type { ModelSpec } from "./types";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import { AgentManager } from "./agent-manager";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
+import type { ModelSpec } from "./types";
 
 const MAX_CONCURRENT_SUBAGENTS = 2;
 

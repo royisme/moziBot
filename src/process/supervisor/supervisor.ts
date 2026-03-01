@@ -34,15 +34,21 @@ export function createProcessSupervisor(): ProcessSupervisor {
 
   const cancel = (runId: string, reason: TerminationReason = "manual-cancel") => {
     const current = active.get(runId);
-    if (!current) return;
+    if (!current) {
+      return;
+    }
     registry.updateState(runId, "exiting", { terminationReason: reason });
     current.run.cancel(reason);
   };
 
   const cancelScope = (scopeKey: string, reason: TerminationReason = "manual-cancel") => {
-    if (!scopeKey.trim()) return;
+    if (!scopeKey.trim()) {
+      return;
+    }
     for (const [runId, run] of active.entries()) {
-      if (run.scopeKey !== scopeKey) continue;
+      if (run.scopeKey !== scopeKey) {
+        continue;
+      }
       cancel(runId, reason);
     }
   };
@@ -78,7 +84,9 @@ export function createProcessSupervisor(): ProcessSupervisor {
     const noOutputTimeoutMs = clampTimeout(input.noOutputTimeoutMs);
 
     const setForcedReason = (reason: TerminationReason) => {
-      if (forcedReason) return;
+      if (forcedReason) {
+        return;
+      }
       forcedReason = reason;
       registry.updateState(runId, "exiting", { terminationReason: reason });
     };
@@ -92,8 +100,12 @@ export function createProcessSupervisor(): ProcessSupervisor {
 
     const touchOutput = () => {
       registry.touchOutput(runId);
-      if (!noOutputTimeoutMs || settled) return;
-      if (noOutputTimer) clearTimeout(noOutputTimer);
+      if (!noOutputTimeoutMs || settled) {
+        return;
+      }
+      if (noOutputTimer) {
+        clearTimeout(noOutputTimer);
+      }
       noOutputTimer = setTimeout(() => {
         requestCancel("no-output-timeout");
       }, noOutputTimeoutMs);
@@ -108,7 +120,9 @@ export function createProcessSupervisor(): ProcessSupervisor {
           ? await (async () => {
               const { shell, args: shellArgs } = getShellConfig();
               const ptyCommand = input.ptyCommand.trim();
-              if (!ptyCommand) throw new Error("PTY command cannot be empty");
+              if (!ptyCommand) {
+                throw new Error("PTY command cannot be empty");
+              }
               return await createPtyAdapter({
                 shell,
                 args: [...shellArgs, ptyCommand],
@@ -128,12 +142,20 @@ export function createProcessSupervisor(): ProcessSupervisor {
       registry.updateState(runId, "running", { pid: adapter.pid });
 
       const clearTimers = () => {
-        if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
-        if (noOutputTimer) { clearTimeout(noOutputTimer); noOutputTimer = null; }
+        if (timeoutTimer) {
+          clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+        if (noOutputTimer) {
+          clearTimeout(noOutputTimer);
+          noOutputTimer = null;
+        }
       };
 
       cancelAdapter = (_reason: TerminationReason) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         adapter.kill("SIGKILL");
       };
 
@@ -149,12 +171,16 @@ export function createProcessSupervisor(): ProcessSupervisor {
       }
 
       adapter.onStdout((chunk) => {
-        if (captureOutput) stdout += chunk;
+        if (captureOutput) {
+          stdout += chunk;
+        }
         input.onStdout?.(chunk);
         touchOutput();
       });
       adapter.onStderr((chunk) => {
-        if (captureOutput) stderr += chunk;
+        if (captureOutput) {
+          stderr += chunk;
+        }
         input.onStderr?.(chunk);
         touchOutput();
       });

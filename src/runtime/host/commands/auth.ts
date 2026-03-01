@@ -1,7 +1,7 @@
 import type { MoziConfig } from "../../../config";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
-import type { SecretScope } from "../../auth/types";
 import { createRuntimeSecretBroker, type RuntimeSecretBroker } from "../../auth/broker";
+import type { SecretScope } from "../../auth/types";
 
 function parseAuthScope(arg: string | undefined, agentId: string, config: MoziConfig): SecretScope {
   const raw = (arg || "").trim();

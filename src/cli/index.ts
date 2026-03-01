@@ -2,9 +2,9 @@
 import { Command } from "commander";
 import "../runtime/pi-package-dir";
 import { APP_VERSION } from "../version";
+import { acpCommand } from "./commands/acp";
 import { runtimeCommand } from "./runtime";
 import { sandboxCommand } from "./sandbox";
-import { acpCommand } from "./commands/acp";
 
 const program = new Command()
   .name("mozi")

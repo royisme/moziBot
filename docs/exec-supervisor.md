@@ -5,6 +5,7 @@ This document describes the supervisor-based exec implementation that enables lo
 ## Overview
 
 The exec system now supports:
+
 - **Background execution**: Start processes that continue running after the tool call returns
 - **yieldMs**: Run for N milliseconds, then return control while the process continues
 - **PTY support**: Run commands in pseudo-terminals for TTY-required tools
@@ -53,10 +54,11 @@ The exec system now supports:
 ```
 
 Response:
+
 ```
-Process started in background (jobId: job_1234567890_abc123, pid: 12345). 
-Use 'process status job_1234567890_abc123' to check status, 
-'process tail job_1234567890_abc123' to view output, 
+Process started in background (jobId: job_1234567890_abc123, pid: 12345).
+Use 'process status job_1234567890_abc123' to check status,
+'process tail job_1234567890_abc123' to view output,
 'process kill job_1234567890_abc123' to terminate.
 ```
 
@@ -107,6 +109,7 @@ Process will be killed after 1 hour if still running.
 ### Process Management
 
 Check status:
+
 ```json
 {
   "tool": "process",
@@ -118,6 +121,7 @@ Check status:
 ```
 
 View output:
+
 ```json
 {
   "tool": "process",
@@ -130,6 +134,7 @@ View output:
 ```
 
 Kill process:
+
 ```json
 {
   "tool": "process",
@@ -141,6 +146,7 @@ Kill process:
 ```
 
 List all running processes (omit jobId):
+
 ```json
 {
   "tool": "process",
@@ -159,7 +165,7 @@ agents:
   - id: coding-agent
     tools:
       - exec
-      - process  # Required for background process management
+      - process # Required for background process management
       - read
       - write
       - edit
@@ -174,6 +180,7 @@ agents:
 ## Data Persistence
 
 Process records are stored in `.mozi/data/process-registry.db` (SQLite).
+
 - Output tail limited to 32KB per process
 - Old exited sessions can be cleaned up via `cleanupOldSessions`
 
@@ -181,33 +188,35 @@ Process records are stored in `.mozi/data/process-registry.db` (SQLite).
 
 ### Exec Tool Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `command` | string | Shell command to execute (required) |
-| `cwd` | string? | Working directory (relative to workspace) |
-| `env` | Record<string,string>? | Environment variables |
-| `authRefs` | string[]? | Secret references to inject |
-| `yieldMs` | number? | Run for N ms then background |
-| `background` | boolean? | Background immediately |
-| `pty` | boolean? | Run in pseudo-terminal |
-| `timeoutSec` | number? | Kill after N seconds |
+| Parameter    | Type                   | Description                               |
+| ------------ | ---------------------- | ----------------------------------------- |
+| `command`    | string                 | Shell command to execute (required)       |
+| `cwd`        | string?                | Working directory (relative to workspace) |
+| `env`        | Record<string,string>? | Environment variables                     |
+| `authRefs`   | string[]?              | Secret references to inject               |
+| `yieldMs`    | number?                | Run for N ms then background              |
+| `background` | boolean?               | Background immediately                    |
+| `pty`        | boolean?               | Run in pseudo-terminal                    |
+| `timeoutSec` | number?                | Kill after N seconds                      |
 
 ### Process Tool Operations
 
-| Operation | Parameters | Description |
-|-----------|------------|-------------|
-| `status` | `jobId`? | Get process status; omit jobId for list |
-| `tail` | `jobId`, `chars`? | Get output (last N chars) |
-| `kill` | `jobId` | Terminate process |
+| Operation | Parameters        | Description                             |
+| --------- | ----------------- | --------------------------------------- |
+| `status`  | `jobId`?          | Get process status; omit jobId for list |
+| `tail`    | `jobId`, `chars`? | Get output (last N chars)               |
+| `kill`    | `jobId`           | Terminate process                       |
 
 ## Testing
 
 Run tests:
+
 ```bash
 pnpm run test src/process
 ```
 
 Test coverage:
+
 - `process-registry.test.ts`: Registry CRUD operations
 - `supervisor.test.ts`: Process lifecycle, timeout, kill
 - `managed-run.test.ts`: ManagedRun wrapper behavior

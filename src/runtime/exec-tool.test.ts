@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createExecTool } from "./exec-tool.js";
 import type { ExecRuntime, ExecResult } from "./exec-runtime.js";
+import { createExecTool } from "./exec-tool.js";
 
 type TextItem = { type: "text"; text: string };
 
@@ -128,10 +128,10 @@ describe("createExecTool", () => {
 
     // Pass invalid/missing args
     await tool.execute("tool-call-1", {
-      command: 123 as any, // invalid - should be string, defaults to empty string -> empty argv
-      cwd: null as any, // invalid
-      env: "not an object" as any, // invalid
-      authRefs: [1, 2, 3] as any, // invalid - becomes empty array after filter
+      command: 123 as unknown as string, // invalid - should be string, defaults to empty string -> empty argv
+      cwd: null as unknown as string, // invalid
+      env: "not an object" as unknown as Record<string, string>, // invalid
+      authRefs: [1, 2, 3] as unknown as string[], // invalid - becomes empty array after filter
     });
 
     // Should default to empty argv, and default booleans to false

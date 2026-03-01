@@ -2,13 +2,13 @@ import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
-import type { PromptBuildMetadata, PromptMode } from "./prompt-builder";
 import {
   type AgentEntry,
   resolveHomeDir,
   resolveSandboxConfig,
   resolveWorkspaceDir,
 } from "./config-resolver";
+import type { PromptBuildMetadata, PromptMode } from "./prompt-builder";
 
 export async function resolveOrCreateAgentSession(params: {
   sessionKey: string;

@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
 import { homedir } from "node:os";
+import path from "node:path";
 
 function resolveUserPath(filePath: string): string | null {
   const trimmed = filePath.trim();

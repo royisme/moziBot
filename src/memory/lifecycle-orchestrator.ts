@@ -1,6 +1,6 @@
+import { logger } from "../logger";
 import type { ResolvedMemorySyncConfig } from "./backend-config";
 import type { MemorySearchManager } from "./types";
-import { logger } from "../logger";
 
 export type MemoryLifecycleEvent =
   | { type: "session_start"; sessionKey: string }

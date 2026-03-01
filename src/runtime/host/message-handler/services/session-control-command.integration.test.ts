@@ -1,10 +1,10 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import type { MoziConfig } from "../../../../config";
 import { prepareRuntimeTestHarness } from "../../../../../tests/harness/runtime-test-harness";
 import { HOME_FILES } from "../../../../agents/home";
+import type { MoziConfig } from "../../../../config";
 import { extractIdentityLanguageHintFromSystemPrompt } from "./reset-greeting-language";
 import { handleNewSessionCommand } from "./session-control-command";
 

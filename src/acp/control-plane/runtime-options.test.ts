@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SessionAcpMeta } from "../types";
 import {
   validateRuntimeModeInput,
   validateRuntimeModelInput,
@@ -17,7 +18,6 @@ import {
   buildRuntimeConfigOptionPairs,
   inferRuntimeOptionPatchFromConfigOption,
 } from "./runtime-options";
-import type { SessionAcpMeta } from "../types";
 
 describe("runtime-options", () => {
   describe("normalizeText", () => {
@@ -93,7 +93,9 @@ describe("runtime-options", () => {
     });
 
     it("should reject non-number", () => {
-      expect(() => validateRuntimeTimeoutSecondsInput("60" as any)).toThrow("positive integer");
+      expect(() => validateRuntimeTimeoutSecondsInput("60" as unknown as number)).toThrow(
+        "positive integer",
+      );
     });
 
     it("should reject too small timeout", () => {
@@ -156,7 +158,7 @@ describe("runtime-options", () => {
       expect(() =>
         validateRuntimeOptionPatch({
           unknownKey: "value",
-        } as any),
+        } as unknown as Record<string, string>),
       ).toThrow("Unknown runtime option");
     });
 
@@ -192,7 +194,7 @@ describe("runtime-options", () => {
         model: undefined,
         runtimeMode: "plan",
       };
-      const normalized = normalizeRuntimeOptions(options as any);
+      const normalized = normalizeRuntimeOptions(options as unknown as Record<string, string>);
       expect(normalized.model).toBeUndefined();
       expect(normalized.runtimeMode).toBe("plan");
     });

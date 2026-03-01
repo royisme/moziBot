@@ -1,9 +1,9 @@
 import pc from "picocolors";
+import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
+import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
+import { resolveSessionKey } from "../../acp/session-key-utils";
 import { loadConfig } from "../../config/loader";
 import { isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
-import { resolveSessionKey } from "../../acp/session-key-utils";
-import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 
 export type AcpCancelOptions = {
   config?: string;
@@ -85,7 +85,9 @@ export async function acpCancel(
     upsertAcpSessionMeta({
       sessionKey,
       mutate: (current) => {
-        if (!current) return null;
+        if (!current) {
+          return null;
+        }
         return {
           ...current,
           state: "idle",
@@ -96,7 +98,9 @@ export async function acpCancel(
 
     console.log(pc.green(`Session "${sessionKey}" cancelled successfully.`));
   } catch (err) {
-    console.error(pc.red(`Error cancelling session: ${err instanceof Error ? err.message : String(err)}`));
+    console.error(
+      pc.red(`Error cancelling session: ${err instanceof Error ? err.message : String(err)}`),
+    );
     process.exit(1);
   }
 }

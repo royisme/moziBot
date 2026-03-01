@@ -1,10 +1,10 @@
+import { mkdir } from "node:fs/promises";
 import { run, sequentialize } from "@grammyjs/runner";
-import { apiThrottler } from "@grammyjs/transformer-throttler";
 import { Bot } from "grammy";
-import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../types";
 import { logger } from "../../../../logger";
 import { BaseChannelPlugin } from "../plugin";
 import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
+import type { OutboundMessage, StatusReaction, StatusReactionPayload } from "../types";
 import { normalizeGroupPolicies, type TelegramGroupPolicyConfig } from "./access";
 import { TelegramUpdateDedup } from "./dedup";
 import { handleMessage, handleCallback } from "./handlers";
@@ -15,7 +15,6 @@ import {
 } from "./network-errors";
 import { sendMessage, reactToMessage, deleteMsg, editMsg } from "./send";
 import { TypingManager } from "./typing";
-import { mkdir } from "node:fs/promises";
 
 interface StatusReactionsConfig {
   enabled?: boolean;

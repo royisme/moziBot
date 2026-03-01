@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 import type { MoziConfig } from "../../config";
-import type { EmbeddingProvider } from "./embedding-provider";
 import { resolveMemoryBackendConfig } from "../backend-config";
 import { EmbeddedMemoryManager } from "./embedded-manager";
+import type { EmbeddingProvider } from "./embedding-provider";
 
 function makeConfig(baseDir: string): MoziConfig {
   return {

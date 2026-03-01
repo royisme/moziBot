@@ -1,24 +1,24 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
-import { Agent, type AgentMessage } from "@mariozechner/pi-agent-core";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Agent, type AgentMessage } from "@mariozechner/pi-agent-core";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../../config";
+import { logger } from "../../../logger";
+import { resolveHomeDir } from "../../../memory/backend-config";
 import type { AgentEntry } from "../../agent-manager/config-resolver";
+import { resolveWorkspaceDir } from "../../agent-manager/config-resolver";
+import { getAgentFastModelCandidates } from "../../agent-manager/model-routing-service";
+import { resolveAgentModelRef } from "../../agent-manager/model-session-service";
+import { ModelRegistry } from "../../model-registry";
+import { ProviderRegistry } from "../../provider-registry";
 import type { ModelSpec } from "../../types";
+import { registerRuntimeHook } from "../index";
 import type {
   BeforeResetEvent,
   BeforeResetContext,
   TurnCompletedContext,
   TurnCompletedEvent,
 } from "../types";
-import { logger } from "../../../logger";
-import { resolveHomeDir } from "../../../memory/backend-config";
-import { resolveWorkspaceDir } from "../../agent-manager/config-resolver";
-import { getAgentFastModelCandidates } from "../../agent-manager/model-routing-service";
-import { resolveAgentModelRef } from "../../agent-manager/model-session-service";
-import { ModelRegistry } from "../../model-registry";
-import { ProviderRegistry } from "../../provider-registry";
-import { registerRuntimeHook } from "../index";
 
 const MIN_TURNS_BEFORE_FLUSH = 3;
 const FLUSH_DEBOUNCE_MS = 120_000;

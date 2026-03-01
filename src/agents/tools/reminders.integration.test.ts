@@ -1,6 +1,5 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import type { SessionToolsContext } from "./sessions";
 import { SessionManager } from "../../runtime/host/sessions/manager";
 import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
 import { closeDb, initDb } from "../../storage/db";
@@ -11,6 +10,7 @@ import {
   reminderSnooze,
   reminderUpdate,
 } from "./reminders";
+import type { SessionToolsContext } from "./sessions";
 
 const TEST_DB = "data/test-reminder-tools.db";
 

@@ -1,9 +1,9 @@
-import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import path from "node:path";
+import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../config";
+import { resolveHistoryLimitFromSessionKey } from "../context-management";
 import type { ContextPruningConfig } from "../context-pruning";
 import type { SandboxConfig } from "../sandbox/types";
-import { resolveHistoryLimitFromSessionKey } from "../context-management";
 import { resolveToolAllowList as resolveToolAllowListCore } from "../tool-selection";
 
 export type AgentEntry = {

@@ -1,4 +1,5 @@
 import type { ContentPart, MediaRef, Modality } from "../protocol/index.ts";
+import { applyFallbackToText } from "./fallback-policy.ts";
 import type {
   CapabilityProfile,
   DeliveryPlan,
@@ -6,7 +7,6 @@ import type {
   NegotiationInput,
   TransformStep,
 } from "./profile.ts";
-import { applyFallbackToText } from "./fallback-policy.ts";
 
 function intersectModalityLimits(
   a: ModalityLimits,

@@ -1,9 +1,9 @@
-import type { InboundMessage } from "../../adapters/channels/types";
-import type { SessionManager } from "../../host/sessions/manager";
-import type { RuntimeEnqueueResult, RuntimeInboundEnvelope, RuntimeQueueMode } from "../contracts";
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
+import type { InboundMessage } from "../../adapters/channels/types";
+import type { SessionManager } from "../../host/sessions/manager";
 import { CommandToken, PeerType, SessionStatus } from "../constants";
+import type { RuntimeEnqueueResult, RuntimeInboundEnvelope, RuntimeQueueMode } from "../contracts";
 
 export function extractCommandToken(text: string): string {
   if (!text.startsWith("/")) {

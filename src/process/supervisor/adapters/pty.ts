@@ -69,13 +69,17 @@ export async function createPtyAdapter(params: {
   let forceKillWaitFallbackTimer: NodeJS.Timeout | null = null;
 
   const clearForceKillWaitFallback = () => {
-    if (!forceKillWaitFallbackTimer) return;
+    if (!forceKillWaitFallbackTimer) {
+      return;
+    }
     clearTimeout(forceKillWaitFallbackTimer);
     forceKillWaitFallbackTimer = null;
   };
 
   const settleWait = (value: { code: number | null; signal: NodeJS.Signals | number | null }) => {
-    if (waitResult) return;
+    if (waitResult) {
+      return;
+    }
     clearForceKillWaitFallback();
     waitResult = value;
     if (resolveWait) {
@@ -132,7 +136,9 @@ export async function createPtyAdapter(params: {
   };
 
   const wait = async () => {
-    if (waitResult) return waitResult;
+    if (waitResult) {
+      return waitResult;
+    }
     if (!waitPromise) {
       waitPromise = new Promise<{ code: number | null; signal: NodeJS.Signals | number | null }>(
         (resolve) => {
@@ -167,8 +173,16 @@ export async function createPtyAdapter(params: {
   };
 
   const dispose = () => {
-    try { dataListener?.dispose(); } catch { /* ignore */ }
-    try { exitListener?.dispose(); } catch { /* ignore */ }
+    try {
+      dataListener?.dispose();
+    } catch {
+      /* ignore */
+    }
+    try {
+      exitListener?.dispose();
+    } catch {
+      /* ignore */
+    }
     clearForceKillWaitFallback();
     dataListener = null;
     exitListener = null;

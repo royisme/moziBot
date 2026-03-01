@@ -1,5 +1,5 @@
-import type { SecretRecordMeta, SecretScope, SecretStore, SecretStoreRecord } from "./types";
 import { authSecrets } from "../../storage/db";
+import type { SecretRecordMeta, SecretScope, SecretStore, SecretStoreRecord } from "./types";
 
 function toScope(scopeType: "global" | "agent", scopeId: string | null): SecretScope {
   if (scopeType === "agent") {

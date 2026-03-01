@@ -1,3 +1,7 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   AssistantMessageEventStream,
   registerApiProvider,
@@ -7,13 +11,9 @@ import {
   type StreamOptions,
 } from "@mariozechner/pi-ai";
 import { execa } from "execa";
-import crypto from "node:crypto";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import type { MoziConfig } from "../config";
-import type { ModelDefinition, ModelSpec } from "./types";
 import { logger } from "../logger";
+import type { ModelDefinition, ModelSpec } from "./types";
 
 export type CliBackendOutput = "json" | "jsonl" | "text";
 export type CliBackendInput = "arg" | "stdin";

@@ -1,7 +1,7 @@
 import pc from "picocolors";
+import { listAcpSessionEntries } from "../../acp/runtime/session-meta";
 import { loadConfig } from "../../config/loader";
 import { isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { listAcpSessionEntries } from "../../acp/runtime/session-meta";
 
 export type AcpListOptions = {
   config?: string;
@@ -58,15 +58,15 @@ export async function acpList(options: AcpListOptions): Promise<void> {
   if (sessions.length === 0) {
     console.log(pc.dim("  No ACP sessions found."));
     console.log("");
-    console.log(
-      pc.dim("  Use `mozi acp spawn <backend>` to create a new session."),
-    );
+    console.log(pc.dim("  Use `mozi acp spawn <backend>` to create a new session."));
     return;
   }
 
   for (const session of sessions) {
     const acp = session.acp;
-    if (!acp) continue;
+    if (!acp) {
+      continue;
+    }
 
     console.log("");
     console.log(pc.bold(`  ${session.sessionKey}`));
@@ -80,9 +80,7 @@ export async function acpList(options: AcpListOptions): Promise<void> {
       console.log(`    CWD: ${pc.dim(acp.cwd)}`);
     }
 
-    console.log(
-      `    Last Activity: ${pc.dim(new Date(acp.lastActivityAt).toLocaleString())}`,
-    );
+    console.log(`    Last Activity: ${pc.dim(new Date(acp.lastActivityAt).toLocaleString())}`);
 
     if (acp.lastError) {
       console.log(`    ${pc.red(`Error: ${acp.lastError}`)}`);

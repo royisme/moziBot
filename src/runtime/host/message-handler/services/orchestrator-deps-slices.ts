@@ -1,12 +1,12 @@
 import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
 import type { MoziConfig } from "../../../../config";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
+import { ingestInboundMessage } from "../../../../multimodal/ingest";
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
 import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
-import type { OrchestratorDeps } from "../contract";
-import { ingestInboundMessage } from "../../../../multimodal/ingest";
 import { parseInlineOverrides } from "../../commands/reasoning";
+import type { OrchestratorDeps } from "../contract";
 import { checkInputCapability as checkInputCapabilityService } from "./capability";
 import { createErrorReplyText as createErrorReplyTextService } from "./error-reply";
 import { isAbortError as isAbortErrorService, toError as toErrorService } from "./error-utils";
@@ -268,10 +268,10 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
               const current = await agentManager.getAgent(targetSessionKey, targetAgentId);
               return { modelRef: current.modelRef };
             },
-            ensureSessionModelForInput: async ({ sessionKey, agentId, input }) => {
+            ensureSessionModelForInput: async ({ sessionKey: sk, agentId: agId, input }) => {
               const routed = await agentManager.ensureSessionModelForInput({
-                sessionKey,
-                agentId,
+                sessionKey: sk,
+                agentId: agId,
                 input,
               });
               if (routed.ok) {

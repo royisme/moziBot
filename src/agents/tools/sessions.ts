@@ -1,16 +1,19 @@
 import { z } from "zod";
+import { AcpSessionManager } from "../../acp/control-plane";
+import {
+  normalizeRuntimeOptions,
+  validateRuntimeOptionPatch,
+} from "../../acp/control-plane/runtime-options";
+import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
+import type { SessionAcpMeta } from "../../acp/types";
 import type { MoziConfig } from "../../config/schema";
 import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { AcpSessionManager } from "../../acp/control-plane";
-import { normalizeRuntimeOptions, validateRuntimeOptionPatch } from "../../acp/control-plane/runtime-options";
-import type { SessionAcpMeta } from "../../acp/types";
-import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
+import { continuationRegistry } from "../../runtime/core/continuation";
 import type { ContinuationRequest } from "../../runtime/core/contracts";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
 import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
-import type { Session } from "../../runtime/host/sessions/types";
-import { continuationRegistry } from "../../runtime/core/continuation";
 import { spawnSubAgent } from "../../runtime/host/sessions/spawn";
+import type { Session } from "../../runtime/host/sessions/types";
 
 export interface SessionToolsContext {
   sessionManager: SessionManager;
@@ -225,7 +228,7 @@ async function initializeAcpSubAgent(
 
     const acpSessionManager = new AcpSessionManager();
     await acpSessionManager.ensureSession({
-      cfg: (config ?? {}) as MoziConfig,
+      cfg: config ?? {},
       sessionKey: childKey,
       agent: resolvedAgent,
       mode,
@@ -235,7 +238,7 @@ async function initializeAcpSubAgent(
 
     await ctx.sessionManager.update(childKey, {
       metadata: {
-        ...(childSession.metadata ?? {}),
+        ...childSession.metadata,
         acp: {
           backend: resolvedBackend,
           mode,

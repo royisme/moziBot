@@ -60,7 +60,9 @@ describe("exec-wrapper-resolution", () => {
 
   describe("hasEnvManipulationBeforeShellWrapper", () => {
     it("returns true when env has variable assignments before shell", () => {
-      expect(hasEnvManipulationBeforeShellWrapper(["env", "FOO=bar", "bash", "-lc", "cmd"])).toBe(true);
+      expect(hasEnvManipulationBeforeShellWrapper(["env", "FOO=bar", "bash", "-lc", "cmd"])).toBe(
+        true,
+      );
     });
 
     it("returns false when env is transparent (no modifiers)", () => {

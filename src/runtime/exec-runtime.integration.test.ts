@@ -1,14 +1,18 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 /**
  * Integration tests for ExecRuntime + ProcessSupervisor + ProcessRegistry.
  * These tests actually spawn real processes on the host.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import os from "node:os";
-import path from "node:path";
-import fs from "node:fs";
-import { ExecRuntime } from "./exec-runtime.js";
 import { ProcessRegistry } from "../process/process-registry.js";
-import { createProcessSupervisor, setProcessSupervisor, resetProcessSupervisor } from "../process/supervisor/index.js";
+import {
+  createProcessSupervisor,
+  setProcessSupervisor,
+  resetProcessSupervisor,
+} from "../process/supervisor/index.js";
+import { ExecRuntime } from "./exec-runtime.js";
 import type { SandboxBoundary } from "./sandbox/config.js";
 
 let tempDir: string;

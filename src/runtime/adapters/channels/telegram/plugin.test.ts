@@ -204,9 +204,13 @@ describe("TelegramPlugin", () => {
     });
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("130");
-    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith("12345", expect.any(Object), expect.objectContaining({
-      reply_markup: undefined,
-    }));
+    expect(botInstance.api.sendVideoNote).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({
+        reply_markup: undefined,
+      }),
+    );
   });
 
   it("should send audio message", async () => {
@@ -304,7 +308,7 @@ describe("TelegramPlugin", () => {
     const buffer = Buffer.from("test-unknown");
     const messageId = await plugin.send("12345", {
       text: "unknown caption",
-      media: [{ type: "unknown" as any, buffer, filename: "file.xyz" }],
+      media: [{ type: "unknown" as unknown as "document", buffer, filename: "file.xyz" }],
     });
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("125");
@@ -318,11 +322,15 @@ describe("TelegramPlugin", () => {
   it("should fall back to text when media has no buffer", async () => {
     const messageId = await plugin.send("12345", {
       text: "fallback text",
-      media: [{ type: "photo", buffer: undefined } as any],
+      media: [{ type: "photo" as const, buffer: undefined }],
     });
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("123");
-    expect(botInstance.api.sendMessage).toHaveBeenCalledWith("12345", "fallback text", expect.any(Object));
+    expect(botInstance.api.sendMessage).toHaveBeenCalledWith(
+      "12345",
+      "fallback text",
+      expect.any(Object),
+    );
     expect(botInstance.api.sendPhoto).not.toHaveBeenCalled();
   });
 

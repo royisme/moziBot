@@ -1,9 +1,9 @@
 import pc from "picocolors";
+import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
+import { readAcpSessionEntry } from "../../acp/runtime/session-meta";
+import { resolveSessionKey } from "../../acp/session-key-utils";
 import { loadConfig } from "../../config/loader";
 import { isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
-import { resolveSessionKey } from "../../acp/session-key-utils";
-import { readAcpSessionEntry } from "../../acp/runtime/session-meta";
 
 export type AcpStatusOptions = {
   config?: string;
@@ -140,7 +140,11 @@ export async function acpStatus(
         }
       }
     } catch (err) {
-      console.log(pc.yellow(`  (Runtime status unavailable: ${err instanceof Error ? err.message : String(err)})`));
+      console.log(
+        pc.yellow(
+          `  (Runtime status unavailable: ${err instanceof Error ? err.message : String(err)})`,
+        ),
+      );
     }
   }
 }

@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { SandboxConfig } from "./types";
 import { ContainerRuntime, type ContainerConfig, type Mount } from "../../container/runtime";
+import type { SandboxConfig } from "./types";
 
 const DEFAULT_WORKDIR = "/workspace";
 

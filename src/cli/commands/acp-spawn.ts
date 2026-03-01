@@ -1,12 +1,9 @@
 import pc from "picocolors";
-import { loadConfig } from "../../config/loader";
-import {
-  isAcpEnabledByPolicy,
-  isAcpDispatchEnabledByPolicy,
-} from "../../config/schema/acp-policy";
 import { requireAcpRuntimeBackend } from "../../acp/runtime/registry";
 import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import type { SessionAcpMeta } from "../../acp/types";
+import { loadConfig } from "../../config/loader";
+import { isAcpEnabledByPolicy, isAcpDispatchEnabledByPolicy } from "../../config/schema/acp-policy";
 
 export type AcpSpawnOptions = {
   config?: string;
@@ -18,7 +15,10 @@ export type AcpSpawnOptions = {
 /**
  * Spawns a new ACP session.
  */
-export async function acpSpawn(backend: string | undefined, options: AcpSpawnOptions): Promise<void> {
+export async function acpSpawn(
+  backend: string | undefined,
+  options: AcpSpawnOptions,
+): Promise<void> {
   const configPath = options.config;
   const configResult = loadConfig(configPath);
 
@@ -66,7 +66,7 @@ export async function acpSpawn(backend: string | undefined, options: AcpSpawnOpt
 
   const modeInput = (options.mode ?? "persistent").trim().toLowerCase();
   if (modeInput !== "persistent" && modeInput !== "oneshot") {
-    console.error(pc.red(`Error: invalid mode \"${options.mode}\".`));
+    console.error(pc.red(`Error: invalid mode "${options.mode}".`));
     console.error(pc.dim("Mode must be one of: persistent, oneshot."));
     process.exit(1);
   }
@@ -83,7 +83,7 @@ export async function acpSpawn(backend: string | undefined, options: AcpSpawnOpt
   // Generate session key
   const sessionKey = `acp:${Date.now()}:${process.pid}`;
   const cwd = options.cwd ?? process.cwd();
-  const mode = modeInput as "persistent" | "oneshot";
+  const mode = modeInput;
 
   // Initialize session metadata
   const now = Date.now();
@@ -132,7 +132,9 @@ export async function acpSpawn(backend: string | undefined, options: AcpSpawnOpt
     console.log(pc.dim("Use `mozi acp status <sessionKey>` to check session status."));
     console.log(pc.dim("Use `mozi acp cancel <sessionKey>` to cancel the session."));
   } catch (err) {
-    console.error(pc.red(`Error spawning session: ${err instanceof Error ? err.message : String(err)}`));
+    console.error(
+      pc.red(`Error spawning session: ${err instanceof Error ? err.message : String(err)}`),
+    );
     process.exit(1);
   }
 }

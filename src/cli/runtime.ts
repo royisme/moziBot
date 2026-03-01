@@ -1,7 +1,7 @@
-import { Command } from "commander";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { Command } from "commander";
 import { loadConfig } from "../config/loader";
 import {
   detectServiceProvider,

@@ -1,7 +1,8 @@
-import Database, { type Database as DatabaseType } from "better-sqlite3";
-import chokidar, { type FSWatcher } from "chokidar";
 import fs from "node:fs/promises";
 import path from "node:path";
+import Database, { type Database as DatabaseType } from "better-sqlite3";
+import chokidar, { type FSWatcher } from "chokidar";
+import { logger } from "../logger";
 import type { ResolvedBuiltinMemoryConfig } from "./backend-config";
 import type {
   MemoryEmbeddingProbeResult,
@@ -14,7 +15,6 @@ import type {
   SearchOptions,
   SyncParams,
 } from "./types";
-import { logger } from "../logger";
 
 const DEFAULT_MAX_RESULTS = 6;
 const DEFAULT_MIN_SCORE = 0.3;

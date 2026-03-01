@@ -1,5 +1,5 @@
-import type { Task } from "../types";
 import { withConnection } from "../connection";
+import type { Task } from "../types";
 
 export const tasks = {
   create: (task: Task) =>

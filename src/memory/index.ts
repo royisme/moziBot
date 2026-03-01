@@ -1,9 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { MoziConfig } from "../config";
-import type { MemorySearchManager } from "./types";
 import { ensureHome } from "../agents/home";
+import type { MoziConfig } from "../config";
 import { logger } from "../logger";
 import { resolveMemoryBackendConfig, resolveHomeDir } from "./backend-config";
 import { BuiltinMemoryManager } from "./builtin-manager";
@@ -11,6 +10,7 @@ import { EmbeddedMemoryManager } from "./embedded/embedded-manager";
 import { FallbackMemoryManager } from "./fallback-manager";
 import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
 import { QmdMemoryManager } from "./qmd-manager";
+import type { MemorySearchManager } from "./types";
 
 const managerCache = new Map<string, MemorySearchManager>();
 const lifecycleCache = new Map<string, MemoryLifecycleOrchestrator>();

@@ -1,18 +1,17 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../../../config";
-import type { FlushMetadata } from "../../../../memory/flush-manager";
-import type { TapeService } from "../../../../tape/tape-service.js";
-import type { TapeStore } from "../../../../tape/tape-store.js";
-import type { StreamingCallback } from "./streaming";
 import {
   resolveMemoryBackendConfig,
   type ResolvedMemoryPersistenceConfig,
 } from "../../../../memory/backend-config";
+import type { FlushMetadata } from "../../../../memory/flush-manager";
+import { recordTurnToTape, withForkTape } from "../../../../tape/integration.js";
+import type { TapeService } from "../../../../tape/tape-service.js";
+import type { TapeStore } from "../../../../tape/tape-store.js";
 import { estimateMessagesTokens } from "../../../context-management";
 import { isCompactionFailureError, isContextOverflowError } from "../../../context-management";
 import { isTransientError } from "../../../core/error-policy";
 import { extractAssistantText, getAssistantFailureReason } from "../../reply-utils";
-import { recordTurnToTape, withForkTape } from "../../../../tape/integration.js";
 import {
   isAbortError as isAbortErrorService,
   isAgentBusyError as isAgentBusyErrorService,
@@ -22,6 +21,7 @@ import {
   runPromptWithFallback as runPromptWithFallbackService,
   type PromptAgent,
 } from "./prompt-runner";
+import type { StreamingCallback } from "./streaming";
 
 interface PromptCoordinatorAgentManager {
   getAgent(
@@ -103,7 +103,9 @@ function extractTurnToolData(messages: AgentMessage[]): {
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i] as Record<string, unknown>;
-    if (!msg || typeof msg !== "object") continue;
+    if (!msg || typeof msg !== "object") {
+      continue;
+    }
 
     const role = typeof msg.role === "string" ? msg.role : "";
     if (role === "user") {
@@ -121,7 +123,7 @@ function extractTurnToolData(messages: AgentMessage[]): {
       for (const block of content) {
         const b = block as Record<string, unknown>;
         if (b && (b.type === "tool_use" || b.type === "toolCall")) {
-          toolCalls.push(b as Record<string, unknown>);
+          toolCalls.push(b);
         }
       }
     } else if (role === "assistant" && content && typeof content === "object") {

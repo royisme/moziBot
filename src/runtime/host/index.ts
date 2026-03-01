@@ -1,16 +1,14 @@
-import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import Database from "better-sqlite3";
 import type { MoziConfig } from "../../config";
-import type { InboundMessage } from "../adapters/channels/types";
-import type { CronJob } from "./cron/types";
-import type { RuntimeHostOptions, RuntimeStatus } from "./types";
 import { configureLogger, logger } from "../../logger";
 import { initDb } from "../../storage/db";
 import { DiscordPlugin } from "../adapters/channels/discord/plugin";
 import { LocalDesktopPlugin } from "../adapters/channels/local-desktop/plugin";
 import { ChannelRegistry } from "../adapters/channels/registry";
 import { TelegramPlugin } from "../adapters/channels/telegram/plugin";
+import type { InboundMessage } from "../adapters/channels/types";
 import {
   ensureChromeExtensionRelayServer,
   stopAllChromeExtensionRelays,
@@ -19,6 +17,7 @@ import { RuntimeKernel } from "../core/kernel";
 import { bootstrapSandboxes } from "../sandbox/bootstrap";
 import { ConfigManager } from "./config-manager";
 import { CronScheduler } from "./cron/scheduler";
+import type { CronJob } from "./cron/types";
 import { HealthCheck } from "./health";
 import { HeartbeatRunner } from "./heartbeat";
 import { Lifecycle } from "./lifecycle";
@@ -28,6 +27,7 @@ import { ReminderRunner } from "./reminders/runner";
 import { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { injectMessageHandler } from "./sessions/subagent-announce";
+import type { RuntimeHostOptions, RuntimeStatus } from "./types";
 
 export class RuntimeHost {
   private running = false;

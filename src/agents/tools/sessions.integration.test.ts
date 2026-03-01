@@ -1,14 +1,14 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { SessionManager } from "../../runtime/host/sessions/manager";
-import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
-import { closeDb, initDb } from "../../storage/db";
 import {
   __testing as acpRuntimeRegistryTesting,
   registerAcpRuntimeBackend,
   unregisterAcpRuntimeBackend,
 } from "../../acp/runtime/registry";
 import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
+import { SessionManager } from "../../runtime/host/sessions/manager";
+import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
+import { closeDb, initDb } from "../../storage/db";
 import { type SessionToolsContext, sessionsList, sessionsSend, sessionsSpawn } from "./sessions";
 
 const TEST_DB = "data/test-session-tools.db";

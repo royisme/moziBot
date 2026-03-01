@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync } from 'node:fs';
-import { TapeFile } from './tape-file.js';
-import type { TapeEntry } from './types.js';
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { TapeFile } from "./tape-file.js";
+import type { TapeEntry } from "./types.js";
 
 export class TapeStore {
   private readonly workspaceHash: string;
@@ -9,10 +9,10 @@ export class TapeStore {
 
   constructor(
     public readonly tapesDir: string,
-    public readonly workspacePath: string
+    public readonly workspacePath: string,
   ) {
     // Compute workspace hash (first 16 chars of MD5 hex)
-    const hash = createHash('md5').update(workspacePath).digest('hex');
+    const hash = createHash("md5").update(workspacePath).digest("hex");
     this.workspaceHash = hash.slice(0, 16);
 
     // Ensure tapes directory exists
@@ -49,7 +49,7 @@ export class TapeStore {
       }
     }
 
-    return Array.from(names).sort();
+    return Array.from(names).toSorted();
   }
 
   getTapeFile(name: string): TapeFile {
@@ -116,14 +116,14 @@ export class TapeStore {
     return tapeFile.read();
   }
 
-  append(name: string, entry: Omit<TapeEntry, 'id'>): TapeEntry {
+  append(name: string, entry: Omit<TapeEntry, "id">): TapeEntry {
     const tapeFile = this.getTapeFile(name);
     return tapeFile.append(entry);
   }
 
   private _randomHex(length: number): string {
-    const chars = '0123456789abcdef';
-    let result = '';
+    const chars = "0123456789abcdef";
+    let result = "";
     for (let i = 0; i < length; i++) {
       result += chars[Math.floor(Math.random() * chars.length)];
     }

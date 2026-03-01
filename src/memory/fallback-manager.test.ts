@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MemorySearchManager, MemorySearchResult } from "./types";
 import { FallbackMemoryManager } from "./fallback-manager";
 import { expandQueryForFts } from "./query-expansion";
+import type { MemorySearchManager, MemorySearchResult } from "./types";
 
 function createResult(path: string, score = 0.9): MemorySearchResult {
   return {

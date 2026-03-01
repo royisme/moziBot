@@ -1,8 +1,8 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { FlushManager } from "./flush-manager";
 

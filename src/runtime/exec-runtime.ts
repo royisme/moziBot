@@ -1,10 +1,20 @@
-import { type ProcessRegistry } from "../process/process-registry.js";
-import { type SandboxBoundary, resolveCwd, buildSafeEnv, validateCommand, BLOCKED_ENV_KEYS } from "./sandbox/config.js";
-import { getProcessSupervisor, type ManagedRun, type RunExit } from "../process/supervisor/index.js";
-import { resolveCommand, sanitizeBinaryOutput } from "../process/shell-utils.js";
-import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
-import { logger } from "../logger.js";
 import { resolveSystemRunCommand, formatExecCommand } from "../infra/system-run-command.js";
+import { logger } from "../logger.js";
+import { type ProcessRegistry } from "../process/process-registry.js";
+import { resolveCommand, sanitizeBinaryOutput } from "../process/shell-utils.js";
+import {
+  getProcessSupervisor,
+  type ManagedRun,
+  type RunExit,
+} from "../process/supervisor/index.js";
+import {
+  type SandboxBoundary,
+  resolveCwd,
+  buildSafeEnv,
+  validateCommand,
+  BLOCKED_ENV_KEYS,
+} from "./sandbox/config.js";
+import type { VibeboxExecutor } from "./sandbox/vibebox-executor.js";
 
 // List of dangerous host environment variable names (uppercase)
 const DANGEROUS_HOST_ENV_VAR_NAMES = new Set([
@@ -78,8 +88,8 @@ export type AuthResolver = {
 };
 
 export type ExecRequest = {
-  argv: string[];             // true argv to execute (first-class citizen)
-  rawCommand?: string;        // display/approval text (optional, must be consistent with argv)
+  argv: string[]; // true argv to execute (first-class citizen)
+  rawCommand?: string; // display/approval text (optional, must be consistent with argv)
   cwd?: string;
   env?: Record<string, string>;
   authRefs?: string[];
@@ -114,9 +124,7 @@ export class ExecRuntime {
     allowedSecrets?: string[],
     private vibeboxExecutor?: VibeboxExecutor,
   ) {
-    this.allowedSecrets = new Set(
-      (allowedSecrets ?? []).map(s => s.trim().toUpperCase())
-    );
+    this.allowedSecrets = new Set((allowedSecrets ?? []).map((s) => s.trim().toUpperCase()));
   }
 
   async execute(request: ExecRequest, onUpdate?: ExecUpdateCallback): Promise<ExecResult> {
@@ -135,14 +143,17 @@ export class ExecRuntime {
     // the inline shellCommand is only for display/approval purposes.
     const cmdForValidation = resolved.argv[0] ?? "";
     const cmdValidation = validateCommand(cmdForValidation, this.boundary.allowlist);
-    if (cmdValidation.ok === false) {
+    if (!cmdValidation.ok) {
       return { type: "error", message: cmdValidation.reason };
     }
 
     // 2. Check protected secrets in env
     const protectedKeys = this.blockProtectedSecretsInEnv(request.env);
     if (protectedKeys.length > 0) {
-      return { type: "error", message: `Protected auth env vars not allowed: ${protectedKeys.join(", ")}. Use authRefs.` };
+      return {
+        type: "error",
+        message: `Protected auth env vars not allowed: ${protectedKeys.join(", ")}. Use authRefs.`,
+      };
     }
 
     // 3. Resolve cwd
@@ -150,7 +161,10 @@ export class ExecRuntime {
     try {
       resolvedCwd = resolveCwd(this.boundary, request.cwd);
     } catch (err) {
-      return { type: "error", message: err instanceof Error ? err.message : "cwd validation failed" };
+      return {
+        type: "error",
+        message: err instanceof Error ? err.message : "cwd validation failed",
+      };
     }
 
     // 4. Resolve auth
@@ -168,7 +182,10 @@ export class ExecRuntime {
     try {
       env = buildSafeEnv(this.boundary, { ...request.env, ...resolvedAuth });
     } catch (err) {
-      return { type: "error", message: err instanceof Error ? err.message : "env validation failed" };
+      return {
+        type: "error",
+        message: err instanceof Error ? err.message : "env validation failed",
+      };
     }
 
     // 6. Vibebox mode
@@ -179,7 +196,8 @@ export class ExecRuntime {
       if (request.background || request.yieldMs !== undefined) {
         return {
           type: "error",
-          message: "Background and yield execution modes are not supported in vibebox sandbox mode.",
+          message:
+            "Background and yield execution modes are not supported in vibebox sandbox mode.",
         };
       }
       return this.executeVibebox(request, resolvedCwd, env);
@@ -402,15 +420,18 @@ export class ExecRuntime {
     }
 
     // Wire up exit to registry
-    managedRun.wait().then((exit) => {
-      this.registry.markExited({
-        id: jobId,
-        exitCode: exit.exitCode,
-        signal: exit.exitSignal != null ? String(exit.exitSignal) : null,
+    managedRun
+      .wait()
+      .then((exit) => {
+        this.registry.markExited({
+          id: jobId,
+          exitCode: exit.exitCode,
+          signal: exit.exitSignal != null ? String(exit.exitSignal) : null,
+        });
+      })
+      .catch(() => {
+        this.registry.markExited({ id: jobId, exitCode: null, signal: "ERROR" });
       });
-    }).catch(() => {
-      this.registry.markExited({ id: jobId, exitCode: null, signal: "ERROR" });
-    });
 
     // Immediate background
     if (request.background === true) {
@@ -429,7 +450,9 @@ export class ExecRuntime {
       let resolved = false;
 
       const timer = setTimeout(() => {
-        if (resolved) return;
+        if (resolved) {
+          return;
+        }
         resolved = true;
         this.registry.markBackgrounded(jobId);
         resolve({
@@ -441,17 +464,24 @@ export class ExecRuntime {
         });
       }, yieldMs);
 
-      managedRun.wait().then((exit) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timer);
-        resolve(this.exitToCompleted(exit, outputBuf, "", ptyWarning));
-      }).catch(() => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timer);
-        resolve({ type: "error", message: "Process failed unexpectedly" });
-      });
+      managedRun
+        .wait()
+        .then((exit) => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          clearTimeout(timer);
+          resolve(this.exitToCompleted(exit, outputBuf, "", ptyWarning));
+        })
+        .catch(() => {
+          if (resolved) {
+            return;
+          }
+          resolved = true;
+          clearTimeout(timer);
+          resolve({ type: "error", message: "Process failed unexpectedly" });
+        });
     });
   }
 
@@ -461,8 +491,7 @@ export class ExecRuntime {
     stderr: string,
     ptyWarning?: string,
   ): ExecResult {
-    const exitCode =
-      exit.exitCode ?? (exit.timedOut ? 124 : exit.exitSignal != null ? 128 : 1);
+    const exitCode = exit.exitCode ?? (exit.timedOut ? 124 : exit.exitSignal != null ? 128 : 1);
 
     // Shell exit codes 126 (not executable) and 127 (command not found) are
     // unrecoverable infrastructure failures that should surface as real errors
@@ -476,12 +505,11 @@ export class ExecRuntime {
     const combinedOutput = stderr ? `${outputWithWarning}\n${stderr}` : outputWithWarning;
 
     if (isShellFailure) {
-      const reason = exitCode === 127 ? "Command not found" : "Command not executable (permission denied)";
+      const reason =
+        exitCode === 127 ? "Command not found" : "Command not executable (permission denied)";
       return {
         type: "error",
-        message: combinedOutput
-          ? `${combinedOutput}\n\n${reason}`
-          : reason,
+        message: combinedOutput ? `${combinedOutput}\n\n${reason}` : reason,
       };
     }
 
@@ -501,32 +529,38 @@ export class ExecRuntime {
     const MIN = 10;
     const MAX = 120_000;
     const DEFAULT = 10_000;
-    if (value === undefined) return DEFAULT;
-    if (!Number.isFinite(value) || value < MIN) return MIN;
+    if (value === undefined) {
+      return DEFAULT;
+    }
+    if (!Number.isFinite(value) || value < MIN) {
+      return MIN;
+    }
     return Math.min(value, MAX);
   }
 
   private blockProtectedSecretsInEnv(env?: Record<string, string>): string[] {
-    if (!env) return [];
+    if (!env) {
+      return [];
+    }
     const re = /^[A-Z][A-Z0-9_]*_API_KEY$/;
-    return Object.keys(env).filter(key => re.test(key));
+    return Object.keys(env).filter((key) => re.test(key));
   }
 
   private async resolveAuth(
     authRefs: string[],
     agentId: string,
   ): Promise<{ resolved: Record<string, string>; error?: string }> {
-    const refs = authRefs
-      .map(r => r.trim().toUpperCase())
-      .filter(r => r.length > 0);
+    const refs = authRefs.map((r) => r.trim().toUpperCase()).filter((r) => r.length > 0);
 
-    if (refs.length === 0) return { resolved: {} };
+    if (refs.length === 0) {
+      return { resolved: {} };
+    }
 
     if (!this.authResolver) {
       return { resolved: {}, error: "Auth broker is disabled for this runtime." };
     }
 
-    const denied = refs.filter(name => !this.allowedSecrets.has(name));
+    const denied = refs.filter((name) => !this.allowedSecrets.has(name));
     if (denied.length > 0) {
       return { resolved: {}, error: `Secret(s) not allowed: ${denied.join(", ")}` };
     }

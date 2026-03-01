@@ -1,3 +1,6 @@
+import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import path from "node:path";
 import {
   Client,
   Command,
@@ -15,9 +18,10 @@ import {
   type APIAttachment,
   type APIEmbed,
 } from "discord-api-types/v10";
-import { EventEmitter } from "node:events";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { logger } from "../../../../logger";
+import { chunkTextWithMode, getChannelTextLimit } from "../../../../utils/text-chunk";
+import { BaseChannelPlugin } from "../plugin";
+import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import type {
   InboundMessage,
   MediaAttachment,
@@ -25,10 +29,6 @@ import type {
   StatusReaction,
   StatusReactionPayload,
 } from "../types";
-import { logger } from "../../../../logger";
-import { chunkTextWithMode, getChannelTextLimit } from "../../../../utils/text-chunk";
-import { BaseChannelPlugin } from "../plugin";
-import { resolveStatusReactionEmojis, type StatusReactionEmojis } from "../status-reactions";
 import {
   type AccessPolicy,
   type DiscordGuildPolicyConfig,
@@ -132,7 +132,8 @@ export class DiscordPlugin extends BaseChannelPlugin {
    */
   private async registerAcpCommands(client: Client): Promise<void> {
     // Store reference to plugin for use in command handler
-    const plugin = this;
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const outerPlugin = this;
 
     // ACP parent command with subcommands
     class AcpCommand extends Command {
@@ -210,15 +211,19 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
       // Spawn subcommand
       async run(interaction: CommandInteraction): Promise<void> {
-        const subcommand = interaction.options.getSubcommandGroup(false) ||
-                          interaction.options.getSubcommand(false) ||
-                          "";
+        const subcommand =
+          interaction.options.getSubcommandGroup(false) ||
+          interaction.options.getSubcommand(false) ||
+          "";
 
         const args = this.buildArgsFromInteraction(interaction, subcommand);
-        await this.handleAcpCommand(interaction, subcommand, args, plugin);
+        await this.handleAcpCommand(interaction, subcommand, args, outerPlugin);
       }
 
-      private buildArgsFromInteraction(interaction: CommandInteraction, subcommand: string): string {
+      private buildArgsFromInteraction(
+        interaction: CommandInteraction,
+        subcommand: string,
+      ): string {
         const parts: string[] = [subcommand];
 
         // Get all options
@@ -228,11 +233,21 @@ export class DiscordPlugin extends BaseChannelPlugin {
         const cwd = interaction.options.getString("cwd");
         const session = interaction.options.getString("session");
 
-        if (backend) parts.push(backend);
-        if (agent) parts.push(`--agent=${agent}`);
-        if (mode) parts.push(`--mode=${mode}`);
-        if (cwd) parts.push(`--cwd=${cwd}`);
-        if (session) parts.push(session);
+        if (backend) {
+          parts.push(backend);
+        }
+        if (agent) {
+          parts.push(`--agent=${agent}`);
+        }
+        if (mode) {
+          parts.push(`--mode=${mode}`);
+        }
+        if (cwd) {
+          parts.push(`--cwd=${cwd}`);
+        }
+        if (session) {
+          parts.push(session);
+        }
 
         return parts.join(" ");
       }
@@ -665,7 +680,9 @@ export class DiscordPlugin extends BaseChannelPlugin {
       media: mapAttachments(msg.attachments),
       replyToId: msg.messageReference?.message_id || undefined,
       timestamp: new Date(msg.timestamp),
-      threadId: (msg.channel as any)?.isThread?.() ? msg.channelId : undefined,
+      threadId: (msg.channel as unknown as { isThread?: () => boolean })?.isThread?.()
+        ? msg.channelId
+        : undefined,
       raw: rawData,
     };
 

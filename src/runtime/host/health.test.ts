@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ComponentStatus } from "./types";
 import { HealthCheck } from "./health";
+import type { ComponentStatus } from "./types";
 
 describe("HealthCheck", () => {
   let health: HealthCheck;

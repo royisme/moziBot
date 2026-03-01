@@ -1,5 +1,5 @@
-import type { InboundFlow } from "../contract";
 import { getRuntimeHookRunner } from "../../../hooks";
+import type { InboundFlow } from "../contract";
 
 /**
  * Inbound Flow Implementation

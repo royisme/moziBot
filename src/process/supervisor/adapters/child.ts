@@ -66,10 +66,18 @@ export async function createChildAdapter(params: {
           }
         },
         end: () => {
-          try { child.stdin.end(); } catch { /* ignore */ }
+          try {
+            child.stdin.end();
+          } catch {
+            /* ignore */
+          }
         },
         destroy: () => {
-          try { child.stdin.destroy(); } catch { /* ignore */ }
+          try {
+            child.stdin.destroy();
+          } catch {
+            /* ignore */
+          }
         },
       }
     : undefined;
@@ -94,11 +102,19 @@ export async function createChildAdapter(params: {
       if (pid) {
         killProcessTree(pid);
       } else {
-        try { child.kill("SIGKILL"); } catch { /* ignore */ }
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* ignore */
+        }
       }
       return;
     }
-    try { child.kill(signal); } catch { /* ignore */ }
+    try {
+      child.kill(signal);
+    } catch {
+      /* ignore */
+    }
   };
 
   const dispose = () => {

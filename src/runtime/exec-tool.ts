@@ -1,7 +1,11 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import type { ExecRuntime, ExecResult } from "./exec-runtime.js";
+import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { buildShellCommand } from "../infra/node-shell.js";
+import { enqueueSystemEvent } from "../infra/system-events.js";
+import { logger } from "../logger.js";
+import { getProcessRegistry } from "../process/process-registry.js";
+import type { ExecRuntime, ExecResult } from "./exec-runtime.js";
 
 export function createExecTool(params: {
   runtime: ExecRuntime;
@@ -16,7 +20,11 @@ export function createExecTool(params: {
     parameters: Type.Object({
       command: Type.String({ description: "Shell command to execute" }),
       workdir: Type.Optional(Type.String({ description: "Working directory (defaults to cwd)" })),
-      cwd: Type.Optional(Type.String({ description: "Working directory (defaults to workspace) [deprecated: use workdir]" })),
+      cwd: Type.Optional(
+        Type.String({
+          description: "Working directory (defaults to workspace) [deprecated: use workdir]",
+        }),
+      ),
       env: Type.Optional(Type.Record(Type.String(), Type.String())),
       yieldMs: Type.Optional(
         Type.Number({
@@ -65,7 +73,9 @@ export function createExecTool(params: {
           description: "Node id/name for host=node.",
         }),
       ),
-      authRefs: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { description: "Auth secret references" })),
+      authRefs: Type.Optional(
+        Type.Array(Type.String({ minLength: 1 }), { description: "Auth secret references" }),
+      ),
     }),
     execute: async (_toolCallId, args, _signal, onUpdate) => {
       const input = normalizeArgs(args);
@@ -90,6 +100,12 @@ export function createExecTool(params: {
             }
           : undefined,
       );
+
+      // For backgrounded/yielded processes, watch for completion and notify via system events
+      if (result.type === "backgrounded" || result.type === "yielded") {
+        void watchForCompletion(result.jobId, params.sessionKey);
+      }
+
       return formatResult(result);
     },
   };
@@ -120,18 +136,20 @@ function normalizeArgs(raw: unknown): {
   const rawCommand = command || undefined;
 
   // Normalize cwd/workdir - prefer cwd for backward compatibility
-  const cwd = typeof args.cwd === "string"
-    ? args.cwd
-    : typeof args.workdir === "string"
-      ? args.workdir
-      : undefined;
+  const cwd =
+    typeof args.cwd === "string"
+      ? args.cwd
+      : typeof args.workdir === "string"
+        ? args.workdir
+        : undefined;
 
   // Normalize timeoutSec/timeout - prefer timeoutSec for backward compatibility
-  const timeoutSec = typeof args.timeoutSec === "number"
-    ? args.timeoutSec
-    : typeof args.timeout === "number"
-      ? args.timeout
-      : undefined;
+  const timeoutSec =
+    typeof args.timeoutSec === "number"
+      ? args.timeoutSec
+      : typeof args.timeout === "number"
+        ? args.timeout
+        : undefined;
 
   // Build base input object for runtime
   const input: {
@@ -148,12 +166,14 @@ function normalizeArgs(raw: unknown): {
     argv,
     rawCommand,
     cwd,
-    env: args.env && typeof args.env === "object"
-      ? Object.fromEntries(
-          Object.entries(args.env as Record<string, unknown>)
-            .filter((e): e is [string, string] => typeof e[1] === "string")
-        )
-      : undefined,
+    env:
+      args.env && typeof args.env === "object"
+        ? Object.fromEntries(
+            Object.entries(args.env as Record<string, unknown>).filter(
+              (e): e is [string, string] => typeof e[1] === "string",
+            ),
+          )
+        : undefined,
     authRefs: Array.isArray(args.authRefs)
       ? args.authRefs.filter((v): v is string => typeof v === "string")
       : undefined,
@@ -191,24 +211,36 @@ function formatResult(result: ExecResult): {
   switch (result.type) {
     case "completed":
       return {
-        content: [{
-          type: "text",
-          text: [
-            `exitCode: ${result.exitCode}`,
-            result.stdout ? `stdout:\n${result.stdout}` : "stdout:",
-            result.stderr ? `stderr:\n${result.stderr}` : "stderr:",
-          ].join("\n"),
-        }],
+        content: [
+          {
+            type: "text",
+            text: [
+              `exitCode: ${result.exitCode}`,
+              result.stdout ? `stdout:\n${result.stdout}` : "stdout:",
+              result.stderr ? `stderr:\n${result.stderr}` : "stderr:",
+            ].join("\n"),
+          },
+        ],
         details: { exitCode: result.exitCode },
       };
     case "backgrounded":
       return {
-        content: [{ type: "text", text: `${result.message} Use 'process status ${result.jobId}' to check status, 'process tail ${result.jobId}' to view output, 'process kill ${result.jobId}' to terminate.` }],
+        content: [
+          {
+            type: "text",
+            text: `${result.message} Use 'process status ${result.jobId}' to check status, 'process tail ${result.jobId}' to view output, 'process kill ${result.jobId}' to terminate.`,
+          },
+        ],
         details: { jobId: result.jobId, pid: result.pid, backgrounded: true },
       };
     case "yielded":
       return {
-        content: [{ type: "text", text: `${result.message}\n\nInitial output:\n${result.output}\n\nUse 'process status ${result.jobId}' to check status, 'process tail ${result.jobId}' to view output, 'process kill ${result.jobId}' to terminate.` }],
+        content: [
+          {
+            type: "text",
+            text: `${result.message}\n\nInitial output:\n${result.output}\n\nUse 'process status ${result.jobId}' to check status, 'process tail ${result.jobId}' to view output, 'process kill ${result.jobId}' to terminate.`,
+          },
+        ],
         details: { jobId: result.jobId, pid: result.pid, backgrounded: true },
       };
     case "error":
@@ -216,5 +248,43 @@ function formatResult(result: ExecResult): {
         content: [{ type: "text", text: result.message }],
         details: { error: true },
       };
+  }
+}
+
+/**
+ * Watch a backgrounded/yielded process and enqueue a system event + heartbeat
+ * wake when it completes. Uses polling on the process registry (2s interval,
+ * up to 10 minutes).
+ */
+async function watchForCompletion(jobId: string, sessionKey: string): Promise<void> {
+  const registry = getProcessRegistry();
+  const maxWaitMs = 10 * 60 * 1000;
+  const pollMs = 2000;
+  const start = Date.now();
+
+  try {
+    while (Date.now() - start < maxWaitMs) {
+      const status = registry.getStatus(jobId);
+
+      // Process exited or disappeared from registry
+      if (!status || status.status === "exited") {
+        const exitCode = status?.exitCode ?? "?";
+        const text = `Exec finished (jobId=${jobId}, exitCode=${exitCode})`;
+        const queued = enqueueSystemEvent(text, {
+          sessionKey,
+          contextKey: `exec:${jobId}`,
+        });
+        if (queued) {
+          requestHeartbeatNow({ reason: "exec-finished", sessionKey });
+        }
+        return;
+      }
+
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+
+    logger.debug({ jobId, sessionKey }, "watchForCompletion: timed out after 10 min");
+  } catch (error) {
+    logger.warn({ error, jobId, sessionKey }, "watchForCompletion: unexpected error");
   }
 }

@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
 import { homedir } from "node:os";
+import path from "node:path";
 import type { SessionAcpMeta } from "../types";
 
 export type AcpSessionStoreEntry = {
@@ -90,9 +90,11 @@ export function readAcpSessionEntry(params: {
   };
 }
 
-export function listAcpSessionEntries(params: {
-  storePath?: string;
-} = {}): AcpSessionStoreEntry[] {
+export function listAcpSessionEntries(
+  params: {
+    storePath?: string;
+  } = {},
+): AcpSessionStoreEntry[] {
   const storePath = resolveStorePath(params.storePath);
   const { store, readFailed } = readStore(storePath);
   if (readFailed) {
@@ -114,9 +116,7 @@ export function listAcpSessionEntries(params: {
 export function upsertAcpSessionMeta(params: {
   sessionKey: string;
   storePath?: string;
-  mutate: (
-    current: SessionAcpMeta | undefined,
-  ) => SessionAcpMeta | null | undefined;
+  mutate: (current: SessionAcpMeta | undefined) => SessionAcpMeta | null | undefined;
 }): SessionAcpMeta | null {
   const sessionKey = params.sessionKey.trim();
   if (!sessionKey) {

@@ -279,13 +279,48 @@ describe("DiscordPlugin (carbon)", () => {
     // doesn't have type-specific APIs like Telegram (no sendPhoto, sendVoice, etc.)
     await plugin.send("channel-123", {
       media: [
-        { type: "photo", buffer: Buffer.from("photo-data"), filename: "photo.jpg", mimeType: "image/jpeg" },
-        { type: "video", buffer: Buffer.from("video-data"), filename: "video.mp4", mimeType: "video/mp4" },
-        { type: "audio", buffer: Buffer.from("audio-data"), filename: "audio.mp3", mimeType: "audio/mpeg" },
-        { type: "animation", buffer: Buffer.from("anim-data"), filename: "animation.gif", mimeType: "image/gif" },
-        { type: "gif", buffer: Buffer.from("gif-data"), filename: "image.gif", mimeType: "image/gif" },
-        { type: "voice", buffer: Buffer.from("voice-data"), filename: "voice.ogg", mimeType: "audio/ogg" },
-        { type: "video_note", buffer: Buffer.from("video-note"), filename: "video_note.mp4", mimeType: "video/mp4" },
+        {
+          type: "photo",
+          buffer: Buffer.from("photo-data"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+        {
+          type: "video",
+          buffer: Buffer.from("video-data"),
+          filename: "video.mp4",
+          mimeType: "video/mp4",
+        },
+        {
+          type: "audio",
+          buffer: Buffer.from("audio-data"),
+          filename: "audio.mp3",
+          mimeType: "audio/mpeg",
+        },
+        {
+          type: "animation",
+          buffer: Buffer.from("anim-data"),
+          filename: "animation.gif",
+          mimeType: "image/gif",
+        },
+        {
+          type: "gif",
+          buffer: Buffer.from("gif-data"),
+          filename: "image.gif",
+          mimeType: "image/gif",
+        },
+        {
+          type: "voice",
+          buffer: Buffer.from("voice-data"),
+          filename: "voice.ogg",
+          mimeType: "audio/ogg",
+        },
+        {
+          type: "video_note",
+          buffer: Buffer.from("video-note"),
+          filename: "video_note.mp4",
+          mimeType: "video/mp4",
+        },
       ],
     });
 
@@ -333,7 +368,12 @@ describe("DiscordPlugin (carbon)", () => {
     // No text, but has caption in media
     await plugin.send("channel-123", {
       media: [
-        { type: "photo", buffer: Buffer.from("photo"), filename: "photo.jpg", caption: "A beautiful sunset" },
+        {
+          type: "photo",
+          buffer: Buffer.from("photo"),
+          filename: "photo.jpg",
+          caption: "A beautiful sunset",
+        },
       ],
     });
 
@@ -368,11 +408,45 @@ describe("DiscordPlugin (carbon)", () => {
           channelId: "chan-1",
           content: "hello",
           attachments: [
-            { id: "1", filename: "photo.jpg", content_type: "image/jpeg", size: 1000, url: "https://example.com/photo.jpg", proxy_url: "https://example.com/proxy/photo.jpg" },
-            { id: "2", filename: "video.mp4", content_type: "video/mp4", size: 5000, url: "https://example.com/video.mp4", proxy_url: "https://example.com/proxy/video.mp4" },
-            { id: "3", filename: "audio.mp3", content_type: "audio/mpeg", size: 2000, url: "https://example.com/audio.mp3", proxy_url: "https://example.com/proxy/audio.mp3" },
-            { id: "4", filename: "doc.pdf", content_type: "application/pdf", size: 3000, url: "https://example.com/doc.pdf", proxy_url: "https://example.com/proxy/doc.pdf" },
-            { id: "5", filename: "unknown", size: 100, url: "https://example.com/unknown", proxy_url: "https://example.com/proxy/unknown" },
+            {
+              id: "1",
+              filename: "photo.jpg",
+              content_type: "image/jpeg",
+              size: 1000,
+              url: "https://example.com/photo.jpg",
+              proxy_url: "https://example.com/proxy/photo.jpg",
+            },
+            {
+              id: "2",
+              filename: "video.mp4",
+              content_type: "video/mp4",
+              size: 5000,
+              url: "https://example.com/video.mp4",
+              proxy_url: "https://example.com/proxy/video.mp4",
+            },
+            {
+              id: "3",
+              filename: "audio.mp3",
+              content_type: "audio/mpeg",
+              size: 2000,
+              url: "https://example.com/audio.mp3",
+              proxy_url: "https://example.com/proxy/audio.mp3",
+            },
+            {
+              id: "4",
+              filename: "doc.pdf",
+              content_type: "application/pdf",
+              size: 3000,
+              url: "https://example.com/doc.pdf",
+              proxy_url: "https://example.com/proxy/doc.pdf",
+            },
+            {
+              id: "5",
+              filename: "unknown",
+              size: 100,
+              url: "https://example.com/unknown",
+              proxy_url: "https://example.com/proxy/unknown",
+            },
           ],
           timestamp: new Date().toISOString(),
         },

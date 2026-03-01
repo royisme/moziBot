@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { logger } from "../../logger";
+import { runtimeQueue, type RuntimeQueueItem } from "../../storage/db";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { ChannelRegistry } from "../adapters/channels/registry";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { MessageHandler } from "../host/message-handler";
 import type { SessionManager } from "../host/sessions/manager";
+import { QueueMode, PeerType, SessionStatus } from "./constants";
 import type {
   RuntimeEgress,
   RuntimeEnqueueResult,
@@ -13,9 +16,6 @@ import type {
   RuntimeQueueConfig,
   RuntimeQueueMode,
 } from "./contracts";
-import { logger } from "../../logger";
-import { runtimeQueue, type RuntimeQueueItem } from "../../storage/db";
-import { QueueMode, PeerType, SessionStatus } from "./constants";
 import { ChannelRuntimeEgress } from "./egress";
 import { DefaultRuntimeErrorPolicy } from "./error-policy";
 import { createRuntimeChannel } from "./kernel/channel-factory";

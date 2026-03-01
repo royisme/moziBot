@@ -1,8 +1,8 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { closeDb, initDb, runtimeQueue } from "../../storage/db";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
-import { closeDb, initDb, runtimeQueue } from "../../storage/db";
 import { RuntimeKernel } from "./kernel";
 
 const TEST_DB = "data/test-runtime-kernel.db";

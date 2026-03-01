@@ -4,7 +4,9 @@ import type { ProcessSupervisor } from "./types.js";
 let singleton: ProcessSupervisor | null = null;
 
 export function getProcessSupervisor(): ProcessSupervisor {
-  if (singleton) return singleton;
+  if (singleton) {
+    return singleton;
+  }
   singleton = createProcessSupervisor();
   return singleton;
 }

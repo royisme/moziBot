@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import type { ResolvedMemorySyncConfig } from "./backend-config";
-import type { MemorySearchManager } from "./types";
 import { MemoryLifecycleOrchestrator } from "./lifecycle-orchestrator";
+import type { MemorySearchManager } from "./types";
 
 function makeManager(overrides?: Partial<MemorySearchManager>): MemorySearchManager {
   return {

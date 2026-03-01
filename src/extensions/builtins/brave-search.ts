@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
-import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
 import { registerBuiltinExtension } from "../loader";
+import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
 
 // ---- Config schema ----
 

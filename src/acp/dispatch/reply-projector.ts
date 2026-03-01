@@ -52,8 +52,12 @@ function normalizeMaxChunkChars(value: number | undefined): number {
     return 1800;
   }
   const rounded = Math.round(value);
-  if (rounded < 50) return 50;
-  if (rounded > 4000) return 4000;
+  if (rounded < 50) {
+    return 50;
+  }
+  if (rounded > 4000) {
+    return 4000;
+  }
   return rounded;
 }
 

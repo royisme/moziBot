@@ -1,4 +1,4 @@
-import type { TapeEntry } from './types.js';
+import type { TapeEntry } from "./types.js";
 
 /** Message format compatible with LLM APIs */
 export interface TapeMessage {
@@ -23,24 +23,24 @@ export function selectMessages(entries: TapeEntry[]): TapeMessage[] {
 
   for (const entry of entries) {
     switch (entry.kind) {
-      case 'message': {
+      case "message": {
         const role = entry.payload.role as string;
         const content = entry.payload.content as string;
         messages.push({ role, content });
         break;
       }
 
-      case 'tool_call': {
+      case "tool_call": {
         savedToolCalls = entry.payload.calls as Record<string, unknown>[];
         messages.push({
-          role: 'assistant',
-          content: '',
+          role: "assistant",
+          content: "",
           tool_calls: savedToolCalls,
         });
         break;
       }
 
-      case 'tool_result': {
+      case "tool_result": {
         const results = entry.payload.results as Record<string, unknown>[];
         if (Array.isArray(results)) {
           for (let i = 0; i < results.length; i++) {
@@ -50,19 +50,17 @@ export function selectMessages(entries: TapeEntry[]): TapeMessage[] {
             let name: string | undefined;
 
             if (savedToolCalls && savedToolCalls[i]) {
-              const call = savedToolCalls[i] as Record<string, unknown>;
+              const call = savedToolCalls[i];
               const func = call.function as Record<string, unknown> | undefined;
               tool_call_id = call.id as string | undefined;
               name = func?.name as string | undefined;
             }
 
             // Convert result to string content
-            const content = typeof result === 'string'
-              ? result
-              : JSON.stringify(result);
+            const content = typeof result === "string" ? result : JSON.stringify(result);
 
             messages.push({
-              role: 'tool',
+              role: "tool",
               content,
               tool_call_id,
               name,
@@ -74,14 +72,14 @@ export function selectMessages(entries: TapeEntry[]): TapeMessage[] {
         break;
       }
 
-      case 'system': {
+      case "system": {
         const content = entry.payload.content as string;
-        messages.push({ role: 'system', content });
+        messages.push({ role: "system", content });
         break;
       }
 
-      case 'anchor':
-      case 'event':
+      case "anchor":
+      case "event":
         // Skip internal bookkeeping entries
         break;
     }

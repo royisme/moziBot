@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { MemorySearchResult } from "./types";
 import { applyRecallPostProcessing } from "./recall";
+import type { MemorySearchResult } from "./types";
 
 const NOW = new Date(Date.UTC(2026, 1, 10));
 const DAY_MS = 24 * 60 * 60 * 1000;

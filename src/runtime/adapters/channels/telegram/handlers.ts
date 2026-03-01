@@ -1,9 +1,9 @@
 import type { Context } from "grammy";
-import type { InboundMessage } from "../types";
-import type { TelegramPluginConfig } from "./plugin";
 import { logger } from "../../../../logger";
+import type { InboundMessage } from "../types";
 import { isSenderAllowed, isCommandText, isBotMentioned } from "./access";
 import { MediaGroupDebouncer } from "./debouncer";
+import type { TelegramPluginConfig } from "./plugin";
 
 const debouncerMap = new Map<string, MediaGroupDebouncer>();
 
@@ -170,7 +170,7 @@ export async function handleMessage(
     inbound.media = media;
   }
 
-  const mediaGroupId = (msg as any).media_group_id as string | undefined;
+  const mediaGroupId = (msg as unknown as { media_group_id?: string }).media_group_id;
   if (mediaGroupId) {
     getDebouncer(channelId).add(mediaGroupId, inbound, emitMessage);
   } else {

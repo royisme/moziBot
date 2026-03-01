@@ -1,7 +1,7 @@
+import { logger } from "../../logger";
 import type { ResolvedQmdConfig } from "../backend-config";
 import type { MemorySource } from "../types";
 import type { CollectionRoot } from "./path-utils";
-import { logger } from "../../logger";
 import { parseCollectionList, runQmd } from "./qmd-client";
 
 export function buildCollectionIndex(collections: ResolvedQmdConfig["collections"]): {

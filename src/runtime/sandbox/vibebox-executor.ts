@@ -1,6 +1,6 @@
 import { execa } from "execa";
-import type { SandboxProbeResult } from "./types";
 import type { SandboxExecParams } from "./service";
+import type { SandboxProbeResult } from "./types";
 import type { SandboxVibeboxConfig } from "./types";
 
 type CommandResult = {

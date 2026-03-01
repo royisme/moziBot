@@ -1,9 +1,4 @@
 import type { MoziConfig } from "../../config/schema";
-import type {
-  SessionAcpIdentity,
-  AcpSessionRuntimeOptions,
-  SessionAcpMeta,
-} from "../types";
 import type { AcpRuntimeError } from "../runtime/errors";
 import { requireAcpRuntimeBackend } from "../runtime/registry";
 import {
@@ -20,6 +15,7 @@ import type {
   AcpRuntimeSessionMode,
   AcpRuntimeStatus,
 } from "../runtime/types";
+import type { SessionAcpIdentity, AcpSessionRuntimeOptions, SessionAcpMeta } from "../types";
 
 export type AcpSessionResolution =
   | {

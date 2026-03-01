@@ -1,5 +1,5 @@
-import { Readable, Writable } from "node:stream";
 import { spawn, type SpawnOptions } from "node:child_process";
+import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 
 export type AcpTransportType = "stdio" | "sse";
@@ -100,17 +100,13 @@ export async function createAcpTransport(
       }
     },
 
-    async readTextFile(
-      params: acp.ReadTextFileRequest,
-    ): Promise<acp.ReadTextFileResponse> {
+    async readTextFile(params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> {
       const fs = await import("node:fs/promises");
       const content = await fs.readFile(params.uri, "utf-8");
       return { content };
     },
 
-    async writeTextFile(
-      params: acp.WriteTextFileRequest,
-    ): Promise<acp.WriteTextFileResponse> {
+    async writeTextFile(params: acp.WriteTextFileRequest): Promise<acp.WriteTextFileResponse> {
       const fs = await import("node:fs/promises");
       await fs.writeFile(params.uri, params.content);
       return {};

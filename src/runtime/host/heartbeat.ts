@@ -1,10 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoziConfig } from "../../config";
+import { setHeartbeatWakeHandler } from "../../infra/heartbeat-wake";
+import { drainSystemEvents, peekSystemEventEntries } from "../../infra/system-events";
+import { logger } from "../../logger";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { AgentManager } from "../agent-manager";
 import type { MessageHandler } from "./message-handler";
-import { logger } from "../../logger";
 
 const DEFAULT_HEARTBEAT_EVERY = "30m";
 const DEFAULT_HEARTBEAT_PROMPT =
@@ -48,6 +50,12 @@ export class HeartbeatRunner {
     if (this.timer) {
       return;
     }
+
+    // Register as the heartbeat wake handler so external events can trigger runs
+    setHeartbeatWakeHandler(async ({ reason, sessionKey }) => {
+      return this.handleWake(reason, sessionKey);
+    });
+
     this.timer = setInterval(() => {
       void this.tick();
     }, 15_000);
@@ -116,6 +124,60 @@ export class HeartbeatRunner {
     return this.states.get(agentId)?.paused ?? false;
   }
 
+  private async handleWake(reason: string, sessionKey?: string): Promise<"ok" | "skipped"> {
+    if (!this.config) {
+      return "skipped";
+    }
+
+    // If a sessionKey is specified, try to find the matching state by running
+    // a reverse lookup through all heartbeat states.
+    for (const state of this.states.values()) {
+      if (state.paused) {
+        continue;
+      }
+
+      const lastRoute = this.handler.getLastRoute(state.agentId);
+      if (!lastRoute) {
+        continue;
+      }
+
+      // Build a temporary base message to resolve the session context
+      const baseMessage: InboundMessage = {
+        id: `wake-${Date.now()}`,
+        channel: lastRoute.channelId,
+        peerId: lastRoute.peerId,
+        peerType: lastRoute.peerType,
+        accountId: lastRoute.accountId,
+        threadId: lastRoute.threadId,
+        senderId: "heartbeat-wake",
+        senderName: "HeartbeatWake",
+        text: "",
+        timestamp: new Date(),
+        raw: { source: "heartbeat-wake", reason },
+      };
+
+      const context = this.handler.resolveSessionContext(baseMessage);
+
+      // Match by sessionKey if specified
+      if (sessionKey && context.sessionKey !== sessionKey) {
+        continue;
+      }
+
+      if (this.handler.isSessionActive(context.sessionKey)) {
+        logger.debug(
+          { reason, sessionKey: context.sessionKey, agentId: state.agentId },
+          "Heartbeat wake skipped: session active",
+        );
+        return "skipped";
+      }
+
+      await this.runHeartbeat(state);
+      return "ok";
+    }
+
+    return "skipped";
+  }
+
   private mergeHeartbeatConfig(
     defaults?: HeartbeatConfig,
     override?: HeartbeatConfig,
@@ -158,13 +220,14 @@ export class HeartbeatRunner {
 
     const heartbeatPath = path.join(homeDir, HEARTBEAT_FILENAME);
     let content = "";
+    let heartbeatFileExists = true;
     try {
       content = await fs.readFile(heartbeatPath, "utf-8");
     } catch {
-      return;
+      heartbeatFileExists = false;
     }
 
-    const directives = parseHeartbeatDirectives(content);
+    const directives = heartbeatFileExists ? parseHeartbeatDirectives(content) : {};
     if (directives.enabled === false) {
       return;
     }
@@ -172,10 +235,6 @@ export class HeartbeatRunner {
       state.everyMs = directives.everyMs;
     }
     const effectivePrompt = directives.prompt?.trim() || state.prompt;
-
-    if (isHeartbeatContentEffectivelyEmpty(content)) {
-      return;
-    }
 
     const baseMessage: InboundMessage = {
       id: `heartbeat-${Date.now()}`,
@@ -192,12 +251,34 @@ export class HeartbeatRunner {
     };
 
     const context = this.handler.resolveSessionContext(baseMessage);
+
+    // Peek (do not drain yet) so we can bail out safely if session becomes active
+    const events = peekSystemEventEntries(context.sessionKey);
+
+    // Skip if both heartbeat content is empty AND no system events
+    if (isHeartbeatContentEffectivelyEmpty(content) && events.length === 0) {
+      return;
+    }
+
     const timestamps = this.handler.getSessionTimestamps(context.sessionKey);
     const heartbeatContext = buildHeartbeatContext(timestamps);
+
+    // Build system events section
+    const eventLines =
+      events.length > 0
+        ? [
+            "SYSTEM_EVENTS_BEGIN",
+            ...events.map((e) => `[${new Date(e.ts).toISOString()}] ${e.text}`),
+            "SYSTEM_EVENTS_END",
+            "",
+          ]
+        : [];
+
     const heartbeatPrompt = [
       effectivePrompt,
       "",
       ...heartbeatContext,
+      ...eventLines,
       "HEARTBEAT_FILE_BEGIN",
       content.trim(),
       "HEARTBEAT_FILE_END",
@@ -209,6 +290,8 @@ export class HeartbeatRunner {
       ...baseMessage,
       text: heartbeatPrompt,
     };
+
+    // Check session active BEFORE draining — if busy, leave events in queue for next run
     if (this.handler.isSessionActive(context.sessionKey)) {
       logger.info(
         {
@@ -220,6 +303,9 @@ export class HeartbeatRunner {
       );
       return;
     }
+
+    // Session is idle — now safe to drain events and enqueue the turn
+    drainSystemEvents(context.sessionKey);
 
     try {
       await this.enqueueInbound(inbound);

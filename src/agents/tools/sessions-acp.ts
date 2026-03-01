@@ -1,13 +1,15 @@
 import { z } from "zod";
+import { AcpSessionManager } from "../../acp/control-plane";
+import {
+  normalizeRuntimeOptions,
+  validateRuntimeOptionPatch,
+} from "../../acp/control-plane/runtime-options";
+import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
+import type { SessionAcpMeta } from "../../acp/types";
 import type { MoziConfig } from "../../config/schema";
 import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
-import { AcpSessionManager } from "../../acp/control-plane";
-import { normalizeRuntimeOptions, validateRuntimeOptionPatch } from "../../acp/control-plane/runtime-options";
-import type { SessionAcpMeta } from "../../acp/types";
-import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
-import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
-import type { Session } from "../../runtime/host/sessions/types";
+import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
 
 /**
  * ACP spawn options schema
@@ -158,7 +160,7 @@ export async function initializeAcpSubAgent(
     // Ensure the ACP session is initialized
     const acpSessionManager = new AcpSessionManager();
     await acpSessionManager.ensureSession({
-      cfg: (config ?? {}) as MoziConfig,
+      cfg: config ?? {},
       sessionKey: childKey,
       agent: resolvedAgent,
       mode,
@@ -169,7 +171,7 @@ export async function initializeAcpSubAgent(
     // Update session with ACP metadata
     await ctx.sessionManager.update(childKey, {
       metadata: {
-        ...(childSession.metadata ?? {}),
+        ...childSession.metadata,
         acp: {
           backend: resolvedBackend,
           mode,
