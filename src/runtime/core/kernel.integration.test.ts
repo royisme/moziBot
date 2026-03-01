@@ -202,7 +202,7 @@ describe("RuntimeKernel", () => {
     expect(maxInFlight).toBe(2);
   });
 
-  it("deduplicates inbound envelopes by dedup key", async () => {
+  it("deduplicates inbound envelopes by explicit dedup key", async () => {
     const sessionManager = new FakeSessionManager();
     const handler = {
       resolveSessionContext: (message: InboundMessage) => ({
@@ -246,6 +246,49 @@ describe("RuntimeKernel", () => {
     expect(first.accepted).toBe(true);
     expect(second.accepted).toBe(false);
     expect(second.deduplicated).toBe(true);
+  });
+
+  it("does not deduplicate default keys across different peers with same message id", async () => {
+    const sessionManager = new FakeSessionManager();
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      handle: async (_message: InboundMessage, _channel: ChannelPlugin) => {},
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-3b",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "followup",
+      },
+      pollIntervalMs: 10,
+    });
+    await kernel.start();
+
+    const first = await kernel.enqueueInbound({
+      id: "same-envelope-default-1",
+      inbound: buildInbound("same-id", "peer-a"),
+      receivedAt: new Date(),
+    });
+    const second = await kernel.enqueueInbound({
+      id: "same-envelope-default-2",
+      inbound: buildInbound("same-id", "peer-b"),
+      receivedAt: new Date(),
+    });
+    await kernel.stop();
+
+    expect(first.accepted).toBe(true);
+    expect(second.accepted).toBe(true);
+    expect(second.deduplicated).toBe(false);
   });
 
   it("marks running records as interrupted on startup and replays queued records", async () => {

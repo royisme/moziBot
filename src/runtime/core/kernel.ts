@@ -160,7 +160,9 @@ export class RuntimeKernel implements RuntimeIngress {
       this.queueConfig.mode === "collect" && this.queueConfig.collectWindowMs > 0
         ? new Date(envelope.receivedAt.getTime() + this.queueConfig.collectWindowMs).toISOString()
         : now;
-    const dedupKey = envelope.dedupKey || `${envelope.inbound.channel}:${envelope.inbound.id}`;
+    const dedupKey =
+      envelope.dedupKey ||
+      `${envelope.inbound.channel}:${envelope.inbound.peerType || PeerType.DM}:${envelope.inbound.peerId}:${envelope.inbound.id}`;
     const inserted = runtimeQueue.enqueue({
       id: queueItemId,
       dedupKey,
