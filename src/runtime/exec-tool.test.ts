@@ -45,7 +45,7 @@ describe("createExecTool", () => {
     } as ExecResult);
 
     await tool.execute("tool-call-1", {
-      command: "echo hello",
+      command: ["echo", "hello"],
       cwd: "/test",
       env: { MY_VAR: "value" },
       authRefs: ["MY_KEY"],
@@ -55,11 +55,10 @@ describe("createExecTool", () => {
       timeoutSec: 60,
     });
 
-    // normalizeArgs wraps string command in sh -lc argv
     expect(mockExecute).toHaveBeenCalledWith(
       {
-        argv: ["/bin/sh", "-lc", "echo hello"],
-        rawCommand: "echo hello",
+        argv: ["echo", "hello"],
+        rawCommand: undefined,
         cwd: "/test",
         env: { MY_VAR: "value" },
         authRefs: ["MY_KEY"],
@@ -90,20 +89,58 @@ describe("createExecTool", () => {
 
     // Pass only command (no optional args)
     await tool.execute("tool-call-1", {
-      command: "echo hello",
+      command: ["echo", "hello"],
     });
 
-    // Should have argv wrapped in sh -lc + agentId + sessionKey, and normalize adds defaults for missing
+    // Should pass argv directly + agentId + sessionKey, and normalize adds defaults for missing
     expect(mockExecute).toHaveBeenCalledWith(
       {
-        argv: ["/bin/sh", "-lc", "echo hello"],
-        rawCommand: "echo hello",
+        argv: ["echo", "hello"],
+        rawCommand: undefined,
         cwd: undefined,
         env: undefined,
         authRefs: undefined,
         yieldMs: undefined,
         background: false,
         pty: false,
+        timeoutSec: undefined,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      },
+      undefined,
+    );
+  });
+
+  it("should forward rawCommand when provided", async () => {
+    const tool = createExecTool({
+      runtime: mockRuntime,
+      agentId: "agent-1",
+      sessionKey: "session-1",
+    });
+
+    mockExecute.mockResolvedValue({
+      type: "completed",
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+    } as ExecResult);
+
+    await tool.execute("tool-call-1", {
+      command: ["bash", "-lc", "echo hello"],
+      rawCommand: "echo hello",
+      pty: true,
+    });
+
+    expect(mockExecute).toHaveBeenCalledWith(
+      {
+        argv: ["bash", "-lc", "echo hello"],
+        rawCommand: "echo hello",
+        cwd: undefined,
+        env: undefined,
+        authRefs: undefined,
+        yieldMs: undefined,
+        background: false,
+        pty: true,
         timeoutSec: undefined,
         agentId: "agent-1",
         sessionKey: "session-1",
@@ -128,7 +165,7 @@ describe("createExecTool", () => {
 
     // Pass invalid/missing args
     await tool.execute("tool-call-1", {
-      command: 123 as unknown as string, // invalid - should be string, defaults to empty string -> empty argv
+      command: [1, 2, 3] as unknown as string[], // invalid entries filtered, resulting argv is empty
       cwd: null as unknown as string, // invalid
       env: "not an object" as unknown as Record<string, string>, // invalid
       authRefs: [1, 2, 3] as unknown as string[], // invalid - becomes empty array after filter
@@ -180,7 +217,7 @@ describe("formatResult", () => {
 
     (mockRuntime.execute as ReturnType<typeof vi.fn>).mockResolvedValue(completedResult);
 
-    const output = await tool.execute("tool-call-1", { command: "echo hello" });
+    const output = await tool.execute("tool-call-1", { command: ["echo", "hello"] });
 
     expect(output.content).toHaveLength(1);
     expect(output.content[0].type).toBe("text");
@@ -206,7 +243,7 @@ describe("formatResult", () => {
 
     (mockRuntime.execute as ReturnType<typeof vi.fn>).mockResolvedValue(completedResult);
 
-    const output = await tool.execute("tool-call-1", { command: "true" });
+    const output = await tool.execute("tool-call-1", { command: ["true"] });
 
     // Should show "stdout:" and "stderr:" but not with newlines after them
     expect((output.content[0] as TextItem).text).toContain("stdout:");
@@ -237,7 +274,10 @@ describe("formatResult", () => {
 
     (mockRuntime.execute as ReturnType<typeof vi.fn>).mockResolvedValue(backgroundedResult);
 
-    const output = await tool.execute("tool-call-1", { command: "sleep 100", background: true });
+    const output = await tool.execute("tool-call-1", {
+      command: ["sleep", "100"],
+      background: true,
+    });
 
     expect(output.content).toHaveLength(1);
     expect(output.content[0].type).toBe("text");
@@ -267,7 +307,7 @@ describe("formatResult", () => {
 
     (mockRuntime.execute as ReturnType<typeof vi.fn>).mockResolvedValue(yieldedResult);
 
-    const output = await tool.execute("tool-call-1", { command: "sleep 100", yieldMs: 10000 });
+    const output = await tool.execute("tool-call-1", { command: ["sleep", "100"], yieldMs: 10000 });
 
     expect(output.content).toHaveLength(1);
     expect(output.content[0].type).toBe("text");
@@ -295,7 +335,7 @@ describe("formatResult", () => {
 
     (mockRuntime.execute as ReturnType<typeof vi.fn>).mockResolvedValue(errorResult);
 
-    const output = await tool.execute("tool-call-1", { command: "cat /etc/passwd" });
+    const output = await tool.execute("tool-call-1", { command: ["cat", "/etc/passwd"] });
 
     expect(output.content).toHaveLength(1);
     expect(output.content[0].type).toBe("text");

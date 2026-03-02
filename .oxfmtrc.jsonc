@@ -11,10 +11,12 @@
     "assets/",
     "dist/",
     "docs/_layouts/",
+    "docs/**/*.md",
     "node_modules/",
     "patches/",
     "pnpm-lock.yaml/",
     "Swabble/",
     "vendor/",
+    "**/*.md",
   ],
 }

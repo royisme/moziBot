@@ -147,6 +147,20 @@ describe("ExecRuntime", () => {
 
       expect(result.type).toBe("completed");
     });
+
+    it("should reject mismatched rawCommand", async () => {
+      const result = await runtime.execute({
+        argv: ["echo", "hello"],
+        rawCommand: "different",
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
+
+      expect(result).toEqual({
+        type: "error",
+        message: "INVALID_REQUEST: rawCommand does not match command",
+      });
+    });
   });
 
   describe("cwd validation", () => {
@@ -336,6 +350,56 @@ describe("ExecRuntime", () => {
         expect(result.pid).toBe(12345);
         expect(result.message).toContain("still running after");
       }
+    });
+
+    it("should pass resolved shellCommand to PTY spawn", async () => {
+      const spawnMock = vi.fn().mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
+      mockSupervisor.spawn = spawnMock;
+
+      await runtime.execute({
+        argv: ["bash", "-lc", "echo hello"],
+        rawCommand: "echo hello",
+        pty: true,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
+
+      expect(spawnMock).toHaveBeenCalled();
+      const spawnCalls = spawnMock.mock.calls;
+      const ptyCall = spawnCalls.find(
+        (call) =>
+          call.length > 0 &&
+          typeof call[0] === "object" &&
+          (call[0] as { mode?: string }).mode === "pty",
+      );
+      expect(ptyCall).toBeDefined();
+      expect((ptyCall as [{ ptyCommand?: string }])[0].ptyCommand).toBe("echo hello");
+    });
+
+    it("should quote direct argv safely for PTY when rawCommand is absent", async () => {
+      const spawnMock = vi.fn().mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
+      mockSupervisor.spawn = spawnMock;
+
+      await runtime.execute({
+        argv: ["echo", "$(id)", "a'b"],
+        pty: true,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+      });
+
+      const spawnCalls = spawnMock.mock.calls;
+      const ptyCall = spawnCalls.find(
+        (call) =>
+          call.length > 0 &&
+          typeof call[0] === "object" &&
+          (call[0] as { mode?: string }).mode === "pty",
+      );
+      expect(ptyCall).toBeDefined();
+
+      const actualPtyCommand = (ptyCall as [{ ptyCommand?: string }])[0].ptyCommand;
+      const expectedPtyCommand =
+        process.platform === "win32" ? "echo '$(id)' 'a''b'" : "echo '$(id)' 'a'\"'\"'b'";
+      expect(actualPtyCommand).toBe(expectedPtyCommand);
     });
   });
 

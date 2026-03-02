@@ -66,5 +66,22 @@ export const ModelsSchema = z
   .object({
     mode: z.union([z.literal("merge"), z.literal("replace")]).optional(),
     providers: z.record(z.string(), ModelProviderSchema).optional(),
+    aliases: z.record(z.string(), z.string()).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((models, ctx) => {
+    const aliases = models.aliases;
+    if (!aliases) {
+      return;
+    }
+    for (const alias of Object.keys(aliases)) {
+      if (!alias.includes("/")) {
+        continue;
+      }
+      ctx.addIssue({
+        code: "custom",
+        path: ["aliases", alias],
+        message: "Model alias key cannot contain '/'.",
+      });
+    }
+  });

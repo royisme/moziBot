@@ -1,7 +1,6 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
-import { buildShellCommand } from "../infra/node-shell.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { logger } from "../logger.js";
 import { getProcessRegistry } from "../process/process-registry.js";
@@ -18,7 +17,12 @@ export function createExecTool(params: {
     description:
       "Execute shell commands with background continuation. Use yieldMs/background to continue later via process tool. Use pty=true for TTY-required commands (terminal UIs, coding agents).",
     parameters: Type.Object({
-      command: Type.String({ description: "Shell command to execute" }),
+      command: Type.Array(Type.String(), {
+        description: 'Command argv array to execute directly, e.g. ["echo", "hello"]',
+      }),
+      rawCommand: Type.Optional(
+        Type.String({ description: "Optional display/approval text; must match command argv" }),
+      ),
       workdir: Type.Optional(Type.String({ description: "Working directory (defaults to cwd)" })),
       cwd: Type.Optional(
         Type.String({
@@ -111,7 +115,7 @@ export function createExecTool(params: {
   };
 }
 
-function normalizeArgs(raw: unknown): {
+type NormalizedExecToolArgs = {
   argv: string[];
   rawCommand?: string;
   cwd?: string;
@@ -127,78 +131,69 @@ function normalizeArgs(raw: unknown): {
   ask?: string;
   node?: string;
   elevated?: boolean;
-} {
+};
+
+function normalizeArgs(raw: unknown): NormalizedExecToolArgs {
   const args = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 
-  // Parse command - LLM sends a string, wrap it in sh -lc argv
-  const command = typeof args.command === "string" ? args.command : "";
-  const argv = command.trim() ? buildShellCommand(command, process.platform) : [];
-  const rawCommand = command || undefined;
+  const argv = Array.isArray(args.command)
+    ? args.command.filter((value): value is string => typeof value === "string")
+    : [];
 
-  // Normalize cwd/workdir - prefer cwd for backward compatibility
-  const cwd =
-    typeof args.cwd === "string"
-      ? args.cwd
-      : typeof args.workdir === "string"
-        ? args.workdir
-        : undefined;
+  let cwd: string | undefined;
+  if (typeof args.cwd === "string") {
+    cwd = args.cwd;
+  } else if (typeof args.workdir === "string") {
+    cwd = args.workdir;
+  }
 
-  // Normalize timeoutSec/timeout - prefer timeoutSec for backward compatibility
-  const timeoutSec =
-    typeof args.timeoutSec === "number"
-      ? args.timeoutSec
-      : typeof args.timeout === "number"
-        ? args.timeout
-        : undefined;
+  let timeoutSec: number | undefined;
+  if (typeof args.timeoutSec === "number") {
+    timeoutSec = args.timeoutSec;
+  } else if (typeof args.timeout === "number") {
+    timeoutSec = args.timeout;
+  }
 
-  // Build base input object for runtime
-  const input: {
-    argv: string[];
-    rawCommand?: string;
-    cwd?: string;
-    env?: Record<string, string>;
-    authRefs?: string[];
-    yieldMs?: number;
-    background?: boolean;
-    pty?: boolean;
-    timeoutSec?: number;
-  } = {
+  const env =
+    args.env && typeof args.env === "object"
+      ? Object.fromEntries(
+          Object.entries(args.env as Record<string, unknown>).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        )
+      : undefined;
+
+  const authRefs = Array.isArray(args.authRefs)
+    ? args.authRefs.filter((value): value is string => typeof value === "string")
+    : undefined;
+
+  const input: NormalizedExecToolArgs = {
     argv,
-    rawCommand,
+    rawCommand: typeof args.rawCommand === "string" ? args.rawCommand : undefined,
     cwd,
-    env:
-      args.env && typeof args.env === "object"
-        ? Object.fromEntries(
-            Object.entries(args.env as Record<string, unknown>).filter(
-              (e): e is [string, string] => typeof e[1] === "string",
-            ),
-          )
-        : undefined,
-    authRefs: Array.isArray(args.authRefs)
-      ? args.authRefs.filter((v): v is string => typeof v === "string")
-      : undefined,
+    env,
+    authRefs,
     yieldMs: typeof args.yieldMs === "number" ? args.yieldMs : undefined,
     background: args.background === true,
     pty: args.pty === true,
     timeoutSec,
   };
 
-  // Additional parameters (parsed but not yet supported by runtime)
-  // Only include when explicitly provided to maintain backward compatibility
+  const withExtraParams = input as Record<string, unknown>;
   if (typeof args.host === "string") {
-    (input as Record<string, unknown>).host = args.host;
+    withExtraParams.host = args.host;
   }
   if (typeof args.security === "string") {
-    (input as Record<string, unknown>).security = args.security;
+    withExtraParams.security = args.security;
   }
   if (typeof args.ask === "string") {
-    (input as Record<string, unknown>).ask = args.ask;
+    withExtraParams.ask = args.ask;
   }
   if (typeof args.node === "string") {
-    (input as Record<string, unknown>).node = args.node;
+    withExtraParams.node = args.node;
   }
   if (args.elevated === true) {
-    (input as Record<string, unknown>).elevated = true;
+    withExtraParams.elevated = true;
   }
 
   return input;

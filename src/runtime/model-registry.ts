@@ -7,6 +7,7 @@ export class ModelRegistry {
   private config: MoziConfig;
   private providers: ProviderRegistry;
   private models: Map<string, ModelSpec> = new Map();
+  private aliases: Map<string, string> = new Map();
 
   constructor(config: MoziConfig) {
     this.config = config;
@@ -32,6 +33,24 @@ export class ModelRegistry {
     const cliModels = listCliBackendModels(this.config);
     for (const spec of cliModels) {
       this.models.set(this.key(spec.provider, spec.id), spec);
+    }
+
+    this.buildAliasIndex();
+  }
+
+  private buildAliasIndex() {
+    this.aliases.clear();
+    const aliases = this.config.models?.aliases;
+    if (!aliases) {
+      return;
+    }
+    for (const [alias, modelRef] of Object.entries(aliases)) {
+      const normalizedAlias = alias.trim().toLowerCase();
+      const normalizedRef = modelRef.trim();
+      if (!normalizedAlias || !normalizedRef) {
+        continue;
+      }
+      this.aliases.set(normalizedAlias, normalizedRef);
     }
   }
 
@@ -94,15 +113,15 @@ export class ModelRegistry {
     return { provider, model };
   }
 
-  get(ref: string): ModelSpec | undefined {
-    const parsed = this.parseRef(ref);
-    if (!parsed) {
+  private resolveAliasRef(input: string): string | undefined {
+    const key = input.trim().toLowerCase();
+    if (!key) {
       return undefined;
     }
-    return this.models.get(this.key(parsed.provider, parsed.model));
+    return this.aliases.get(key);
   }
 
-  resolve(ref: string): { ref: string; spec: ModelSpec } | undefined {
+  private resolveCanonical(ref: string): { ref: string; spec: ModelSpec } | undefined {
     const parsed = this.parseRef(ref);
     if (!parsed) {
       return undefined;
@@ -130,30 +149,98 @@ export class ModelRegistry {
     return undefined;
   }
 
+  get(ref: string): ModelSpec | undefined {
+    const parsed = this.parseRef(ref);
+    if (parsed) {
+      const exact = this.models.get(this.key(parsed.provider, parsed.model));
+      if (exact) {
+        return exact;
+      }
+    }
+
+    const aliasRef = this.resolveAliasRef(ref);
+    if (!aliasRef) {
+      return undefined;
+    }
+    const parsedAlias = this.parseRef(aliasRef);
+    if (!parsedAlias) {
+      return undefined;
+    }
+    return this.models.get(this.key(parsedAlias.provider, parsedAlias.model));
+  }
+
+  resolve(ref: string): { ref: string; spec: ModelSpec } | undefined {
+    const canonical = this.resolveCanonical(ref);
+    if (canonical) {
+      return canonical;
+    }
+    const aliasRef = this.resolveAliasRef(ref);
+    if (!aliasRef) {
+      return undefined;
+    }
+    return this.resolveCanonical(aliasRef);
+  }
+
   suggestRefs(ref: string, limit = 5): string[] {
+    const aliasSuggestions = this.getAliasSuggestions(ref);
+
     const parsed = this.parseRef(ref);
     if (!parsed) {
-      return this.list()
+      const suggestions = [...aliasSuggestions];
+      for (const modelRef of this.list()
         .map((spec) => this.key(spec.provider, spec.id))
-        .slice(0, limit);
+        .toSorted()) {
+        if (suggestions.includes(modelRef)) {
+          continue;
+        }
+        suggestions.push(modelRef);
+        if (suggestions.length >= limit) {
+          break;
+        }
+      }
+      return suggestions.slice(0, limit);
     }
 
     const providerLower = parsed.provider.toLowerCase();
     const candidates = this.list().filter((spec) => spec.provider.toLowerCase() === providerLower);
-    if (candidates.length === 0) {
-      return this.list()
-        .map((spec) => this.key(spec.provider, spec.id))
-        .slice(0, limit);
-    }
+    const rankedCandidates = candidates.length === 0 ? this.list() : candidates;
 
-    return candidates
+    const rankedSuggestions = rankedCandidates
       .map((spec) => ({
         ref: this.key(spec.provider, spec.id),
         dist: editDistance(parsed.model.toLowerCase(), spec.id.toLowerCase()),
       }))
       .toSorted((a, b) => a.dist - b.dist || a.ref.localeCompare(b.ref))
-      .slice(0, limit)
       .map((entry) => entry.ref);
+
+    const merged = [...aliasSuggestions, ...rankedSuggestions];
+    return Array.from(new Set(merged)).slice(0, limit);
+  }
+
+  private getAliasSuggestions(ref: string): string[] {
+    const query = ref.trim().toLowerCase();
+    if (!query) {
+      return [];
+    }
+
+    const ranked = Array.from(this.aliases.entries())
+      .map(([alias, modelRef]) => {
+        const resolved = this.resolveCanonical(modelRef);
+        if (!resolved) {
+          return null;
+        }
+        return {
+          ref: resolved.ref,
+          dist: editDistance(query, alias),
+          alias,
+        };
+      })
+      .filter((entry): entry is { ref: string; dist: number; alias: string } => entry !== null)
+      .toSorted(
+        (a, b) => a.dist - b.dist || a.alias.localeCompare(b.alias) || a.ref.localeCompare(b.ref),
+      );
+
+    return Array.from(new Set(ranked.map((entry) => entry.ref)));
   }
 
   private findClosestWithinProvider(provider: string, model: string): ModelSpec | undefined {

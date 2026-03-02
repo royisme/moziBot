@@ -30,7 +30,7 @@ export async function handleModelsCommand(params: {
       lines.push(`- ${ref}`);
     }
   }
-  lines.push("Switch model: /switch provider/model");
+  lines.push("Switch model: /switch alias|provider/model");
   await channel.send(peerId, { text: lines.join("\n") });
 }
 
@@ -48,7 +48,7 @@ export async function handleSwitchCommand(params: {
   if (!modelRef) {
     const current = await agentManager.getAgent(sessionKey, agentId);
     await channel.send(peerId, {
-      text: `Current model: ${current.modelRef}\nUsage: /switch provider/model`,
+      text: `Current model: ${current.modelRef}\nUsage: /switch alias|provider/model`,
     });
     return;
   }

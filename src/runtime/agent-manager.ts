@@ -744,6 +744,7 @@ export class AgentManager {
       agents: this.agents,
       agentModelRefs: this.agentModelRefs,
       runtimeModelOverrides: this.runtimeModelOverrides,
+      modelRegistry: this.modelRegistry,
       resolveDefaultAgentId: () => this.resolveDefaultAgentId(),
       getAgentEntry: (targetAgentId) => this.getAgentEntry(targetAgentId),
       resolveAgentModelRef: (targetAgentId, agentEntry) =>

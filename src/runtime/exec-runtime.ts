@@ -90,6 +90,7 @@ export type AuthResolver = {
 export type ExecRequest = {
   argv: string[]; // true argv to execute (first-class citizen)
   rawCommand?: string; // display/approval text (optional, must be consistent with argv)
+  shellCommand?: string; // resolved shell wrapper payload when command runs in shell context
   cwd?: string;
   env?: Record<string, string>;
   authRefs?: string[];
@@ -114,6 +115,33 @@ export type ExecUpdateCallback = (update: {
   combined: string;
 }) => void;
 
+function escapeArgForPosixShell(arg: string): string {
+  if (arg.length === 0) {
+    return "''";
+  }
+  if (/^[A-Za-z0-9_/:.,=@%+-]+$/.test(arg)) {
+    return arg;
+  }
+  const escaped = arg.replace(/'/g, `'"'"'`);
+  return `'${escaped}'`;
+}
+
+function escapeArgForPowerShell(arg: string): string {
+  if (arg.length === 0) {
+    return "''";
+  }
+  if (/^[A-Za-z0-9_/:.,=@%+-]+$/.test(arg)) {
+    return arg;
+  }
+  const escaped = arg.replace(/'/g, "''");
+  return `'${escaped}'`;
+}
+
+function buildPtyCommandFromArgv(argv: string[]): string {
+  const escape = process.platform === "win32" ? escapeArgForPowerShell : escapeArgForPosixShell;
+  return argv.map(escape).join(" ");
+}
+
 export class ExecRuntime {
   private allowedSecrets: Set<string>;
 
@@ -137,11 +165,18 @@ export class ExecRuntime {
       return { type: "error", message: resolved.message };
     }
 
+    const resolvedRequest: ExecRequest = {
+      ...request,
+      argv: resolved.argv,
+      rawCommand: resolved.rawCommand ?? undefined,
+      shellCommand: resolved.shellCommand ?? undefined,
+    };
+
     // 1. Validate command against allowlist
     // Use argv[0] (the actual binary) for allowlist validation.
     // When it's a shell wrapper, argv[0] is the shell name (e.g. "bash");
     // the inline shellCommand is only for display/approval purposes.
-    const cmdForValidation = resolved.argv[0] ?? "";
+    const cmdForValidation = resolvedRequest.argv[0] ?? "";
     const cmdValidation = validateCommand(cmdForValidation, this.boundary.allowlist);
     if (!cmdValidation.ok) {
       return { type: "error", message: cmdValidation.reason };
@@ -200,14 +235,14 @@ export class ExecRuntime {
             "Background and yield execution modes are not supported in vibebox sandbox mode.",
         };
       }
-      return this.executeVibebox(request, resolvedCwd, env);
+      return this.executeVibebox(resolvedRequest, resolvedCwd, env);
     }
 
     if (request.background || request.yieldMs !== undefined) {
-      return this.executeBackground(request, resolvedCwd, env, onUpdate);
+      return this.executeBackground(resolvedRequest, resolvedCwd, env, onUpdate);
     }
 
-    return this.executeOneShot(request, resolvedCwd, env, onUpdate);
+    return this.executeOneShot(resolvedRequest, resolvedCwd, env, onUpdate);
   }
 
   private async executeOneShot(
@@ -266,7 +301,7 @@ export class ExecRuntime {
           managedRun = await getProcessSupervisor().spawn({
             ...spawnBase,
             mode: "pty",
-            ptyCommand: formatExecCommand(request.argv),
+            ptyCommand: request.shellCommand ?? buildPtyCommandFromArgv(request.argv),
           });
         } catch (ptyErr) {
           // PTY spawn failed, fallback to child mode
@@ -389,7 +424,7 @@ export class ExecRuntime {
           managedRun = await getProcessSupervisor().spawn({
             ...spawnBase,
             mode: "pty",
-            ptyCommand: formatExecCommand(request.argv),
+            ptyCommand: request.shellCommand ?? buildPtyCommandFromArgv(request.argv),
           });
         } catch (ptyErr) {
           // PTY spawn failed, fallback to child mode

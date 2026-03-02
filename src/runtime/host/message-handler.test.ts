@@ -481,6 +481,7 @@ describe("MessageHandler commands", () => {
     expect(setSessionModel).not.toHaveBeenCalled();
     const payload = send.mock.calls[0]?.[1] as { text: string };
     expect(payload.text).toContain("Current model: quotio/gemini-3-flash-preview");
+    expect(payload.text).toContain("Usage: /switch alias|provider/model");
   });
 
   it("handles /switch with args by switching model", async () => {
@@ -827,6 +828,8 @@ describe("MessageHandler commands", () => {
         enabled: true,
         onOverflowCompaction: true,
         onNewReset: true,
+        preFlushThresholdPercent: 80,
+        preFlushCooldownMinutes: 0,
         maxMessages: 4,
         maxChars: 500,
         timeoutMs: 100,

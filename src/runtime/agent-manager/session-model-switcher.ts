@@ -19,11 +19,16 @@ export async function setSessionModelWithSwitch(params: {
   buildPiModel: (spec: ModelSpec) => Model<Api>;
 }): Promise<void> {
   const persist = params.options?.persist ?? true;
+
+  // Resolve modelRef to canonical form
+  const resolved = params.modelRegistry.resolve(params.modelRef);
+  const canonicalRef = resolved?.ref ?? params.modelRef;
+
   if (persist) {
-    params.sessions.update(params.sessionKey, { currentModel: params.modelRef });
+    params.sessions.update(params.sessionKey, { currentModel: canonicalRef });
     params.runtimeModelOverrides.delete(params.sessionKey);
   } else {
-    params.runtimeModelOverrides.set(params.sessionKey, params.modelRef);
+    params.runtimeModelOverrides.set(params.sessionKey, canonicalRef);
   }
 
   const agent = params.agents.get(params.sessionKey);
@@ -31,7 +36,7 @@ export async function setSessionModelWithSwitch(params: {
     return;
   }
 
-  const spec = params.modelRegistry.get(params.modelRef);
+  const spec = resolved?.spec ?? params.modelRegistry.get(params.modelRef);
   if (!spec) {
     return;
   }
@@ -50,5 +55,5 @@ export async function setSessionModelWithSwitch(params: {
   }
 
   await agent.setModel(params.buildPiModel(spec));
-  params.agentModelRefs.set(params.sessionKey, params.modelRef);
+  params.agentModelRefs.set(params.sessionKey, canonicalRef);
 }

@@ -1,5 +1,6 @@
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
 import type { MoziConfig } from "../../config";
+import type { ModelRegistry } from "../model-registry";
 import type { SandboxConfig } from "../sandbox/types";
 import type { SessionStore } from "../session-store";
 import {
@@ -40,6 +41,7 @@ export async function resolveOrCreateAgentSession(params: {
   }) => Promise<AgentSession>;
   promptMode?: PromptMode;
   onPromptMetadata?: (metadata: PromptBuildMetadata) => void;
+  modelRegistry: ModelRegistry;
 }): Promise<{
   agent: AgentSession;
   resolvedId: string;
@@ -54,10 +56,15 @@ export async function resolveOrCreateAgentSession(params: {
 
   const runtimeOverride = params.runtimeModelOverrides.get(params.sessionKey);
   const lockedModel = session.currentModel;
-  const modelRef = runtimeOverride || lockedModel || params.resolveAgentModelRef(resolvedId, entry);
-  if (!modelRef) {
+  const rawModelRef =
+    runtimeOverride || lockedModel || params.resolveAgentModelRef(resolvedId, entry);
+  if (!rawModelRef) {
     throw new Error(`No model configured for agent ${resolvedId}`);
   }
+
+  // Canonicalize modelRef through modelRegistry.resolve
+  const resolved = params.modelRegistry.resolve(rawModelRef);
+  const modelRef = resolved?.ref ?? rawModelRef;
 
   let agent = params.agents.get(params.sessionKey);
   if (agent) {
