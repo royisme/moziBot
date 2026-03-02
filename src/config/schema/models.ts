@@ -8,6 +8,7 @@ export const ModelApiSchema = z.enum([
   "google-generative-ai",
   "google-gemini-cli",
   "cli-backend",
+  "ollama",
 ]);
 
 export const ModelInputSchema = z.enum(["text", "image", "audio", "video", "file"]);

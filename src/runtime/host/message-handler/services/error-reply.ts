@@ -28,7 +28,14 @@ export function isAbortError(error: Error): boolean {
  * Checks if the error indicates the agent is already busy.
  */
 export function isAgentBusyError(error: Error): boolean {
-  return error.message.toLowerCase().includes("already processing a prompt");
+  const lower = error.message.toLowerCase();
+  return (
+    lower.includes("already processing a prompt") ||
+    lower.includes("agent is already processing") ||
+    (lower.includes("already processing") &&
+      (lower.includes("specify streamingbehavior") ||
+        lower.includes("use steer() or followup() to queue messages")))
+  );
 }
 
 /**

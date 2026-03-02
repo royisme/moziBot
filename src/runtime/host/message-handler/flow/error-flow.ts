@@ -17,6 +17,7 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const emitStatus = (params: Parameters<typeof deps.emitStatusSafely>[0]) =>
     deps.emitStatusSafely(params);
   const isAbortError = (err: Error) => deps.isAbortError(err);
+  const isAgentBusyError = (err: Error) => deps.isAgentBusyError(err);
   const createErrorReplyText = (err: Error) => deps.createErrorReplyText(err);
   const getChannel = (payload: unknown) => deps.getChannel(payload);
   const dispatchReply = (params: {
@@ -71,6 +72,25 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
 
     // 4. User-facing Error Reply
     if (peerId) {
+      if (isAgentBusyError(err)) {
+        logger.info(
+          {
+            traceId: ctx.traceId,
+            sessionKey,
+            agentId,
+            peerId,
+            error: err.message,
+          },
+          "Suppressed busy error reply while message is queued/injected",
+        );
+        if (streamingBuffer) {
+          try {
+            await streamingBuffer.finalize();
+          } catch {}
+        }
+        return "handled";
+      }
+
       const errorText = createErrorReplyText(err);
 
       if (streamingBuffer) {

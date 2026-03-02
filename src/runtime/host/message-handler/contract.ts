@@ -158,6 +158,7 @@ export interface OrchestratorDeps {
   // Error Helpers
   toError(err: unknown): Error;
   isAbortError(err: Error): boolean;
+  isAgentBusyError(err: Error): boolean;
   createErrorReplyText(err: Error): string;
   setSessionModel(sessionKey: string, modelRef: string): Promise<void>;
   stopTypingIndicator(params: {

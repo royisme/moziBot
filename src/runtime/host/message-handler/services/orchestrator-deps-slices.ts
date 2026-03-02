@@ -9,7 +9,11 @@ import { parseInlineOverrides } from "../../commands/reasoning";
 import type { OrchestratorDeps } from "../contract";
 import { checkInputCapability as checkInputCapabilityService } from "./capability";
 import { createErrorReplyText as createErrorReplyTextService } from "./error-reply";
-import { isAbortError as isAbortErrorService, toError as toErrorService } from "./error-utils";
+import {
+  isAbortError as isAbortErrorService,
+  isAgentBusyError as isAgentBusyErrorService,
+  toError as toErrorService,
+} from "./error-utils";
 import {
   emitPhaseSafely as emitPhaseSafelyService,
   startTypingIndicator as startTypingIndicatorService,
@@ -134,7 +138,12 @@ type ReplyDeps = Pick<
 
 type ErrorDeps = Pick<
   OrchestratorDeps,
-  "toError" | "isAbortError" | "createErrorReplyText" | "setSessionModel" | "stopTypingIndicator"
+  | "toError"
+  | "isAbortError"
+  | "isAgentBusyError"
+  | "createErrorReplyText"
+  | "setSessionModel"
+  | "stopTypingIndicator"
 >;
 
 function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
@@ -391,6 +400,7 @@ function buildErrorDeps(params: OrchestratorDepsBuilderParams): ErrorDeps {
   return {
     toError: (err) => toErrorService(err),
     isAbortError: (err) => isAbortErrorService(err),
+    isAgentBusyError: (err) => isAgentBusyErrorService(err),
     createErrorReplyText: (err) => createErrorReplyTextService(err),
     setSessionModel: async (sessionKey, modelRef) => {
       await agentManager.setSessionModel(sessionKey, modelRef);

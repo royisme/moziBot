@@ -40,7 +40,7 @@ describe("MessageHandler fallback behavior", () => {
       if (shouldFailBusy) {
         shouldFailBusy = false;
         throw new Error(
-          "Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
+          "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
         );
       }
     });

@@ -83,6 +83,7 @@ function createDeps(): OrchestratorDeps {
     dispatchReply: vi.fn(async () => "out"),
     toError: vi.fn((err: unknown) => (err instanceof Error ? err : new Error(String(err)))),
     isAbortError: vi.fn(() => false),
+    isAgentBusyError: vi.fn(() => false),
     createErrorReplyText: vi.fn(() => "error"),
     setSessionModel: vi.fn(async () => {}),
     stopTypingIndicator: vi.fn(async () => {}),
