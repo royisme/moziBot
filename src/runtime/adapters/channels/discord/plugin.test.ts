@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseCommand } from "../../../host/commands/parser";
 import { DiscordPlugin } from "./plugin";
 
 type MockClient = {
@@ -236,6 +237,20 @@ describe("DiscordPlugin (carbon)", () => {
     expect(body.flags).toBe(1 << 12);
   });
 
+  it("sets silent flag on all outbound chunks", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    await plugin.send("channel-123", { text: "a".repeat(2100), silent: true });
+
+    expect(client.rest.post.mock.calls.length).toBe(2);
+    for (const call of client.rest.post.mock.calls) {
+      const body = call?.[1]?.body as { flags?: number; content?: string };
+      expect(body.flags).toBe(1 << 12);
+      expect(body.content?.length ?? 0).toBeLessThanOrEqual(2000);
+    }
+  });
+
   it("sends buffer and path attachments", async () => {
     const plugin = new DiscordPlugin({ botToken: "test-token" });
     const client = await connectPlugin(plugin);
@@ -338,15 +353,32 @@ describe("DiscordPlugin (carbon)", () => {
     expect(body.files?.[6]?.name).toBe("video_note.mp4");
   });
 
-  it("sends URL-based media as text content", async () => {
+  it("uploads URL-based media as attachments when download succeeds", async () => {
     const plugin = new DiscordPlugin({ botToken: "test-token" });
     const client = await connectPlugin(plugin);
+
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => {
+      if (input.includes("oauth2/applications/@me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: "app-123" }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name: string) => (name === "content-length" ? "10" : null) },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await plugin.send("channel-123", {
       text: "Check this out",
       media: [
-        { type: "photo", url: "https://example.com/photo.jpg" },
-        { type: "video", url: "https://example.com/video.mp4" },
+        { type: "photo", url: "https://example.com/photo.jpg", filename: "photo.jpg" },
+        { type: "video", url: "https://example.com/video.mp4", filename: "video.mp4" },
       ],
     });
 
@@ -355,10 +387,188 @@ describe("DiscordPlugin (carbon)", () => {
       content?: string;
     };
     expect(body.content).toContain("Check this out");
-    expect(body.content).toContain("https://example.com/photo.jpg");
-    expect(body.content).toContain("https://example.com/video.mp4");
-    // When only URLs are provided (no buffer/path), they are included in content, not as files
+    expect(body.files?.length).toBe(2);
+    expect(body.files?.[0]?.name).toBe("photo.jpg");
+    expect(body.files?.[1]?.name).toBe("video.mp4");
+  });
+
+  it("falls back to text URL when URL media exceeds size guardrail", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => {
+      if (input.includes("oauth2/applications/@me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: "app-123" }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name: string) => (name === "content-length" ? "60000000" : null) },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await plugin.send("channel-123", {
+      text: "large file",
+      media: [{ type: "document", url: "https://example.com/large.bin" }],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string }>;
+      content?: string;
+    };
     expect(body.files).toBeUndefined();
+    expect(body.content).toContain("large file");
+    expect(body.content).toContain("https://example.com/large.bin");
+  });
+
+  it("falls back to text URL when URL media download fails", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const fetchMock = vi.fn().mockImplementation(async (input: string) => {
+      if (input.includes("oauth2/applications/@me")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: "app-123" }),
+        };
+      }
+      return {
+        ok: false,
+        status: 500,
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      };
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await plugin.send("channel-123", {
+      text: "download failed",
+      media: [{ type: "document", url: "https://example.com/fail.bin" }],
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      files?: Array<{ name?: string }>;
+      content?: string;
+    };
+    expect(body.files).toBeUndefined();
+    expect(body.content).toContain("download failed");
+    expect(body.content).toContain("https://example.com/fail.bin");
+  });
+
+  it("attaches poll payload only on first outbound chunk", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    await plugin.send("channel-123", {
+      text: "a".repeat(2100),
+      poll: {
+        question: "Pick one",
+        options: ["A", "B"],
+        allowMultiselect: false,
+        durationHours: 12,
+      },
+    });
+
+    expect(client.rest.post).toHaveBeenCalledTimes(2);
+
+    const firstBody = client.rest.post.mock.calls[0]?.[1]?.body as {
+      poll?: {
+        question?: { text?: string };
+        answers?: Array<{ poll_media?: { text?: string } }>;
+        allow_multiselect?: boolean;
+        duration?: number;
+      };
+    };
+    const secondBody = client.rest.post.mock.calls[1]?.[1]?.body as {
+      poll?: {
+        question?: { text?: string };
+      };
+    };
+
+    expect(firstBody.poll?.question?.text).toBe("Pick one");
+    expect(firstBody.poll?.answers?.length).toBe(2);
+    expect(firstBody.poll?.answers?.[0]?.poll_media?.text).toBe("A");
+    expect(firstBody.poll?.allow_multiselect).toBe(false);
+    expect(firstBody.poll?.duration).toBe(12);
+    expect(secondBody.poll).toBeUndefined();
+  });
+
+  it("sends outbound message via webhook when webhookUrl is set", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "webhook-1" }),
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const messageId = await plugin.send("ignored", {
+      text: "hello webhook",
+      webhookUrl: "https://discord.com/api/webhooks/1/token",
+    });
+
+    expect(messageId).toBe("webhook-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("https://discord.com/api/webhooks/1/token?wait=true"),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/applications/@me"),
+      expect.anything(),
+    );
+  });
+
+  it("throws diagnosable error when webhook send fails", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({}),
+    }) as unknown as typeof fetch;
+
+    await expect(
+      plugin.send("ignored", {
+        text: "hello webhook",
+        webhookUrl: "https://discord.com/api/webhooks/1/token",
+      }),
+    ).rejects.toThrow("Discord webhook send failed: 403");
+  });
+
+  it("limits component rows and buttons per row", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const rows = Array.from({ length: 6 }, (_rowUnused, rowIndex) =>
+      Array.from({ length: 6 }, (_colUnused, colIndex) => ({
+        text: `B${rowIndex}-${colIndex}`,
+        callbackData: `/do-${rowIndex}-${colIndex}`,
+      })),
+    );
+
+    await plugin.send("channel-123", {
+      text: "buttons",
+      buttons: rows,
+    });
+
+    const body = client.rest.post.mock.calls[0]?.[1]?.body as {
+      components?: Array<{ components?: Array<{ custom_id?: string; label?: string }> }>;
+    };
+
+    expect(body.components?.length).toBe(5);
+    for (const row of body.components ?? []) {
+      expect(row.components?.length).toBe(5);
+    }
+    expect(body.components?.[0]?.components?.[0]?.custom_id).toBe("/do-0-0");
   });
 
   it("uses caption as fallback text when no text provided", async () => {
@@ -461,6 +671,67 @@ describe("DiscordPlugin (carbon)", () => {
     expect(received?.media?.[2]?.type).toBe("audio");
     expect(received?.media?.[3]?.type).toBe("document");
     expect(received?.media?.[4]?.type).toBe("document"); // unknown content type defaults to document
+  });
+
+  it("normalizes slash interactions to parity text semantics", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const cases: Array<{ cmd: string; option?: string; expectedText: string }> = [
+      { cmd: "help", expectedText: "/help" },
+      { cmd: "status", expectedText: "/status" },
+      { cmd: "models", expectedText: "/models" },
+      { cmd: "skills", expectedText: "/skills" },
+      { cmd: "new", expectedText: "/new" },
+      { cmd: "reset", expectedText: "/reset" },
+      { cmd: "stop", expectedText: "/stop" },
+      { cmd: "switch", option: "openai/gpt-5", expectedText: "/switch openai/gpt-5" },
+    ];
+
+    const received: Array<{ text: string }> = [];
+    plugin.on("message", (msg) => {
+      received.push(msg as { text: string });
+    });
+
+    for (const c of cases) {
+      const slash = client.commands.find(
+        (command) =>
+          (
+            command as {
+              name?: string;
+              run: (interaction: {
+                options: { getString: (name: string) => string | null };
+                reply: (payload: unknown) => Promise<void>;
+              }) => Promise<void>;
+            }
+          ).name === c.cmd,
+      ) as {
+        run: (interaction: {
+          options: { getString: (name: string) => string | null };
+          reply: (payload: unknown) => Promise<void>;
+        }) => Promise<void>;
+      };
+
+      expect(slash).toBeDefined();
+      await slash.run({
+        id: `i-${c.cmd}`,
+        guildId: null,
+        user: { id: "u-1", username: "alice" },
+        channel: { id: "chan-1" },
+        options: {
+          getString: (name: string) => (name === "model" ? (c.option ?? null) : null),
+        },
+        reply: vi.fn(async () => {}),
+      } as unknown as {
+        options: { getString: (name: string) => string | null };
+        reply: (payload: unknown) => Promise<void>;
+      });
+    }
+
+    expect(received.map((m) => m.text)).toEqual(cases.map((c) => c.expectedText));
+    expect(received.map((m) => parseCommand(m.text))).toEqual(
+      cases.map((c) => parseCommand(c.expectedText)),
+    );
   });
 
   it("handles inbound message", async () => {
@@ -864,5 +1135,132 @@ describe("DiscordPlugin (carbon)", () => {
 
     expect(client.rest.put).not.toHaveBeenCalled();
     expect(client.rest.delete).not.toHaveBeenCalled();
+  });
+
+  describe("createThread", () => {
+    it("creates a forum post when channel is a forum", async () => {
+      const plugin = new DiscordPlugin({ botToken: "test-token" });
+      const client = await connectPlugin(plugin);
+
+      // Mock channel GET to return forum type
+      client.rest.get = vi.fn().mockResolvedValue({ type: 15, id: "forum-1" }); // 15 = GuildForum
+      client.rest.post = vi.fn().mockResolvedValue({ id: "forum-post-123" });
+
+      const threadId = await plugin.createThread("forum-1", "New Forum Post");
+
+      expect(threadId).toBe("forum-post-123");
+      expect(client.rest.get).toHaveBeenCalledWith(expect.stringContaining("/channels/forum-1"));
+      expect(client.rest.post).toHaveBeenCalledWith(
+        expect.stringContaining("/channels/forum-1/messages"),
+        expect.objectContaining({
+          body: expect.objectContaining({
+            name: "New Forum Post",
+            content: " ",
+          }),
+        }),
+      );
+    });
+
+    it("creates a private thread from a message", async () => {
+      const plugin = new DiscordPlugin({ botToken: "test-token" });
+      const client = await connectPlugin(plugin);
+
+      // Mock channel GET to return text channel type
+      client.rest.get = vi.fn().mockResolvedValue({ type: 0, id: "text-1" }); // 0 = GUILD_TEXT
+      client.rest.post = vi.fn().mockResolvedValue({ id: "thread-456" });
+
+      const threadId = await plugin.createThread("text-1", "My Thread", "msg-789");
+
+      expect(threadId).toBe("thread-456");
+      expect(client.rest.post).toHaveBeenCalledWith(
+        expect.stringContaining("/channels/text-1"),
+        expect.objectContaining({
+          body: expect.objectContaining({
+            name: "My Thread",
+            type: 12, // PrivateThread
+            message_id: "msg-789",
+          }),
+        }),
+      );
+    });
+
+    it("creates a public thread when no messageId provided", async () => {
+      const plugin = new DiscordPlugin({ botToken: "test-token" });
+      const client = await connectPlugin(plugin);
+
+      client.rest.get = vi.fn().mockResolvedValue({ type: 0, id: "text-1" });
+      client.rest.post = vi.fn().mockResolvedValue({ id: "public-thread-789" });
+
+      const threadId = await plugin.createThread("text-1", "Public Thread");
+
+      expect(threadId).toBe("public-thread-789");
+      expect(client.rest.post).toHaveBeenCalledWith(
+        expect.stringContaining("/channels/text-1"),
+        expect.objectContaining({
+          body: expect.objectContaining({
+            name: "Public Thread",
+            type: 11, // PublicThread
+          }),
+        }),
+      );
+    });
+
+    it("throws when client not connected", async () => {
+      const plugin = new DiscordPlugin({ botToken: "test-token" });
+
+      await expect(plugin.createThread("chan-1", "Test")).rejects.toThrow(
+        "Discord client is not connected",
+      );
+    });
+  });
+
+  describe("diagnosePermissionError", () => {
+    it("diagnoses missing permissions error (50013)", () => {
+      const error = new Error("Discord API error: 50013: Missing permissions");
+      const result = DiscordPlugin.diagnosePermissionError(error, "send message");
+
+      expect(result.name).toBe("DiscordPermissionError");
+      expect(result.message).toContain("Missing permissions");
+      expect(result.message.toLowerCase()).toContain("send messages");
+      expect(result.message).toContain("Create Public/Private Threads");
+    });
+
+    it("diagnoses missing access error (50001)", () => {
+      const error = new Error("Discord API error: 50001: Missing access");
+      const result = DiscordPlugin.diagnosePermissionError(error, "edit message");
+
+      expect(result.name).toBe("DiscordAccessError");
+      expect(result.message).toContain("Missing access");
+      expect(result.message.toLowerCase()).toContain("bot is not in the server");
+    });
+
+    it("diagnoses thread quota error (30033)", () => {
+      const error = new Error("Discord API error: 30033: Thread quota exceeded");
+      const result = DiscordPlugin.diagnosePermissionError(error);
+
+      expect(result.name).toBe("DiscordThreadQuotaError");
+      expect(result.message).toContain("Thread creation quota exceeded");
+      expect(result.message).toContain("forum posts");
+    });
+
+    it("diagnoses unknown channel error (40004)", () => {
+      const error = new Error("Discord API error: 40004: Unknown channel");
+      const result = DiscordPlugin.diagnosePermissionError(error, "create thread");
+
+      expect(result.name).toBe("DiscordChannelError");
+      expect(result.message).toContain("channel does not exist");
+    });
+
+    it("returns original error for unknown Discord errors", () => {
+      const error = new Error("Some unrelated error");
+      const result = DiscordPlugin.diagnosePermissionError(error);
+
+      expect(result).toBe(error);
+    });
+
+    it("handles non-Error inputs", () => {
+      const result = DiscordPlugin.diagnosePermissionError("string error");
+      expect(result.message).toContain("string error");
+    });
   });
 });

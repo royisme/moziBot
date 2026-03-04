@@ -402,6 +402,17 @@
 
 ---
 
+### Telegram / Discord 专项补齐计划（新增）
+
+| Task | 任务描述 | 依赖 | 验证方式（DoD） |
+| --- | --- | --- | --- |
+| TD-T1 | 跨渠道语义一致性测试：`silent/replyTo/chunk/status reactions` 在 Telegram/Discord 表现一致 | P2/P3 已完成 | 新增集成测试通过，差异项显式记录 |
+| TD-T2 | Discord roadmap 能力补齐第一批：components/buttons + polls + webhook send | TD-T1 | 已完成：对应功能测试通过，webhook 失败路径可诊断；URL media 护栏已在 TD-T3 完成 |
+| TD-T3 | Discord 媒体 URL 上传与护栏（下载、大小限制、失败降级） | TD-T2 | 已完成：URL media 上传/超限降级/下载失败降级测试通过 |
+| TD-T4 | Forum/media 线程自动创建与权限诊断增强 | TD-T2 | 已完成：线程创建成功/权限失败两条路径可复现并有测试覆盖 |
+| TD-T5 | Telegram/Discord 运维 runbook 补齐（排障命令、日志关键字、SLO） | TD-T1~TD-T4 | 已完成：runbook 已补齐并落地 `docs/TELEGRAM_DISCORD_OPS_RUNBOOK.md` |
+| TD-T6 | Telegram/Discord CLI/slash parity 语义矩阵（同输入同终态） | TD-T1~TD-T4 | 已完成：新增 parser/inbound-flow/discord/telegram parity 测试矩阵并通过；覆盖 `/help /status /models /skills /new /reset /stop /switch`、aliases(`/model /id /t /reason`)、unknown slash、前后空白 |
+
 ### P5 可分派任务清单
 
 | Task | 任务描述 | 依赖 | 验证方式（DoD） |

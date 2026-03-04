@@ -1,6 +1,7 @@
 import { run } from "@grammyjs/runner";
 import { Bot } from "grammy";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseCommand } from "../../../host/commands/parser";
 import { TelegramPlugin } from "./plugin";
 
 // Type for mocked Bot
@@ -148,6 +149,45 @@ describe("TelegramPlugin", () => {
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     expect(messageId).toBe("123");
     expect(botInstance.api.sendMessage).toHaveBeenCalledWith("12345", "hello", expect.any(Object));
+  });
+
+  it("should chunk long text and set reply only on first chunk", async () => {
+    const longText = "a".repeat(5000);
+    await plugin.send("12345", { text: longText, replyToId: "456" });
+
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const calls = botInstance.api.sendMessage.mock.calls as Array<
+      [string, string, { reply_parameters?: { message_id: number } }]
+    >;
+
+    expect(calls.length).toBe(2);
+
+    for (const [, text] of calls) {
+      expect(text.length).toBeLessThanOrEqual(4096);
+    }
+
+    const firstOptions = calls[0]?.[2];
+    expect(firstOptions?.reply_parameters?.message_id).toBe(456);
+
+    for (const [, , options] of calls.slice(1)) {
+      expect(options?.reply_parameters).toBeUndefined();
+    }
+  });
+
+  it("should map silent=true to disable_notification across all chunks", async () => {
+    const longText = "a".repeat(5000);
+    await plugin.send("12345", { text: longText, silent: true });
+
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const calls = botInstance.api.sendMessage.mock.calls as Array<
+      [string, string, { disable_notification?: boolean }]
+    >;
+
+    expect(calls.length).toBe(2);
+    for (const [, text, options] of calls) {
+      expect(text.length).toBeLessThanOrEqual(4096);
+      expect(options?.disable_notification).toBe(true);
+    }
   });
 
   it("should send photo message", async () => {
@@ -499,6 +539,52 @@ describe("TelegramPlugin", () => {
     expect((receivedMsg as ReceivedMsg).peerId).toBe("789");
     expect((receivedMsg as ReceivedMsg).senderName).toBe("John");
     expect((receivedMsg as ReceivedMsg).text).toBe("hello bot");
+  });
+
+  it("should preserve slash text parity semantics for host parsing", async () => {
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const handler = botInstance.on.mock.calls.find(
+      (call: unknown[]) => (call[0] as string) === "message:text",
+    )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
+    expect(handler).toBeDefined();
+    if (!handler) {
+      return;
+    }
+
+    const cases = [
+      "/help",
+      "/status",
+      "/models",
+      "/skills",
+      "/new",
+      "/reset",
+      "/stop",
+      "/switch openai/gpt-5",
+      "   /switch   openai/gpt-5   ",
+      "/unknown_cmd",
+    ];
+
+    const received: Array<{ text: string }> = [];
+    plugin.on("message", (msg) => {
+      received.push(msg as { text: string });
+    });
+
+    for (const [index, text] of cases.entries()) {
+      await handler({
+        message: {
+          message_id: 600 + index,
+          chat: { id: 789, type: "private" },
+          from: { id: 101, first_name: "John" },
+          text,
+          date: 1675468800,
+        },
+      });
+    }
+
+    expect(received.map((m) => m.text)).toEqual(cases);
+    expect(received.map((m) => parseCommand(m.text))).toEqual(
+      cases.map((text) => parseCommand(text)),
+    );
   });
 
   it("should map inbound voice metadata", async () => {

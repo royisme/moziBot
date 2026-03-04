@@ -58,12 +58,15 @@ function createDeps(): OrchestratorDeps {
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
     emitStatusSafely: vi.fn(async () => {}),
-    createStreamingBuffer: vi.fn(() => ({
-      append: vi.fn(),
-      initialize: vi.fn(async () => {}),
-      finalize: vi.fn(async () => null),
-      getAccumulatedText: vi.fn(() => ""),
-    })),
+    createStreamingBuffer: vi.fn(
+      () =>
+        ({
+          append: vi.fn(),
+          initialize: vi.fn(async () => {}),
+          finalize: vi.fn(async () => null),
+          getAccumulatedText: vi.fn(() => ""),
+        }) as unknown as ReturnType<OrchestratorDeps["createStreamingBuffer"]>,
+    ),
     runPromptWithFallback: vi.fn(async () => {}),
     maybePreFlushBeforePrompt: vi.fn(async () => {}),
     shouldSuppressSilentReply: vi.fn(() => false),
@@ -71,6 +74,7 @@ function createDeps(): OrchestratorDeps {
     dispatchReply: vi.fn(async () => "out"),
     toError: vi.fn((err: unknown) => (err instanceof Error ? err : new Error(String(err)))),
     isAbortError: vi.fn(() => false),
+    isAgentBusyError: vi.fn(() => false),
     createErrorReplyText: vi.fn(() => "error"),
     setSessionModel: vi.fn(async () => {}),
     stopTypingIndicator: vi.fn(async () => {}),
@@ -95,7 +99,7 @@ describe("runInboundFlow", () => {
   });
 
   it("emits message_received hook with session context", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "message_received");
+    hookMocks.runner.hasHooks.mockReturnValue(true);
     const ctx = createContext();
     const deps = createDeps();
 
@@ -117,7 +121,7 @@ describe("runInboundFlow", () => {
   });
 
   it("includes command metadata and media count in message_received hook", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "message_received");
+    hookMocks.runner.hasHooks.mockReturnValue(true);
     const ctx = createContext();
     const deps = createDeps();
     deps.getText = vi.fn(() => "/help now");
@@ -138,5 +142,32 @@ describe("runInboundFlow", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("handles unsupported slash as handled and skips command state", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    deps.getText = vi.fn(() => "/unknown_cmd");
+    deps.parseCommand = vi.fn(() => null);
+
+    const result = await runInboundFlow(ctx, deps);
+
+    expect(result).toBe("handled");
+    expect(ctx.state.parsedCommand).toBeUndefined();
+    expect(ctx.state.sessionKey).toBeUndefined();
+  });
+
+  it("continues for supported slash and stores parsed command state", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    deps.getText = vi.fn(() => "/status");
+    deps.parseCommand = vi.fn(() => ({ name: "status", args: "" }));
+
+    const result = await runInboundFlow(ctx, deps);
+
+    expect(result).toBe("continue");
+    expect(ctx.state.parsedCommand).toEqual({ name: "status", args: "" });
+    expect(ctx.state.text).toBe("/status");
+    expect(ctx.state.sessionKey).toBe("agent:mozi:telegram:dm:chat-1");
   });
 });
