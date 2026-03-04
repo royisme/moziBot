@@ -15,6 +15,7 @@ import { GatewayIntents, GatewayPlugin } from "@buape/carbon/gateway";
 import {
   ApplicationCommandOptionType,
   ButtonStyle,
+  ChannelType,
   ComponentType,
   InteractionType,
   Routes,
@@ -47,6 +48,7 @@ const READY_TIMEOUT_MS = 20_000;
 const MAX_GATEWAY_RECONNECT_ATTEMPTS = 20;
 const DISCORD_SUPPRESS_NOTIFICATIONS_FLAG = 1 << 12;
 const DISCORD_TEXT_LIMIT = getChannelTextLimit("discord");
+const DISCORD_MEDIA_URL_MAX_BYTES = 52_428_800;
 
 type CarbonMessageCreateEvent = Parameters<MessageCreateListener["handle"]>[0];
 type CarbonReadyEvent = Parameters<ReadyListener["handle"]>[0];
@@ -523,20 +525,25 @@ export class DiscordPlugin extends BaseChannelPlugin {
   }
 
   async send(peerId: string, message: OutboundMessage): Promise<string> {
-    if (!this.client) {
-      throw new Error("Discord client is not connected");
-    }
-
     const media = message.media ?? [];
     const { files, urls } = await resolveOutboundFiles(media);
 
     const baseText = resolveOutboundText(message, media);
     const content = [baseText, ...urls].filter(Boolean).join("\n").trim();
-    if (!content && files.length === 0) {
+    if (!content && files.length === 0 && !message.poll) {
       throw new Error("Discord outbound message is empty");
     }
 
     const chunks = content ? chunkTextWithMode(content, DISCORD_TEXT_LIMIT, "paragraph") : [""];
+
+    if (message.webhookUrl) {
+      return this.sendViaWebhook(message.webhookUrl, chunks, message);
+    }
+
+    if (!this.client) {
+      throw new Error("Discord client is not connected");
+    }
+
     const flags = message.silent ? DISCORD_SUPPRESS_NOTIFICATIONS_FLAG : undefined;
     let lastId = "unknown";
 
@@ -587,11 +594,234 @@ export class DiscordPlugin extends BaseChannelPlugin {
           fail_if_not_exists: false,
         };
       }
+      if (isFirst && message.poll) {
+        (body as Record<string, unknown>).poll = {
+          question: { text: message.poll.question.slice(0, 300) },
+          answers: message.poll.options.slice(0, 10).map((option) => ({
+            poll_media: { text: option.slice(0, 55) },
+          })),
+          allow_multiselect: message.poll.allowMultiselect ?? false,
+          duration: Math.min(Math.max(message.poll.durationHours ?? 24, 1), 168),
+        };
+      }
 
       const sent = (await this.client.rest.post(Routes.channelMessages(peerId), {
         body,
       })) as { id?: string };
       lastId = sent.id ?? lastId;
+    }
+
+    return lastId;
+  }
+
+  /**
+   * Create a new thread or forum post in a Discord channel.
+   * Used for forum channels (type 15) or creating private threads in text channels (type 12).
+   * @param channelId The parent channel ID where the thread/forum post will be created
+   * @param name Thread name or forum post title (max 100 chars)
+   * @param messageId Optional message ID to create thread from (for GUILD_TEXT channels)
+   * @returns The created thread/forum post channel ID
+   */
+  async createThread(channelId: string, name: string, messageId?: string): Promise<string> {
+    if (!this.client) {
+      throw new Error("Discord client is not connected");
+    }
+
+    // First, get channel info to determine its type
+    const channelInfo = (await this.client.rest.get(Routes.channel(channelId))) as {
+      type?: ChannelType;
+      id?: string;
+    };
+
+    const channelType = channelInfo.type;
+
+    // Handle forum channel (type 15) - create a new forum post
+    if (channelType === ChannelType.GuildForum) {
+      const forumPost = (await this.client.rest.post(Routes.channelMessages(channelId), {
+        body: {
+          name: name.slice(0, 100),
+          content: " ", // Forum posts require at least some content
+        },
+      })) as { id?: string };
+      return forumPost.id ?? channelId;
+    }
+
+    // Handle creating a thread from a message (GUILD_TEXT = 0)
+    // Note: Discord API requires a message to create a thread from
+    if (messageId) {
+      const thread = (await this.client.rest.post(Routes.channel(channelId), {
+        body: {
+          name: name.slice(0, 100),
+          type: ChannelType.PrivateThread, // 12 = PrivateThread
+          message_id: messageId,
+        },
+      })) as { id?: string };
+      return thread.id ?? channelId;
+    }
+
+    // Fallback: create a new thread without a message (public thread)
+    // This requires the channel to have "default thread rate limit" set
+    const thread = (await this.client.rest.post(Routes.channel(channelId), {
+      body: {
+        name: name.slice(0, 100),
+        type: ChannelType.PublicThread, // 11 = PublicThread
+      },
+    })) as { id?: string };
+    return thread.id ?? channelId;
+  }
+
+  /**
+   * Diagnose Discord permission errors and provide actionable error messages.
+   * @param error The error caught from Discord API
+   * @param context Additional context about the operation being performed
+   * @returns A diagnostic error with helpful guidance
+   */
+  static diagnosePermissionError(error: unknown, context?: string): Error {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const errMsg = err.message.toLowerCase();
+
+    // Common Discord permission error codes
+    if (
+      errMsg.includes("50013") ||
+      errMsg.includes("missing permissions") ||
+      errMsg.includes("permissions")
+    ) {
+      // Missing Permissions (50013)
+      const baseMsg = context
+        ? `Discord permission error during ${context}: Missing permissions.`
+        : "Discord permission error: Missing permissions.";
+      const diagnostic = new Error(
+        `${baseMsg} ` +
+          "The bot lacks required permissions. " +
+          "Ensure the bot has: " +
+          "1) 'Send Messages' permission in the channel, " +
+          "2) 'Create Public/Private Threads' for thread operations, " +
+          "3) 'Manage Threads' for forum posts. " +
+          `Original error: ${err.message}`,
+      );
+      diagnostic.name = "DiscordPermissionError";
+      return diagnostic;
+    }
+
+    if (
+      errMsg.includes("50001") ||
+      errMsg.includes("access denied") ||
+      errMsg.includes("missing access")
+    ) {
+      // Missing Access (50001)
+      const baseMsg = context
+        ? `Discord access error during ${context}: Missing access.`
+        : "Discord access error: Missing access.";
+      const diagnostic = new Error(
+        `${baseMsg} ` +
+          "The bot cannot access this channel or message. " +
+          "Possible causes: " +
+          "1) Bot is not in the server, " +
+          "2) Channel was deleted or bot was removed, " +
+          "3) Bot role is below channel permissions. " +
+          `Original error: ${err.message}`,
+      );
+      diagnostic.name = "DiscordAccessError";
+      return diagnostic;
+    }
+
+    if (errMsg.includes("30033") || errMsg.includes("thread quota")) {
+      // Thread quota exceeded (30033)
+      const diagnostic = new Error(
+        `Discord thread limit error: ${context ? `During ${context}, ` : ""}` +
+          "Thread creation quota exceeded for this channel. " +
+          "The channel has reached its maximum number of active threads. " +
+          "Consider cleaning up old threads or using forum posts instead. " +
+          `Original error: ${err.message}`,
+      );
+      diagnostic.name = "DiscordThreadQuotaError";
+      return diagnostic;
+    }
+
+    if (errMsg.includes("40004") || errMsg.includes("unknown channel")) {
+      // Unknown Channel (40004)
+      const diagnostic = new Error(
+        `Discord channel error: ${context ? `During ${context}, ` : ""}` +
+          "The specified channel does not exist or is not accessible. " +
+          "Verify the channel ID is correct and the bot has access. " +
+          `Original error: ${err.message}`,
+      );
+      diagnostic.name = "DiscordChannelError";
+      return diagnostic;
+    }
+
+    // Return original error if not a known Discord permission error
+    return err;
+  }
+
+  private async sendViaWebhook(
+    webhookUrl: string,
+    chunks: string[],
+    message: OutboundMessage,
+  ): Promise<string> {
+    const target = webhookUrl.trim();
+    if (!target) {
+      throw new Error("Discord webhookUrl is empty");
+    }
+
+    const flags = message.silent ? DISCORD_SUPPRESS_NOTIFICATIONS_FLAG : undefined;
+    let lastId = "unknown";
+
+    for (const [index, chunk] of chunks.entries()) {
+      const isFirst = index === 0;
+      const body: Record<string, unknown> = {};
+      if (chunk.trim()) {
+        body.content = chunk;
+      }
+      if (flags !== undefined) {
+        body.flags = flags;
+      }
+      if (isFirst && message.buttons && message.buttons.length > 0) {
+        body.components = message.buttons.slice(0, 5).map((row) => ({
+          type: ComponentType.ActionRow,
+          components: row.slice(0, 5).map((btn) => {
+            if (btn.url) {
+              return {
+                type: ComponentType.Button,
+                style: ButtonStyle.Link,
+                label: btn.text.slice(0, 80),
+                url: btn.url,
+              };
+            }
+            return {
+              type: ComponentType.Button,
+              style: ButtonStyle.Secondary,
+              label: btn.text.slice(0, 80),
+              custom_id: (btn.callbackData ?? btn.text).slice(0, 100),
+            };
+          }),
+        }));
+      }
+      if (isFirst && message.poll) {
+        body.poll = {
+          question: { text: message.poll.question.slice(0, 300) },
+          answers: message.poll.options.slice(0, 10).map((option) => ({
+            poll_media: { text: option.slice(0, 55) },
+          })),
+          allow_multiselect: message.poll.allowMultiselect ?? false,
+          duration: Math.min(Math.max(message.poll.durationHours ?? 24, 1), 168),
+        };
+      }
+
+      const response = await fetch(`${target}${target.includes("?") ? "&" : "?"}wait=true`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discord webhook send failed: ${response.status}`);
+      }
+
+      const payload = (await response.json()) as { id?: string };
+      if (payload.id) {
+        lastId = payload.id;
+      }
     }
 
     return lastId;
@@ -980,6 +1210,55 @@ function normalizeDiscordReactionEmoji(raw: string): string {
   return encodeURIComponent(identifier);
 }
 
+async function resolveUrlMediaFile(
+  item: MediaAttachment,
+  index: number,
+): Promise<MessagePayloadFile | undefined> {
+  const mediaUrl = item.url;
+  if (!mediaUrl) {
+    return undefined;
+  }
+
+  try {
+    const response = await fetch(mediaUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) {
+      logger.warn(
+        { mediaUrl, status: response.status },
+        "Discord URL media download failed, falling back to text URL",
+      );
+      return undefined;
+    }
+
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && Number(contentLength) > DISCORD_MEDIA_URL_MAX_BYTES) {
+      logger.warn(
+        { mediaUrl, size: contentLength },
+        "Discord URL media exceeds 50MB limit, falling back to text URL",
+      );
+      return undefined;
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > DISCORD_MEDIA_URL_MAX_BYTES) {
+      logger.warn(
+        { mediaUrl, size: arrayBuffer.byteLength },
+        "Discord URL media exceeds 50MB limit after download, falling back to text URL",
+      );
+      return undefined;
+    }
+
+    const data = new Uint8Array(arrayBuffer);
+    return {
+      name: item.filename ?? `upload-url-${index + 1}`,
+      data: toDiscordFileBlob(data, item.mimeType),
+      description: undefined,
+    };
+  } catch (error) {
+    logger.warn({ error, mediaUrl }, "Discord URL media download failed, falling back to text URL");
+    return undefined;
+  }
+}
+
 function resolveOutboundText(message: OutboundMessage, media: MediaAttachment[]): string {
   const text = message.text?.trim();
   if (text) {
@@ -1021,7 +1300,12 @@ async function resolveOutboundFiles(media: MediaAttachment[]): Promise<{
       continue;
     }
     if (item.url) {
-      urls.push(item.url);
+      const downloaded = await resolveUrlMediaFile(item, index);
+      if (downloaded) {
+        files.push(downloaded);
+      } else {
+        urls.push(item.url);
+      }
       continue;
     }
     logger.warn({ mediaIndex: index, mediaType: item.type }, "Discord attachment skipped");

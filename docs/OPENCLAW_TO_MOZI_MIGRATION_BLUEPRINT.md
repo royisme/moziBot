@@ -71,6 +71,38 @@
 | Exec / Heartbeat | 执行完成后可事件驱动持续跟进，heartbeat 与 event queue 协同 | 部分实现 | argv-first、shell wrapper、system event queue 与 wake 时序需要闭环化 | 适配（复用现有 heartbeat，补事件驱动链路） | P2-P4 | Control Plane 事件流接口 |
 | Config | schema、默认值、策略开关清晰且兼容 | 部分实现 | 迁移字段定义、默认行为与兼容规则仍分散 | 复用 + 适配（沿用现有 schema 框架） | P0-P1 | 与 runtime/policy 同步演进 |
 
+### 渠道对齐差异矩阵（Telegram / Discord）
+
+> 说明：本矩阵用于补齐你要求的 OpenClaw vs Mozi 在 Telegram/Discord 维度的可执行差异清单；以 Mozi 当前代码与迁移文档口径为准。
+
+| 维度 | OpenClaw 基线（迁移目标） | Mozi 当前状态 | 差异结论 | 代码/文档锚点 |
+| --- | --- | --- | --- | --- |
+| 基础收发（Telegram） | 支持稳定 inbound/outbound、命令触发、错误可恢复 | 已实现 | 已对齐（保留持续验证） | `src/runtime/adapters/channels/telegram/plugin.ts` |
+| 基础收发（Discord） | 支持稳定 inbound/outbound、命令触发、错误可恢复 | 已实现 | 已对齐（保留持续验证） | `src/runtime/adapters/channels/discord/plugin.ts` |
+| 消息分块策略 | 长消息分块、避免平台长度上限失败 | 已实现（Discord 2000 chars；Telegram 渲染+发送路径） | 基本对齐；待补 markdown-aware 一致性策略 | `src/runtime/adapters/channels/discord/plugin.ts`, `docs/ROADMAP_DISCORD.md` |
+| silent / replyTo 语义 | 静默发送与首条回复引用语义一致 | Discord 已明确实现；Telegram 路径可用 | 需要补跨渠道一致性回归用例 | `src/runtime/adapters/channels/discord/plugin.ts` |
+| 状态反应（status reactions） | thinking/tool/done/error 可视化反馈 | Telegram/Discord 均支持配置 | 已对齐 | `docs/MODULES/channels.md` |
+| 角色访问控制与路由（Discord） | 群角色准入与按角色路由 agent | 已实现 | 已对齐（需持续回归） | `src/runtime/adapters/channels/discord/plugin.ts`, `docs/MODULES/channels.md` |
+| 原生命令注册（Telegram） | 平台原生命令可发现 | 已实现 `setMyCommands` | 已对齐 | `src/runtime/adapters/channels/telegram/plugin.ts`, `docs/MODULES/channels.md` |
+| 组件/按钮交互（Discord） | 交互组件可触发路由命令 | 已有拦截与路由基础 | 部分对齐；需补完整组件协议与回归测试 | `src/runtime/adapters/channels/discord/plugin.ts` |
+| 轮询/投票（Discord） | 支持 poll | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+| Webhook 发送（Discord） | 支持 webhook send | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+| 语音消息发送（Discord） | 支持 voice message send | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+| URL 媒体上传（Discord） | URL 下载后带大小护栏上传 | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+| Forum/media 线程自动创建（Discord） | 自动 thread create | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+| 权限诊断与错误展开（Discord） | 可定位权限失败原因 | 部分实现 | 待增强 | `docs/ROADMAP_DISCORD.md` |
+| 历史检索与 pin/unpin（Discord） | 搜索历史与消息管理 | 未完成 | 待补齐 | `docs/ROADMAP_DISCORD.md` |
+
+### Telegram / Discord 收口清单（必须项）
+
+- [x] T/D-1: 产出跨渠道语义对齐测试（silent、replyTo、chunk、status reactions）
+- [x] T/D-2: 补齐 Discord roadmap 剩余能力最小闭环（components/polls/webhook/URL media）
+  - 已完成第一批：components/buttons + polls + webhook send（含可诊断失败路径）
+  - 已完成第二批：URL media 上传 + 大小护栏 + 失败降级
+- [ ] T/D-3: 对齐 CLI/slash 在 Telegram/Discord 的可见行为（同输入同终态）
+- [x] T/D-4: 补运维排障条目（权限失败、分块失败、线程创建失败）
+- [ ] T/D-5: 在 P5 门禁中增加 Telegram/Discord 专项 Go/No-Go
+
 ### 分项差异与落地策略
 
 #### 1) ACP runtime

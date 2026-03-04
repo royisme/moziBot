@@ -299,6 +299,7 @@ async function sendTextWithChunking(
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
+    const isFirstChunk = i === 0;
     const isLastChunk = i === chunks.length - 1;
     const chunkHtml = markdownToTelegramHtml(chunk);
 
@@ -308,7 +309,7 @@ async function sendTextWithChunking(
           bot.api.sendMessage(chatId, chunkHtml || chunk, {
             parse_mode: "HTML",
             reply_markup: isLastChunk ? replyMarkup : undefined,
-            reply_parameters: isLastChunk ? replyParameters : undefined,
+            reply_parameters: isFirstChunk ? replyParameters : undefined,
             disable_notification: disableNotification,
             message_thread_id: messageThreadId,
           }),
@@ -320,7 +321,7 @@ async function sendTextWithChunking(
           () =>
             bot.api.sendMessage(chatId, chunk, {
               reply_markup: isLastChunk ? replyMarkup : undefined,
-              reply_parameters: isLastChunk ? replyParameters : undefined,
+              reply_parameters: isFirstChunk ? replyParameters : undefined,
               disable_notification: disableNotification,
               message_thread_id: messageThreadId,
             }),

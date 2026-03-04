@@ -20,6 +20,13 @@ export interface OutboundMessage {
   media?: MediaAttachment[];
   replyToId?: string;
   buttons?: InlineButton[][];
+  poll?: {
+    question: string;
+    options: string[];
+    allowMultiselect?: boolean;
+    durationHours?: number;
+  };
+  webhookUrl?: string;
   silent?: boolean;
   traceId?: string;
   threadId?: string | number;
