@@ -1,5 +1,8 @@
 interface SendChannel {
-  send(peerId: string, payload: { text: string }): Promise<unknown>;
+  send(
+    peerId: string,
+    payload: { text: string; buttons?: { text: string; callbackData?: string; url?: string }[][] },
+  ): Promise<unknown>;
 }
 
 interface AgentManagerLike {
@@ -33,16 +36,20 @@ export async function handleModelsCommand(params: {
     });
     return;
   }
-  const lines = ["Available models:"];
-  for (const ref of refs) {
-    if (ref === current.modelRef) {
-      lines.push(`- ${ref} (current)`);
-    } else {
-      lines.push(`- ${ref}`);
-    }
-  }
-  lines.push("Switch model: /switch alias|provider/model");
-  await channel.send(peerId, { text: lines.join("\n") });
+  // Build inline keyboard buttons — one model per button, 1 button per row
+  const buttons = refs.map((ref) => {
+    const isCurrent = ref === current.modelRef;
+    return [
+      {
+        text: isCurrent ? `${ref} ✓` : ref,
+        callbackData: `/switch ${ref}`,
+      },
+    ];
+  });
+  await channel.send(peerId, {
+    text: `Current model: ${current.modelRef}`,
+    buttons,
+  });
 }
 
 export async function handleSwitchCommand(params: {

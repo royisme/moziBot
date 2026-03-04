@@ -14,6 +14,9 @@ import {
 import { GatewayIntents, GatewayPlugin } from "@buape/carbon/gateway";
 import {
   ApplicationCommandOptionType,
+  ButtonStyle,
+  ComponentType,
+  InteractionType,
   Routes,
   type APIAttachment,
   type APIEmbed,
@@ -293,13 +296,111 @@ export class DiscordPlugin extends BaseChannelPlugin {
       for (const cmd of commands) {
         client.commands.push(cmd);
       }
+
+      // Register simple bot commands as Discord slash commands
+      this.registerSimpleSlashCommands(client);
+
       await client.handleDeployRequest();
-      logger.info("Discord ACP slash commands registered");
+      logger.info("Discord slash commands registered");
     } catch (error) {
-      logger.warn({ error }, "Failed to register Discord ACP slash commands");
+      logger.warn({ error }, "Failed to register Discord slash commands");
     }
   }
 
+  /**
+   * Register simple bot commands (/models, /switch, /new, /reset, /help, /stop, /compact)
+   * as Discord slash commands. Each emits a synthetic InboundMessage.
+   */
+  private registerSimpleSlashCommands(client: Client): void {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const plugin = this;
+
+    const simpleCommands: Array<{
+      name: string;
+      description: string;
+      options?: Array<{
+        name: string;
+        description: string;
+        type: number;
+        required?: boolean;
+      }>;
+    }> = [
+      { name: "models", description: "List available AI models" },
+      {
+        name: "switch",
+        description: "Switch to a different AI model",
+        options: [
+          {
+            name: "model",
+            description: "Model alias or provider/model name",
+            type: ApplicationCommandOptionType.String,
+            required: true,
+          },
+        ],
+      },
+      { name: "new", description: "Start a new session" },
+      { name: "reset", description: "Reset the current session" },
+      { name: "help", description: "Show available commands" },
+      { name: "stop", description: "Interrupt the active run" },
+      { name: "compact", description: "Compact session context" },
+      { name: "status", description: "View current status" },
+      { name: "skills", description: "List available skills" },
+    ];
+
+    for (const def of simpleCommands) {
+      const cmdDef = def;
+      class SimpleCmd extends Command {
+        name = cmdDef.name;
+        description = cmdDef.description;
+        defer = false;
+        options = cmdDef.options ?? [];
+
+        async run(interaction: CommandInteraction): Promise<void> {
+          let args = "";
+          if (cmdDef.options) {
+            for (const opt of cmdDef.options) {
+              const val = interaction.options.getString(opt.name);
+              if (val) {
+                args += (args ? " " : "") + val;
+              }
+            }
+          }
+
+          // Cast to access raw Discord properties not exposed by Carbon's CommandInteraction type
+          const raw = interaction as unknown as {
+            id: string;
+            guildId?: string;
+            user?: { id: string; username?: string };
+            channel?: { id?: string };
+          };
+          const inbound: InboundMessage = {
+            id: raw.id ?? "unknown",
+            channel: plugin.id,
+            peerId: raw.channel?.id || interaction.channel?.id || "unknown",
+            peerType: raw.guildId ? "group" : "dm",
+            senderId: raw.user?.id ?? "unknown",
+            senderName: raw.user?.username,
+            text: `/${cmdDef.name}${args ? " " + args : ""}`,
+            timestamp: new Date(),
+            raw: {
+              interactionId: raw.id,
+              userId: raw.user?.id,
+              channelId: raw.channel?.id || interaction.channel?.id,
+              guildId: raw.guildId,
+            },
+          };
+
+          plugin.emitInboundMessage(inbound);
+
+          await interaction.reply({
+            content: `Processing /${cmdDef.name}${args ? " " + args : ""}...`,
+            ephemeral: true,
+          });
+        }
+      }
+      client.commands.push(new SimpleCmd());
+    }
+  }
   private async connectInternal(): Promise<void> {
     if (this.status === "connecting" || this.status === "connected") {
       return;
@@ -371,6 +472,9 @@ export class DiscordPlugin extends BaseChannelPlugin {
 
       // Register ACP slash commands
       await this.registerAcpCommands(client);
+
+      // Intercept button interactions to route command-like custom_ids as InboundMessages
+      this.installButtonInteractionInterceptor(client);
 
       readyTimeout = setTimeout(() => {
         settleReady?.({ error: new Error("Discord gateway ready timeout") });
@@ -450,6 +554,31 @@ export class DiscordPlugin extends BaseChannelPlugin {
       }
 
       const body = serializePayload(payload);
+
+      // Attach inline buttons as Discord ActionRow components
+      if (isFirst && message.buttons && message.buttons.length > 0) {
+        (body as Record<string, unknown>).components = message.buttons
+          .slice(0, 5) // Discord max 5 action rows
+          .map((row) => ({
+            type: ComponentType.ActionRow,
+            components: row.slice(0, 5).map((btn) => {
+              if (btn.url) {
+                return {
+                  type: ComponentType.Button,
+                  style: ButtonStyle.Link,
+                  label: btn.text.slice(0, 80),
+                  url: btn.url,
+                };
+              }
+              return {
+                type: ComponentType.Button,
+                style: ButtonStyle.Secondary,
+                label: btn.text.slice(0, 80),
+                custom_id: (btn.callbackData ?? btn.text).slice(0, 100),
+              };
+            }),
+          }));
+      }
       if (isFirst && message.replyToId) {
         (
           body as { message_reference?: { message_id: string; fail_if_not_exists: boolean } }
@@ -548,6 +677,69 @@ export class DiscordPlugin extends BaseChannelPlugin {
     }
 
     this.statusReactionState.set(reactionKey, emoji);
+  }
+
+  /**
+   * Intercept component interactions (button clicks) whose custom_id starts with "/"
+   * and route them as InboundMessages through the command system.
+   */
+  private installButtonInteractionInterceptor(client: Client): void {
+    if (typeof client.handleInteraction !== "function") {
+      return;
+    }
+    const originalHandle = client.handleInteraction.bind(client);
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const plugin = this;
+
+    client.handleInteraction = async function (interaction: unknown, ctx: unknown) {
+      const data = interaction as {
+        type?: number;
+        data?: { component_type?: number; custom_id?: string };
+        id?: string;
+        token?: string;
+        channel_id?: string;
+        guild_id?: string;
+        member?: { user?: { id?: string; username?: string } };
+        user?: { id?: string; username?: string };
+      };
+
+      // Only intercept MessageComponent interactions with command-like custom_ids
+      if (
+        data.type === InteractionType.MessageComponent &&
+        data.data?.custom_id?.startsWith("/")
+      ) {
+        const customId = data.data.custom_id;
+        const user = data.member?.user ?? data.user;
+
+        // Acknowledge the interaction (type 6 = DEFERRED_UPDATE_MESSAGE)
+        try {
+          await client.rest.post(Routes.interactionCallback(data.id!, data.token!), {
+            body: { type: 6 },
+          });
+        } catch (err) {
+          logger.warn({ err }, "Failed to acknowledge Discord button interaction");
+        }
+
+        // Emit as InboundMessage
+        const inbound: InboundMessage = {
+          id: data.id ?? "unknown",
+          channel: plugin.id,
+          peerId: data.channel_id ?? "unknown",
+          peerType: data.guild_id ? "group" : "dm",
+          senderId: user?.id ?? "unknown",
+          senderName: user?.username,
+          text: customId,
+          timestamp: new Date(),
+          raw: data,
+        };
+        plugin.emitInboundMessage(inbound);
+        return;
+      }
+
+      // Fall through to Carbon's default handling
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return originalHandle(interaction as any, ctx as any);
+    };
   }
 
   private async handleMessage(event: CarbonMessageCreateEvent): Promise<void> {
