@@ -18,14 +18,17 @@ export function schedulePumpRunner(params: {
   params.state.pumpScheduled = true;
   queueMicrotask(() => {
     params.state.pumpScheduled = false;
-    void params.runPump();
+    void params.runPump().catch((error) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error({ error: err.message }, "Scheduled pump run failed");
+    });
   });
 }
 
 export async function runPumpLoop(params: {
   isStopped: () => boolean;
   state: PumpRunnerState;
-  processOne: (queueItem: RuntimeQueueItem) => Promise<void>;
+  processOne: (queueItem: RuntimeQueueItem, releaseSession: () => void) => Promise<void>;
   schedulePump: () => void;
 }): Promise<void> {
   if (params.isStopped() || params.state.pumping) {
@@ -53,9 +56,27 @@ export async function runPumpLoop(params: {
         "Queue item claimed",
       );
       params.state.activeSessions.add(next.session_key);
-      void params.processOne(next).finally(() => {
-        params.state.activeSessions.delete(next.session_key);
-        params.schedulePump();
+      let released = false;
+      const releaseSession = () => {
+        if (released) {
+          return;
+        }
+        released = true;
+        if (params.state.activeSessions.delete(next.session_key)) {
+          params.schedulePump();
+        }
+      };
+      void params.processOne(next, releaseSession).catch((error) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        logger.error(
+          {
+            queueItemId: next.id,
+            sessionKey: next.session_key,
+            error: err.message,
+          },
+          "Queue item processing crashed",
+        );
+        releaseSession();
       });
     }
   } finally {

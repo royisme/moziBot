@@ -4,7 +4,7 @@ import { createExecTool } from "./exec-tool.js";
 
 type TextItem = { type: "text"; text: string };
 
-describe("createExecTool", () => {
+describe("formatResult", () => {
   let mockRuntime: ExecRuntime;
   let mockExecute: ReturnType<typeof vi.fn>;
 
@@ -187,6 +187,37 @@ describe("createExecTool", () => {
         agentId: "agent-1",
         sessionKey: "session-1",
       },
+      undefined,
+    );
+  });
+
+  it("should propagate abort signal to runtime.execute", async () => {
+    const tool = createExecTool({
+      runtime: mockRuntime,
+      agentId: "agent-1",
+      sessionKey: "session-1",
+    });
+
+    mockExecute.mockResolvedValue({
+      type: "completed",
+      stdout: "hello",
+      stderr: "",
+      exitCode: 0,
+    } as ExecResult);
+
+    const abortController = new AbortController();
+
+    await tool.execute("tool-call-1", {
+      command: ["echo", "hello"],
+    }, abortController.signal);
+
+    expect(mockExecute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        argv: ["echo", "hello"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+        abortSignal: abortController.signal,
+      }),
       undefined,
     );
   });

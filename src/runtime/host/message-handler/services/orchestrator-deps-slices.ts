@@ -85,6 +85,7 @@ export interface OrchestratorDepsBuilderParams {
       attempt: number;
       error: string;
     }) => Promise<void> | void;
+    abortSignal?: AbortSignal;
   }) => Promise<void>;
   maybePreFlushBeforePrompt: (params: { sessionKey: string; agentId: string }) => Promise<void>;
 }
@@ -367,8 +368,24 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
     },
     createStreamingBuffer: ({ peerId, onError, traceId }) =>
       new StreamingBuffer(streamingChannel, peerId, onError, traceId),
-    runPromptWithFallback: async ({ sessionKey, agentId, text, traceId, onStream, onFallback }) => {
-      await runPromptWithFallback({ sessionKey, agentId, text, traceId, onStream, onFallback });
+    runPromptWithFallback: async ({
+      sessionKey,
+      agentId,
+      text,
+      traceId,
+      onStream,
+      onFallback,
+      abortSignal,
+    }) => {
+      await runPromptWithFallback({
+        sessionKey,
+        agentId,
+        text,
+        traceId,
+        onStream,
+        onFallback,
+        abortSignal,
+      });
     },
     maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) => {
       await maybePreFlushBeforePrompt({ sessionKey, agentId });

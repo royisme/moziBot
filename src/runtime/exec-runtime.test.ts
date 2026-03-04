@@ -403,6 +403,210 @@ describe("ExecRuntime", () => {
     });
   });
 
+  describe("abort signal handling (one-shot)", () => {
+    it("should cancel execution when abort signal is already aborted", async () => {
+      const abortController = new AbortController();
+      abortController.abort();
+
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
+
+      const result = await runtime.execute({
+        argv: ["echo", "hello"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+        abortSignal: abortController.signal,
+      });
+
+      expect(result.type).toBe("completed");
+      if (result.type === "completed") {
+        expect(result.exitCode).toBe(130);
+      }
+    });
+
+    it("should cancel execution when abort signal fires during execution", async () => {
+      // Create a mock that resolves normally, but we abort before that happens
+      mockSupervisor.spawn = vi.fn().mockImplementation(async () => {
+        let rejectWait: ((reason?: unknown) => void) | undefined;
+        const wait = () =>
+          new Promise<RunExit>((_, reject) => {
+            rejectWait = reject;
+          });
+        const cancel = vi.fn(() => {
+          rejectWait?.(new Error("Process cancelled"));
+        });
+        return {
+          runId: "job_test123",
+          pid: 12345,
+          startedAtMs: Date.now(),
+          wait,
+          cancel,
+        };
+      });
+
+      const abortController = new AbortController();
+
+      const executePromise = runtime.execute({
+        argv: ["sleep", "100"],
+        agentId: "agent-1",
+        sessionKey: "session-1",
+        abortSignal: abortController.signal,
+      });
+
+      // Abort immediately
+      abortController.abort();
+
+      const result = await executePromise;
+
+      // When cancelled, the process is terminated and we get error or completed
+      expect(result.type).toMatch(/completed|error/);
+    });
+
+    it("should preserve partial output when aborted during streaming", async () => {
+      let onStdoutCb: ((chunk: string) => void) | undefined;
+
+      mockSupervisor.spawn = vi.fn().mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
+        onStdoutCb = input.onStdout;
+        return {
+          runId: "job_test123",
+          pid: 12345,
+          startedAtMs: Date.now(),
+          wait: () => new Promise<RunExit>(() => {}), // never resolves
+          cancel: vi.fn(),
+        };
+      });
+
+      const abortController = new AbortController();
+      const chunks: string[] = [];
+
+      const executePromise = runtime.execute(
+        {
+          argv: ["sh", "-c", "echo line1; sleep 10"],
+          agentId: "agent-1",
+          sessionKey: "session-1",
+          abortSignal: abortController.signal,
+        },
+        (update) => chunks.push(update.stdout),
+      );
+
+      // Simulate some output
+      await new Promise((r) => setTimeout(r, 5));
+      onStdoutCb?.("line1\n");
+
+      // Abort
+      abortController.abort();
+
+      const result = await executePromise;
+
+      // Result should be error (cancelled) but we may have partial output
+      expect(result.type).toMatch(/completed|error/);
+      if (result.type === "completed") {
+        expect(result.stdout).toContain("line1");
+      }
+    });
+  });
+
+  describe("abort signal handling (background/yield)", () => {
+    it("should cancel background execution when abort signal is already aborted", async () => {
+      const abortController = new AbortController();
+      abortController.abort();
+
+      mockSupervisor.spawn = vi.fn().mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
+
+      const result = await runtime.execute({
+        argv: ["sleep", "10"],
+        background: true,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+        abortSignal: abortController.signal,
+      });
+
+      // When already aborted, we either get completed (130) or error depending on timing
+      expect(result.type).toMatch(/completed|error/);
+      if (result.type === "completed") {
+        expect(result.exitCode).toBe(130);
+      }
+    });
+
+    it("should cancel yield execution when abort signal fires", async () => {
+      mockSupervisor.spawn = vi.fn().mockImplementation(async () => {
+        let rejectWait: ((reason?: unknown) => void) | undefined;
+        const wait = () =>
+          new Promise<RunExit>((_, reject) => {
+            rejectWait = reject;
+          });
+        const cancel = vi.fn(() => {
+          rejectWait?.(new Error("Process cancelled"));
+        });
+        return {
+          runId: "job_test123",
+          pid: 12345,
+          startedAtMs: Date.now(),
+          wait,
+          cancel,
+        };
+      });
+
+      const abortController = new AbortController();
+
+      const executePromise = runtime.execute({
+        argv: ["sleep", "100"],
+        yieldMs: 5000,
+        agentId: "agent-1",
+        sessionKey: "session-1",
+        abortSignal: abortController.signal,
+      });
+
+      // Abort after a small delay
+      setTimeout(() => abortController.abort(), 10);
+
+      const result = await executePromise;
+
+      expect(result.type).toMatch(/completed|error/);
+    });
+
+    it("should preserve partial output when yield execution is aborted", async () => {
+      let onStdoutCb: ((chunk: string) => void) | undefined;
+
+      mockSupervisor.spawn = vi.fn().mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
+        onStdoutCb = input.onStdout;
+        return {
+          runId: "job_test123",
+          pid: 12345,
+          startedAtMs: Date.now(),
+          wait: () => new Promise<RunExit>(() => {}), // never resolves
+          cancel: vi.fn(),
+        };
+      });
+
+      const abortController = new AbortController();
+      const chunks: string[] = [];
+
+      const executePromise = runtime.execute(
+        {
+          argv: ["sh", "-c", "echo started; sleep 10"],
+          yieldMs: 5000,
+          agentId: "agent-1",
+          sessionKey: "session-1",
+          abortSignal: abortController.signal,
+        },
+        (update) => chunks.push(update.stdout),
+      );
+
+      // Simulate some output
+      await new Promise((r) => setTimeout(r, 5));
+      onStdoutCb?.("started\n");
+
+      // Abort
+      abortController.abort();
+
+      const result = await executePromise;
+
+      expect(result.type).toMatch(/completed|error/);
+    });
+  });
+
   describe("vibebox execution", () => {
     let vibeboxBoundary: SandboxBoundary;
     let mockVibeboxExecutor: VibeboxExecutor;

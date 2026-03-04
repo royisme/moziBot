@@ -336,7 +336,7 @@ export class RuntimeKernel implements RuntimeIngress {
     await runPumpLoop({
       isStopped: () => this.stopped,
       state: this.pumpState,
-      processOne: async (queueItem) => await this.processOne(queueItem),
+      processOne: async (queueItem, releaseSession) => await this.processOne(queueItem, releaseSession),
       schedulePump: () => this.schedulePump(),
     });
   }
@@ -355,7 +355,7 @@ export class RuntimeKernel implements RuntimeIngress {
     });
   }
 
-  private async processOne(queueItem: RuntimeQueueItem): Promise<void> {
+  private async processOne(queueItem: RuntimeQueueItem, releaseSession: () => void): Promise<void> {
     await processQueueItem({
       queueItem,
       messageHandler: this.messageHandler,
@@ -364,6 +364,7 @@ export class RuntimeKernel implements RuntimeIngress {
       parseInbound: (json) => this.parseInbound(json),
       buildRuntimeChannel: (params) => this.buildRuntimeChannel(params),
       schedulePump: () => this.schedulePump(),
+      releaseSession,
     });
   }
 }

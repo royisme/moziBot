@@ -4,6 +4,7 @@ import { runtimeQueue, type RuntimeQueueItem } from "../../../storage/db";
 import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { MessageHandler } from "../../host/message-handler";
+import { startDetachedRun as startDetachedRunService } from "../../host/message-handler/services/run-dispatch";
 import type { SessionManager } from "../../host/sessions/manager";
 import { SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
@@ -20,98 +21,151 @@ export async function processQueueItem(params: {
     envelopeId: string;
   }) => ChannelPlugin;
   schedulePump: () => void;
+  releaseSession: () => void;
 }): Promise<void> {
-  continuationRegistry.resumeSession(params.queueItem.session_key);
-  const inbound = params.parseInbound(params.queueItem.inbound_json);
-  const channel = params.buildRuntimeChannel({
-    queueItem: params.queueItem,
-    envelopeId: params.queueItem.id,
-  });
-  const startedAt = Date.now();
-
-  await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RUNNING);
-  logger.info(
-    {
-      queueItemId: params.queueItem.id,
-      sessionKey: params.queueItem.session_key,
-      messageId: inbound.id,
-      channel: inbound.channel,
-      peerId: inbound.peerId,
-      attempts: params.queueItem.attempts,
-    },
-    "Queue item processing started",
-  );
-  try {
-    await params.messageHandler.handle(inbound, channel);
-    const completed = runtimeQueue.markCompletedIfRunning(params.queueItem.id);
-    if (!completed) {
-      const current = runtimeQueue.getById(params.queueItem.id);
-      if (current?.status === SessionStatus.INTERRUPTED) {
-        await params.sessionManager.setStatus(
-          params.queueItem.session_key,
-          SessionStatus.INTERRUPTED,
-        );
-        logger.warn(
-          {
-            queueItemId: params.queueItem.id,
-            sessionKey: params.queueItem.session_key,
-            messageId: inbound.id,
-            durationMs: Date.now() - startedAt,
-          },
-          "Queue item ended after interruption",
-        );
-        return;
-      }
-      logger.warn(
-        {
-          queueItemId: params.queueItem.id,
-          sessionKey: params.queueItem.session_key,
-          status: current?.status,
-        },
-        "Skipped completion because queue item is no longer running",
-      );
+  let sessionReleased = false;
+  const releaseSessionOnce = () => {
+    if (sessionReleased) {
       return;
     }
-    await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.COMPLETED);
+    sessionReleased = true;
+    params.releaseSession();
+  };
+
+  try {
+    continuationRegistry.resumeSession(params.queueItem.session_key);
+    const inbound = params.parseInbound(params.queueItem.inbound_json);
+    const channel = params.buildRuntimeChannel({
+      queueItem: params.queueItem,
+      envelopeId: params.queueItem.id,
+    });
+    const startedAt = Date.now();
+
+    await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RUNNING);
     logger.info(
       {
         queueItemId: params.queueItem.id,
         sessionKey: params.queueItem.session_key,
         messageId: inbound.id,
-        durationMs: Date.now() - startedAt,
+        channel: inbound.channel,
+        peerId: inbound.peerId,
+        attempts: params.queueItem.attempts,
       },
-      "Queue item completed",
+      "Queue item processing started",
     );
 
-    await processPendingContinuations({
-      sessionKey: params.queueItem.session_key,
-      channelId: params.queueItem.channel_id,
-      peerId: params.queueItem.peer_id,
-      peerType: params.queueItem.peer_type,
-      originalInbound: inbound,
-      sessionManager: params.sessionManager,
-      schedulePump: params.schedulePump,
+    const onTerminal = async ({
+      terminal,
+      error,
+      reason,
+    }: {
+      terminal: "completed" | "failed" | "aborted";
+      error?: Error;
+      reason?: string;
+    }) => {
+      try {
+        await handleDetachedTerminal({
+          ...params,
+          inbound,
+          startedAt,
+          terminal,
+          error,
+          reason,
+        });
+      } catch (terminalError) {
+        const err = terminalError instanceof Error ? terminalError : new Error(String(terminalError));
+        logger.error(
+          {
+            queueItemId: params.queueItem.id,
+            sessionKey: params.queueItem.session_key,
+            messageId: inbound.id,
+            terminal,
+            reason,
+            error: err.message,
+          },
+          "Queue item terminal handling failed",
+        );
+
+        const failed = runtimeQueue.markFailedIfRunning(
+          params.queueItem.id,
+          `terminal handling failed: ${err.message}`,
+        );
+        if (failed) {
+          try {
+            await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.FAILED);
+          } catch (statusError) {
+            const statusErr =
+              statusError instanceof Error ? statusError : new Error(String(statusError));
+            logger.error(
+              {
+                queueItemId: params.queueItem.id,
+                sessionKey: params.queueItem.session_key,
+                error: statusErr.message,
+              },
+              "Failed to update session status after terminal handling error",
+            );
+          }
+        }
+      } finally {
+        releaseSessionOnce();
+      }
+    };
+
+    const { runId } = await startDetachedRunService({
+      starter: async (runParams) => {
+        const handler = params.messageHandler as MessageHandler & {
+          startDetachedRun?: (params: {
+            message: InboundMessage;
+            channel: ChannelPlugin;
+            queueItemId?: string;
+            onTerminal?: (params: {
+              terminal: "completed" | "failed" | "aborted";
+              error?: Error;
+              reason?: string;
+            }) => Promise<void> | void;
+          }) => Promise<{ runId: string }>;
+        };
+
+        if (typeof handler.startDetachedRun === "function") {
+          return await handler.startDetachedRun(runParams);
+        }
+
+        const legacyRunId = `legacy:${runParams.message.id}`;
+        queueMicrotask(() => {
+          void (async () => {
+            try {
+              await params.messageHandler.handle(runParams.message, runParams.channel);
+              await onTerminal({ terminal: "completed" });
+            } catch (error) {
+              const err = error instanceof Error ? error : new Error(String(error));
+              await onTerminal({
+                terminal: "failed",
+                error: err,
+                reason: err.message,
+              });
+            }
+          })();
+        });
+        return { runId: legacyRunId };
+      },
+      message: inbound,
+      channel,
+      queueItemId: params.queueItem.id,
+      onTerminal,
     });
+
+    logger.info(
+      {
+        queueItemId: params.queueItem.id,
+        sessionKey: params.queueItem.session_key,
+        messageId: inbound.id,
+        runId,
+      },
+      "Queue item detached run accepted",
+    );
+    return;
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    const current = runtimeQueue.getById(params.queueItem.id);
-    if (current?.status === SessionStatus.INTERRUPTED) {
-      await params.sessionManager.setStatus(
-        params.queueItem.session_key,
-        SessionStatus.INTERRUPTED,
-      );
-      logger.warn(
-        {
-          queueItemId: params.queueItem.id,
-          sessionKey: params.queueItem.session_key,
-          messageId: inbound.id,
-          error: err.message,
-          durationMs: Date.now() - startedAt,
-        },
-        "Queue item interrupted while processing",
-      );
-      return;
-    }
     const nextAttempt = params.queueItem.attempts + 1;
     const decision = params.errorPolicy.decide(err, nextAttempt);
     if (decision.retry) {
@@ -121,75 +175,135 @@ export async function processQueueItem(params: {
         `${decision.reason}: ${err.message}`,
         next,
       );
-      if (!retried) {
-        const latest = runtimeQueue.getById(params.queueItem.id);
-        if (latest?.status === SessionStatus.INTERRUPTED) {
-          await params.sessionManager.setStatus(
-            params.queueItem.session_key,
-            SessionStatus.INTERRUPTED,
-          );
-          return;
-        }
-        logger.warn(
-          {
-            queueItemId: params.queueItem.id,
-            sessionKey: params.queueItem.session_key,
-            status: latest?.status,
-          },
-          "Skipped retry because queue item is no longer running",
-        );
-        return;
+      if (retried) {
+        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RETRYING);
+        params.schedulePump();
       }
-      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RETRYING);
-      logger.warn(
-        {
-          queueItemId: params.queueItem.id,
-          sessionKey: params.queueItem.session_key,
-          messageId: inbound.id,
-          attempts: params.queueItem.attempts,
-          nextAttempt,
-          retryAt: next,
-          reason: decision.reason,
-          error: err.message,
-          durationMs: Date.now() - startedAt,
-        },
-        "Queue item scheduled for retry",
-      );
+      releaseSessionOnce();
       return;
     }
     const failed = runtimeQueue.markFailedIfRunning(
       params.queueItem.id,
       `${decision.reason}: ${err.message}`,
     );
-    if (!failed) {
-      const latest = runtimeQueue.getById(params.queueItem.id);
-      if (latest?.status === SessionStatus.INTERRUPTED) {
-        await params.sessionManager.setStatus(
-          params.queueItem.session_key,
-          SessionStatus.INTERRUPTED,
-        );
-        return;
+    if (failed) {
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.FAILED);
+    }
+    releaseSessionOnce();
+    return;
+  }
+}
+
+async function handleDetachedTerminal(params: {
+  queueItem: RuntimeQueueItem;
+  sessionManager: SessionManager;
+  errorPolicy: RuntimeErrorPolicy;
+  schedulePump: () => void;
+  inbound: InboundMessage;
+  startedAt: number;
+  terminal: "completed" | "failed" | "aborted";
+  error?: Error;
+  reason?: string;
+}): Promise<void> {
+  if (params.terminal === "completed") {
+    const completed = runtimeQueue.markCompletedIfRunning(params.queueItem.id);
+    if (!completed) {
+      const current = runtimeQueue.getById(params.queueItem.id);
+      if (current?.status === SessionStatus.INTERRUPTED) {
+        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
       }
+      return;
+    }
+    await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.COMPLETED);
+    logger.info(
+      {
+        queueItemId: params.queueItem.id,
+        sessionKey: params.queueItem.session_key,
+        messageId: params.inbound.id,
+        durationMs: Date.now() - params.startedAt,
+      },
+      "Queue item completed",
+    );
+
+    await processPendingContinuations({
+      sessionKey: params.queueItem.session_key,
+      channelId: params.queueItem.channel_id,
+      peerId: params.queueItem.peer_id,
+      peerType: params.queueItem.peer_type,
+      originalInbound: params.inbound,
+      sessionManager: params.sessionManager,
+      schedulePump: params.schedulePump,
+    });
+    return;
+  }
+
+  if (params.terminal === "aborted") {
+    const interrupted = runtimeQueue.markInterruptedIfRunning(
+      params.queueItem.id,
+      params.reason || "Interrupted by detached run",
+    );
+    if (interrupted) {
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
       logger.warn(
         {
           queueItemId: params.queueItem.id,
           sessionKey: params.queueItem.session_key,
-          status: latest?.status,
+          messageId: params.inbound.id,
+          reason: params.reason,
+          durationMs: Date.now() - params.startedAt,
         },
-        "Skipped failure mark because queue item is no longer running",
+        "Queue item interrupted while processing",
       );
-      return;
     }
+    return;
+  }
+
+  const err = params.error ?? new Error(params.reason ?? "Detached run failed");
+  const nextAttempt = params.queueItem.attempts + 1;
+  const decision = params.errorPolicy.decide(err, nextAttempt);
+  if (decision.retry) {
+    const next = new Date(Date.now() + Math.max(0, decision.delayMs)).toISOString();
+    const retried = runtimeQueue.markRetryingIfRunning(
+      params.queueItem.id,
+      `${decision.reason}: ${err.message}`,
+      next,
+    );
+    if (retried) {
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RETRYING);
+      params.schedulePump();
+      logger.warn(
+        {
+          queueItemId: params.queueItem.id,
+          sessionKey: params.queueItem.session_key,
+          messageId: params.inbound.id,
+          attempts: params.queueItem.attempts,
+          nextAttempt,
+          retryAt: next,
+          reason: decision.reason,
+          error: err.message,
+          durationMs: Date.now() - params.startedAt,
+        },
+        "Queue item scheduled for retry",
+      );
+    }
+    return;
+  }
+
+  const failed = runtimeQueue.markFailedIfRunning(
+    params.queueItem.id,
+    `${decision.reason}: ${err.message}`,
+  );
+  if (failed) {
     await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.FAILED);
     logger.error(
       {
         queueItemId: params.queueItem.id,
         sessionKey: params.queueItem.session_key,
-        messageId: inbound.id,
+        messageId: params.inbound.id,
         attempts: params.queueItem.attempts,
         reason: decision.reason,
         error: err.message,
-        durationMs: Date.now() - startedAt,
+        durationMs: Date.now() - params.startedAt,
       },
       "Queue item failed",
     );

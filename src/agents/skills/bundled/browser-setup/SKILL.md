@@ -26,9 +26,9 @@ Use this skill to guide users through enabling the browser relay or local CDP.
 
 4. Write/patch config
 
-- Add `browser.profiles` with `cdpUrl` using loopback host + explicit port.
+- Add `browser.profiles` with `cdpUrl` using loopback host + explicit port (required for `driver:"cdp"`, optional for `driver:"extension"` when relay is enabled).
 - Set `browser.defaultProfile`.
-- Set `browser.relay.enabled=true` for extension profiles.
+- Set `browser.relay.enabled=true` for extension profiles (extension profiles may omit `cdpUrl` when relay port is configured).
 
 5. Validate connectivity
 

@@ -156,6 +156,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   let streamingBuffer: StreamingBuffer | undefined;
   let streamTerminalText: string | undefined;
   let streamedDeltaText = "";
+  let terminalEventSeen = false;
 
   const effectivePromptText = promptText;
 
@@ -199,8 +200,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
             streamingBuffer?.append(visibleDelta);
           }
         } else if (event.type === "agent_end") {
-          if (event.fullText) {
+          if (!terminalEventSeen && event.fullText) {
             streamTerminalText = event.fullText;
+            terminalEventSeen = true;
           }
         } else if (event.type === "tool_start") {
           void emitPhase({
@@ -264,8 +266,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
             void streamingReasoningFilter.append(event.delta);
           }
         }
-        if (event.type === "agent_end" && event.fullText) {
+        if (event.type === "agent_end" && event.fullText && !terminalEventSeen) {
           streamTerminalText = event.fullText;
+          terminalEventSeen = true;
         }
       },
     });

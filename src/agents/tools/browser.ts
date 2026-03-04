@@ -9,6 +9,7 @@ import {
   RELAY_AUTH_HEADER,
   resolveRelayAuthTokenForPort,
 } from "../../runtime/browser/extension-relay-auth";
+import { formatHostForUrl, rawDataToString } from "../../runtime/browser/cdp-utils";
 import { detectSuspiciousPatterns, wrapExternalContent } from "../../security/external-content";
 import {
   normalizeTargetId,
@@ -23,7 +24,7 @@ type BrowserAction = "status" | "tabs" | "navigate" | "evaluate" | "screenshot" 
 
 type BrowserProfile = {
   driver: BrowserDriver;
-  cdpUrl: string;
+  cdpUrl?: string;
 };
 
 const ScreenshotOptionsSchema = z
@@ -70,24 +71,24 @@ export const browserToolSchema = z
     const waitFor = data.waitFor;
 
     if (data.action === "navigate" && !url) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "url is required" });
+      ctx.addIssue({ code: "custom", path: ["url"], message: "url is required" });
     }
 
     if (data.action === "evaluate" && !expression) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["expression"],
         message: "expression is required",
       });
     }
 
     if (data.action === "type" && (!text || text.length === 0)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["text"], message: "text is required" });
+      ctx.addIssue({ code: "custom", path: ["text"], message: "text is required" });
     }
 
     if (data.action === "click" && !selector && !hasCoords) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["selector"],
         message: "selector or x/y coordinates are required",
       });
@@ -97,7 +98,7 @@ export const browserToolSchema = z
       const format = data.screenshot?.format ?? "png";
       if (format !== "jpeg") {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["screenshot", "quality"],
           message: "screenshot.quality requires format=jpeg",
         });
@@ -107,7 +108,7 @@ export const browserToolSchema = z
     if (waitFor) {
       if (data.action === "status" || data.action === "tabs") {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["waitFor"],
           message: "waitFor is not supported for status/tabs",
         });
@@ -122,7 +123,7 @@ export const browserToolSchema = z
       );
       if (!hasWaitCondition) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["waitFor"],
           message:
             "waitFor requires at least one condition (selector/text/textGone/url/loadState/timeMs)",
@@ -130,7 +131,7 @@ export const browserToolSchema = z
       }
       if (waitFor.selectorState && !waitFor.selector) {
         ctx.addIssue({
-          code: z.ZodIssueCode.custom,
+          code: "custom",
           path: ["waitFor", "selectorState"],
           message: "waitFor.selectorState requires waitFor.selector",
         });
@@ -217,6 +218,29 @@ function resolveBrowserProfile(
 
 function resolveBaseUrl(cdpUrl: string): string {
   return cdpUrl.trim().replace(/\/$/, "");
+}
+
+function resolveExtensionEndpoint(
+  config: MoziConfig,
+  profile: BrowserProfile,
+): { baseUrl: string; port: number } {
+  // If cdpUrl is provided, use it
+  if (profile.cdpUrl) {
+    const baseUrl = resolveBaseUrl(profile.cdpUrl);
+    const parsed = new URL(baseUrl);
+    const port = parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
+    return { baseUrl, port };
+  }
+
+  // Otherwise, derive from relay config
+  const relay = config.browser?.relay;
+  if (!relay?.enabled || !relay.port) {
+    throw new Error("Extension profile requires cdpUrl or browser.relay with port");
+  }
+  const host = relay.bindHost?.trim() || "127.0.0.1";
+  const formattedHost = formatHostForUrl(host);
+  const baseUrl = `http://${formattedHost}:${relay.port}`;
+  return { baseUrl, port: relay.port };
 }
 
 function resolveWsUrl(baseUrl: string, target?: BrowserTarget): string {
@@ -308,37 +332,13 @@ function wrapBrowserPayload(
   return { content: [{ type: "text", text: wrappedText }], details };
 }
 
-async function getRelayHeaders(
-  config: MoziConfig,
-  cdpUrl: string,
-): Promise<Record<string, string>> {
-  const parsed = new URL(cdpUrl);
-  const port = parsed.port ? Number(parsed.port) : parsed.protocol === "https:" ? 443 : 80;
-  if (!Number.isFinite(port) || port <= 0) {
-    throw new Error("Invalid relay port in cdpUrl.");
-  }
+async function getRelayHeaders(config: MoziConfig, port: number): Promise<Record<string, string>> {
   const token = resolveRelayAuthTokenForPort(config, port);
   return { [RELAY_AUTH_HEADER]: token };
 }
 
 async function loadExtensionStatus(baseUrl: string, timeoutMs?: number): Promise<ExtensionStatus> {
   return await fetchJson<ExtensionStatus>(`${baseUrl}/extension/status`, { timeoutMs });
-}
-
-function rawDataToString(raw: WebSocket.RawData): string {
-  if (typeof raw === "string") {
-    return raw;
-  }
-  if (Buffer.isBuffer(raw)) {
-    return raw.toString("utf8");
-  }
-  if (raw instanceof ArrayBuffer) {
-    return Buffer.from(raw).toString("utf8");
-  }
-  if (Array.isArray(raw)) {
-    return Buffer.concat(raw).toString("utf8");
-  }
-  return Buffer.from(raw).toString("utf8");
 }
 
 class CdpClient {
@@ -490,12 +490,13 @@ async function resolveTargetForAction(opts: {
   profile: BrowserProfile;
   profileName: string;
   baseUrl: string;
+  relayPort?: number;
   timeoutMs: number;
   targetId?: string;
 }): Promise<SelectedTarget> {
   let headers: Record<string, string> | undefined;
-  if (opts.profile.driver === "extension") {
-    headers = await getRelayHeaders(opts.config, opts.profile.cdpUrl);
+  if (opts.profile.driver === "extension" && opts.relayPort) {
+    headers = await getRelayHeaders(opts.config, opts.relayPort);
     const extension = await loadExtensionStatus(opts.baseUrl, opts.timeoutMs).catch(() => ({
       connected: false,
     }));
@@ -776,13 +777,19 @@ export async function runBrowserTool(
   try {
     const config = ctx.getConfig();
     const { name, profile, relayEnabled } = resolveBrowserProfile(config, params.profile);
-    const baseUrl = resolveBaseUrl(profile.cdpUrl);
-    const timeoutMs =
-      params.action === "status" || params.action === "tabs"
-        ? (params.timeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS)
-        : (params.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS);
 
-    if (profile.driver === "extension") {
+    // Resolve endpoint: cdp driver uses cdpUrl directly; extension uses cdpUrl or relay config
+    let baseUrl = "";
+    let relayPort: number | undefined;
+
+    if (profile.driver === "cdp") {
+      const cdpUrl = profile.cdpUrl?.trim();
+      if (!cdpUrl) {
+        throw new Error("CDP driver requires cdpUrl");
+      }
+      baseUrl = resolveBaseUrl(cdpUrl);
+    } else {
+      // extension driver
       if (!relayEnabled) {
         return {
           content: [
@@ -794,16 +801,27 @@ export async function runBrowserTool(
           details: {},
         };
       }
+      const endpoint = resolveExtensionEndpoint(config, profile);
+      baseUrl = endpoint.baseUrl;
+      relayPort = endpoint.port;
+
+      // Start relay server if needed
       await ensureChromeExtensionRelayServer({
         cdpUrl: profile.cdpUrl,
         config,
         bindHost: config.browser?.relay?.bindHost,
+        port: profile.cdpUrl ? undefined : config.browser?.relay?.port,
       });
     }
 
+    const timeoutMs: number =
+      params.action === "status" || params.action === "tabs"
+        ? (params.timeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS)
+        : (params.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS);
+
     if (params.action === "status") {
-      if (profile.driver === "extension") {
-        const headers = await getRelayHeaders(config, profile.cdpUrl);
+      if (profile.driver === "extension" && relayPort) {
+        const headers = await getRelayHeaders(config, relayPort);
         const [version, extension] = await Promise.all([
           fetchJson<Record<string, unknown>>(`${baseUrl}/json/version`, {
             headers,
@@ -815,7 +833,7 @@ export async function runBrowserTool(
           ok: true,
           profile: name,
           driver: profile.driver,
-          cdpUrl: profile.cdpUrl,
+          cdpUrl: profile.cdpUrl || baseUrl,
           relay: {
             enabled: true,
             extensionConnected: extension.connected,
@@ -860,7 +878,7 @@ export async function runBrowserTool(
             details: { relay: { extensionConnected: false } },
           };
         }
-        const headers = await getRelayHeaders(config, profile.cdpUrl);
+        const headers = relayPort ? await getRelayHeaders(config, relayPort) : undefined;
         const tabs = await fetchJson<unknown[]>(`${baseUrl}/json/list`, { headers, timeoutMs });
         return wrapBrowserPayload(
           "tabs",
@@ -886,6 +904,7 @@ export async function runBrowserTool(
       profile,
       profileName: name,
       baseUrl,
+      relayPort,
       timeoutMs,
       targetId: params.targetId,
     });

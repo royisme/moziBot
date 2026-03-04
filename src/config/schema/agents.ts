@@ -193,7 +193,7 @@ export const AgentsSchema = z
 
     for (const [id] of mainAgents) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: [id, "main"],
         message: "Only one agent can set main=true.",
       });

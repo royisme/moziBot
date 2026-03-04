@@ -1006,8 +1006,7 @@ Configure browser automation with extension relay or CDP.
     "enabled": true,
     "profiles": {
       "chrome-extension": {
-        "driver": "extension",
-        "cdpUrl": "http://127.0.0.1:9222"
+        "driver": "extension"
       },
       "chrome-direct": {
         "driver": "cdp",
@@ -1036,6 +1035,7 @@ Configure browser automation with extension relay or CDP.
 
 - CDP URLs **must use loopback addresses** (localhost, 127.0.0.1, ::1)
 - CDP URLs **must have explicit port**
+- `cdpUrl` is **required** for `driver:"cdp"`, optional for `driver:"extension"` when `browser.relay.enabled=true` and `browser.relay.port` is set
 - `relay.authToken` is **required** when relay is enabled with extension driver
 
 ---

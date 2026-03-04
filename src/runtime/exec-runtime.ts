@@ -101,6 +101,8 @@ export type ExecRequest = {
   background?: boolean;
   pty?: boolean;
   timeoutSec?: number;
+  // Abort signal for cancellation
+  abortSignal?: AbortSignal;
 };
 
 export type ExecResult =
@@ -331,7 +333,46 @@ export class ExecRuntime {
       return { type: "error", message: err instanceof Error ? err.message : String(err) };
     }
 
-    const exit = await managedRun.wait();
+    // Handle abort signal - race between process completion and abort
+    const { cleanup: cleanupAbort, register: registerAbortHandler } = this.makeAbortCleanup(
+      request.abortSignal,
+    );
+
+    if (request.abortSignal?.aborted) {
+      cleanupAbort();
+      managedRun.cancel("manual-cancel");
+      this.registry.markExited({ id: jobId, exitCode: null, signal: "ABORTED" });
+      return {
+        type: "completed",
+        stdout: stdoutBuf,
+        stderr: stderrBuf,
+        exitCode: 130, // Standard exit code for SIGINT/ctrl-c
+      };
+    }
+
+    const exit = await new Promise<RunExit>((resolve) => {
+      registerAbortHandler(() => {
+        cleanupAbort();
+        managedRun.cancel("manual-cancel");
+        this.registry.markExited({ id: jobId, exitCode: null, signal: "ABORTED" });
+        resolve({
+          reason: "manual-cancel",
+          exitCode: 130,
+          exitSignal: "SIGINT",
+          durationMs: 0,
+          stdout: stdoutBuf,
+          stderr: stderrBuf,
+          timedOut: false,
+          noOutputTimedOut: false,
+        });
+      });
+
+      void managedRun.wait().then((exitResult) => {
+        cleanupAbort();
+        resolve(exitResult);
+      });
+    });
+
     this.registry.markExited({
       id: jobId,
       exitCode: exit.exitCode,
@@ -454,7 +495,25 @@ export class ExecRuntime {
       return { type: "error", message: err instanceof Error ? err.message : String(err) };
     }
 
-    // Wire up exit to registry
+    // Handle abort signal for background execution
+    const { cleanup: cleanupAbort, register: registerAbortHandler } = this.makeAbortCleanup(
+      request.abortSignal,
+    );
+
+    // If already aborted before we could start, cancel immediately
+    if (request.abortSignal?.aborted) {
+      cleanupAbort();
+      managedRun.cancel("manual-cancel");
+      this.registry.markExited({ id: jobId, exitCode: 130, signal: "ABORTED" });
+      return {
+        type: "completed",
+        stdout: outputBuf,
+        stderr: "",
+        exitCode: 130,
+      };
+    }
+
+    // Wire up exit to registry — covers both natural exit and cancel-induced exit
     managedRun
       .wait()
       .then((exit) => {
@@ -470,6 +529,12 @@ export class ExecRuntime {
 
     // Immediate background
     if (request.background === true) {
+      // Cancel process on abort; markExited is handled by the wait() watcher above
+      registerAbortHandler(() => {
+        cleanupAbort();
+        managedRun.cancel("manual-cancel");
+      });
+
       this.registry.markBackgrounded(jobId);
       return {
         type: "backgrounded",
@@ -484,11 +549,30 @@ export class ExecRuntime {
     return new Promise<ExecResult>((resolve) => {
       let resolved = false;
 
+      // Abort handler for yield mode
+      registerAbortHandler(() => {
+        if (resolved) {
+          return;
+        }
+        resolved = true;
+        cleanupAbort();
+        clearTimeout(timer);
+        managedRun.cancel("manual-cancel");
+        this.registry.markExited({ id: jobId, exitCode: 130, signal: "ABORTED" });
+        resolve({
+          type: "completed",
+          stdout: outputBuf,
+          stderr: "",
+          exitCode: 130,
+        });
+      });
+
       const timer = setTimeout(() => {
         if (resolved) {
           return;
         }
         resolved = true;
+        cleanupAbort();
         this.registry.markBackgrounded(jobId);
         resolve({
           type: "yielded",
@@ -571,6 +655,31 @@ export class ExecRuntime {
       return MIN;
     }
     return Math.min(value, MAX);
+  }
+
+  private makeAbortCleanup(signal: AbortSignal | undefined): {
+    cleanup: () => void;
+    register: (handler: () => void) => void;
+  } {
+    let handler: (() => void) | undefined;
+    let cleaned = false;
+
+    const cleanup = () => {
+      if (cleaned) {
+        return;
+      }
+      cleaned = true;
+      if (handler && signal) {
+        signal.removeEventListener("abort", handler);
+      }
+    };
+
+    const register = (fn: () => void) => {
+      handler = fn;
+      signal?.addEventListener("abort", handler, { once: true });
+    };
+
+    return { cleanup, register };
   }
 
   private blockProtectedSecretsInEnv(env?: Record<string, string>): string[] {

@@ -53,7 +53,7 @@ export const MoziConfigSchema = z
     const token = browser.relay?.authToken?.trim();
     if (!token) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["browser", "relay", "authToken"],
         message: "browser.relay.authToken is required when browser relay is enabled",
       });

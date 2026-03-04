@@ -299,10 +299,13 @@ export class RuntimeHost {
     if (!profile || profile.driver !== "extension") {
       return;
     }
+
+    // Start relay: use explicit cdpUrl if provided, otherwise use relay.port
     await ensureChromeExtensionRelayServer({
       cdpUrl: profile.cdpUrl,
       config,
       bindHost: browser.relay?.bindHost,
+      port: profile.cdpUrl ? undefined : browser.relay?.port,
     });
   }
 

@@ -143,6 +143,7 @@ export interface OrchestratorDeps {
     traceId?: string;
     onStream?: StreamingCallback;
     onFallback?: (info: FallbackInfo) => Promise<void>;
+    abortSignal?: AbortSignal;
   }): Promise<void>;
   maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
   shouldSuppressSilentReply(text: string | undefined): boolean;

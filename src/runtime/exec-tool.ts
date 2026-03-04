@@ -81,13 +81,14 @@ export function createExecTool(params: {
         Type.Array(Type.String({ minLength: 1 }), { description: "Auth secret references" }),
       ),
     }),
-    execute: async (_toolCallId, args, _signal, onUpdate) => {
+    execute: async (_toolCallId, args, signal, onUpdate) => {
       const input = normalizeArgs(args);
       const result = await params.runtime.execute(
         {
           ...input,
           agentId: params.agentId,
           sessionKey: params.sessionKey,
+          abortSignal: signal,
         },
         onUpdate
           ? (update) => {

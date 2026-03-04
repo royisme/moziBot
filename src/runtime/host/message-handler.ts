@@ -19,7 +19,10 @@ import { checkInputCapability as _unusedCheckInputCapabilityService } from "./me
 import { type CommandHandlerMap } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
 import { createErrorReplyText as _unusedCreateErrorReplyTextService } from "./message-handler/services/error-reply";
-import { toError as toErrorService } from "./message-handler/services/error-utils";
+import {
+  isAbortError as isAbortErrorService,
+  toError as toErrorService,
+} from "./message-handler/services/error-utils";
 import {
   emitPhaseSafely as _unusedEmitPhaseSafelyService,
   startTypingIndicator as _unusedStartTypingIndicatorService,
@@ -37,6 +40,12 @@ import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from ".
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
+import {
+  RunLifecycleRegistry,
+  type RunLifecycleEntry,
+  type RunTerminal,
+} from "./message-handler/services/run-lifecycle-registry";
+import { extractAssistantText } from "./reply-utils";
 import { dispatchReply as _unusedDispatchReply } from "./message-handler/services/reply-dispatcher";
 import {
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
@@ -75,6 +84,11 @@ type ActivePromptAgent = {
   steer?: (message: string) => Promise<void> | void;
   followUp?: (message: string) => Promise<void> | void;
   subscribe?: (listener: (event: AgentSessionEvent) => void) => () => void;
+  messages?: AgentMessage[];
+};
+
+export type DetachedRunHandle = {
+  runId: string;
 };
 
 export class MessageHandler {
@@ -93,9 +107,45 @@ export class MessageHandler {
       modelRef: string;
       startedAt: number;
       agent: ActivePromptAgent;
+      abortRun?: (reason?: unknown) => void;
     }
   >();
   private interruptedPromptRuns = new Set<string>();
+  private detachedTerminalCallbacks = new Map<
+    string,
+    (params: {
+      entry: RunLifecycleEntry;
+      terminal: RunTerminal;
+      partialText?: string;
+      error?: Error;
+      reason?: string;
+    }) => Promise<void> | void
+  >();
+  private runLifecycle = new RunLifecycleRegistry({
+    onTerminal: (entry, payload) => {
+      const callback = this.detachedTerminalCallbacks.get(entry.runId);
+      if (!callback) {
+        return;
+      }
+      queueMicrotask(() => {
+        void Promise.resolve(
+          callback({
+            entry,
+            terminal: payload.state,
+            partialText: payload.partialText,
+            error: payload.error,
+            reason: payload.reason,
+          }),
+        ).catch((error) => {
+          const err = toErrorService(error);
+          logger.error(
+            { runId: entry.runId, sessionKey: entry.sessionKey, error: err.message },
+            "Detached terminal callback failed",
+          );
+        });
+      });
+    },
+  });
 
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
@@ -105,13 +155,13 @@ export class MessageHandler {
     return this.agentManager;
   }
 
-  getSessionTimestamps(sessionKey: string): { createdAt: number; updatedAt?: number } | null {
+  getSessionTimestamps(sessionKey: string): { createdAt?: number; updatedAt?: number } | null {
     const session = this.sessions.get(sessionKey);
     if (!session) {
       return null;
     }
     return {
-      createdAt: session.createdAt,
+      createdAt: session.createdAt ?? Date.now(),
       updatedAt: session.updatedAt,
     };
   }
@@ -207,11 +257,24 @@ export class MessageHandler {
       attempt: number;
       error: string;
     }) => Promise<void> | void;
+    abortSignal?: AbortSignal;
     promptMode?: PromptMode;
   }): Promise<void> {
-    const { promptMode, ...runnerParams } = params;
+    const { promptMode, onStream, abortSignal, ...runnerParams } = params;
+    const lifecycleRun = this.resolveLifecycleRun(params.sessionKey, params.traceId);
+    const effectiveAbortSignal = abortSignal ?? lifecycleRun?.controller.signal;
+
     await runPromptWithCoordinatorService({
       ...runnerParams,
+      onStream: async (event) => {
+        if (lifecycleRun && event.type === "text_delta" && event.delta) {
+          this.runLifecycle.appendDelta(lifecycleRun.runId, event.delta);
+        }
+        if (onStream) {
+          await onStream(event);
+        }
+      },
+      abortSignal: effectiveAbortSignal,
       config: this.config,
       logger,
       agentManager: toPromptCoordinatorAgentManager(this.agentManager, promptMode),
@@ -225,7 +288,7 @@ export class MessageHandler {
   }
 
   isSessionActive(sessionKey: string): boolean {
-    return this.activePromptRuns.has(sessionKey);
+    return this.activePromptRuns.has(sessionKey) || Boolean(this.runLifecycle.getRunBySession(sessionKey));
   }
 
   getActivePromptRunCount(): number {
@@ -280,10 +343,20 @@ export class MessageHandler {
     sessionKey: string,
     reason = "Interrupted by queue mode",
   ): Promise<boolean> {
+    const lifecycleEntry = this.runLifecycle.getRunBySession(sessionKey);
     const active = this.activePromptRuns.get(sessionKey);
-    if (!active) {
+    if (!lifecycleEntry && !active) {
       return false;
     }
+
+    if (lifecycleEntry && !lifecycleEntry.controller.signal.aborted) {
+      lifecycleEntry.controller.abort(reason);
+    }
+
+    if (!active) {
+      return this.runLifecycle.abortSession(sessionKey, reason);
+    }
+
     this.interruptedPromptRuns.add(sessionKey);
     logger.warn(
       {
@@ -296,11 +369,12 @@ export class MessageHandler {
       "Interrupting active agent run",
     );
     try {
-      if (typeof active.agent.abort === "function") {
+      if (typeof active.abortRun === "function") {
+        active.abortRun(reason);
+      } else if (typeof active.agent.abort === "function") {
         await Promise.resolve(active.agent.abort());
       }
       await waitForAgentIdle(active.agent as PromptAgent, MessageHandler.INTERRUPT_WAIT_TIMEOUT_MS);
-      return true;
     } catch (error) {
       logger.warn(
         {
@@ -310,8 +384,10 @@ export class MessageHandler {
         },
         "Interrupt wait ended with error",
       );
-      return true;
     }
+
+    this.runLifecycle.abortSession(sessionKey, reason);
+    return true;
   }
 
   private async flushMemory(
@@ -423,6 +499,112 @@ export class MessageHandler {
     const context = createMessageTurnContext(input);
     const orchestrator = new MessageTurnOrchestrator(this.createOrchestratorDeps(channel));
     await orchestrator.handle(context);
+  }
+
+  async startDetachedRun(params: {
+    message: InboundMessage;
+    channel: ChannelPlugin;
+    queueItemId?: string;
+    onTerminal?: (params: {
+      entry: RunLifecycleEntry;
+      terminal: RunTerminal;
+      partialText?: string;
+      error?: Error;
+      reason?: string;
+    }) => Promise<void> | void;
+  }): Promise<DetachedRunHandle> {
+    const route = this.resolveSessionContext(params.message);
+    const active = await this.agentManager.getAgent(route.sessionKey, route.agentId);
+    const runId = `run:${params.message.id}`;
+
+    this.runLifecycle.createRun({
+      runId,
+      sessionKey: route.sessionKey,
+      queueItemId: params.queueItemId,
+      agentId: route.agentId,
+      traceId: `turn:${params.message.id}`,
+      modelRef: active.modelRef,
+    });
+    if (params.onTerminal) {
+      this.detachedTerminalCallbacks.set(runId, params.onTerminal);
+    }
+
+    queueMicrotask(() => {
+      void (async () => {
+        this.runLifecycle.markStarted(runId);
+        try {
+          await this.handle(params.message, params.channel);
+          const finalText = await this.resolveLatestAssistantText(route.sessionKey, route.agentId);
+          this.runLifecycle.finalizeCompleted(runId, finalText || undefined);
+        } catch (error) {
+          const err = toErrorService(error);
+          if (isAbortErrorService(err)) {
+            this.runLifecycle.setTerminal(runId, {
+              state: "aborted",
+              reason: err.message,
+              partialText: this.runLifecycle.getRun(runId)?.buffer.snapshot(),
+            });
+          } else {
+            this.runLifecycle.finalizeFailed(runId, err);
+          }
+        } finally {
+          this.detachedTerminalCallbacks.delete(runId);
+          this.runLifecycle.dispose(runId);
+        }
+      })();
+    });
+
+    return { runId };
+  }
+
+  resolveSessionContext(message: InboundMessage): { sessionKey: string; agentId: string } {
+    const resolved = resolveSessionContextService({
+      message,
+      router: this.router,
+      defaultAgentId: this.agentManager.resolveDefaultAgentId(),
+    });
+    return {
+      sessionKey: resolved.sessionKey,
+      agentId: resolved.agentId,
+    };
+  }
+
+  private resolveLifecycleRun(
+    sessionKey: string,
+    traceId?: string,
+  ): RunLifecycleEntry | undefined {
+    const run = this.runLifecycle.getRunBySession(sessionKey);
+    if (!run) {
+      return undefined;
+    }
+    if (traceId && run.traceId && run.traceId !== traceId) {
+      return undefined;
+    }
+    return run;
+  }
+
+  private async resolveLatestAssistantText(sessionKey: string, agentId: string): Promise<string> {
+    try {
+      const { agent } = await this.agentManager.getAgent(sessionKey, agentId);
+      const messages = Array.isArray(agent.messages) ? agent.messages : [];
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const message = messages[i] as AgentMessage | undefined;
+        if (message && message.role === "assistant") {
+          return extractAssistantText((message as { content?: unknown }).content);
+        }
+      }
+      return "";
+    } catch (error) {
+      logger.warn(
+        {
+          sessionKey,
+          agentId,
+          error: toErrorService(error).message,
+        },
+        "Failed to resolve latest assistant text",
+      );
+      return "";
+    }
   }
 
   async handleInternalMessage(params: {

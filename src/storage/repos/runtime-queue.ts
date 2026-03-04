@@ -157,6 +157,20 @@ export const runtimeQueue = {
           .all({ session_key: sessionKey }) as RuntimeQueueItem[],
     );
   },
+  markInterruptedIfRunning: (id: string, reason: string): boolean => {
+    return withConnection(
+      (conn) =>
+        conn
+          .prepare(
+            `UPDATE runtime_queue SET status = 'interrupted', error = COALESCE(error, $reason), finished_at = COALESCE(finished_at, $now), updated_at = $now WHERE id = $id AND status = 'running'`,
+          )
+          .run({
+            id,
+            reason,
+            now: new Date().toISOString(),
+          }).changes > 0,
+    );
+  },
   markInterruptedBySession: (sessionKey: string, reason: string): number => {
     return withConnection((conn) => {
       const now = new Date().toISOString();

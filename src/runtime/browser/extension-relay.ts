@@ -6,11 +6,13 @@ import type { Duplex } from "node:stream";
 import WebSocket, { WebSocketServer } from "ws";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";
+import { formatHostForUrl, rawDataToString } from "./cdp-utils";
 import {
   probeAuthenticatedRelay,
   RELAY_AUTH_HEADER,
+  OPENCLAW_RELAY_AUTH_HEADER,
   RELAY_BROWSER_NAME,
-  resolveRelayAuthTokenForPort,
+  resolveAllValidRelayTokensForPort,
 } from "./extension-relay-auth";
 
 type CdpCommand = {
@@ -97,7 +99,7 @@ export type ChromeExtensionRelayServer = {
 
 type RelayRuntime = {
   server: ChromeExtensionRelayServer;
-  relayAuthToken: string;
+  validAuthTokens: string[];
 };
 
 const relayRuntimeByPort = new Map<number, RelayRuntime>();
@@ -117,10 +119,16 @@ function getHeader(req: IncomingMessage, name: string): string | undefined {
 }
 
 function getRelayAuthTokenFromRequest(req: IncomingMessage, url?: URL): string | undefined {
-  const headerToken = getHeader(req, RELAY_AUTH_HEADER)?.trim();
-  if (headerToken) {
-    return headerToken;
+  // Check Mozi header first, then OpenClaw header
+  const moziToken = getHeader(req, RELAY_AUTH_HEADER)?.trim();
+  if (moziToken) {
+    return moziToken;
   }
+  const openclawToken = getHeader(req, OPENCLAW_RELAY_AUTH_HEADER)?.trim();
+  if (openclawToken) {
+    return openclawToken;
+  }
+  // Also accept query token
   const queryToken = url?.searchParams.get("token")?.trim();
   if (queryToken) {
     return queryToken;
@@ -155,10 +163,11 @@ function parseBaseUrl(
     throw new Error(`extension relay cdpUrl has invalid port: ${parsed.port || "(empty)"}`);
   }
   const host = bindHost?.trim() || parsed.hostname;
+  const formattedHost = formatHostForUrl(host);
   return {
     host,
     port,
-    baseUrl: `${parsed.protocol}//${host}:${port}`,
+    baseUrl: `${parsed.protocol}//${formattedHost}:${port}`,
     protocol: parsed.protocol,
   };
 }
@@ -201,22 +210,6 @@ function isLoopbackHost(host: string): boolean {
   return isLoopbackAddress(value);
 }
 
-function rawDataToString(raw: WebSocket.RawData): string {
-  if (typeof raw === "string") {
-    return raw;
-  }
-  if (Buffer.isBuffer(raw)) {
-    return raw.toString("utf8");
-  }
-  if (raw instanceof ArrayBuffer) {
-    return Buffer.from(raw).toString("utf8");
-  }
-  if (Array.isArray(raw)) {
-    return Buffer.concat(raw).toString("utf8");
-  }
-  return Buffer.from(raw).toString("utf8");
-}
-
 function text(res: Duplex, status: number, bodyText: string) {
   const body = Buffer.from(bodyText);
   res.write(
@@ -249,11 +242,38 @@ function isAddrInUseError(err: unknown): boolean {
 }
 
 export async function ensureChromeExtensionRelayServer(opts: {
-  cdpUrl: string;
+  cdpUrl?: string;
   config: MoziConfig;
   bindHost?: string;
+  port?: number;
 }): Promise<ChromeExtensionRelayServer> {
-  const info = parseBaseUrl(opts.cdpUrl, opts.bindHost);
+  // Resolve endpoint: use explicit cdpUrl OR derive from port+bindHost
+  let info: {
+    host: string;
+    port: number;
+    baseUrl: string;
+    protocol: "http:" | "https:";
+  };
+
+  if (opts.cdpUrl) {
+    info = parseBaseUrl(opts.cdpUrl, opts.bindHost);
+  } else if (opts.port) {
+    // Use relay port directly (with optional bindHost)
+    const host = opts.bindHost?.trim() || "127.0.0.1";
+    if (!isLoopbackHost(host)) {
+      throw new Error(`extension relay requires loopback host (got ${host})`);
+    }
+    const formattedHost = formatHostForUrl(host);
+    info = {
+      host,
+      port: opts.port,
+      baseUrl: `http://${formattedHost}:${opts.port}`,
+      protocol: "http:",
+    };
+  } else {
+    throw new Error("extension relay requires either cdpUrl or port");
+  }
+
   if (!isLoopbackHost(info.host)) {
     throw new Error(`extension relay requires loopback host (got ${info.host})`);
   }
@@ -263,7 +283,7 @@ export async function ensureChromeExtensionRelayServer(opts: {
     return existing.server;
   }
 
-  const relayAuthToken = resolveRelayAuthTokenForPort(opts.config, info.port);
+  const validAuthTokens = resolveAllValidRelayTokensForPort(opts.config, info.port);
 
   let extensionWs: WebSocket | null = null;
   const cdpClients = new Set<WebSocket>();
@@ -407,7 +427,7 @@ export async function ensureChromeExtensionRelayServer(opts: {
 
     if (path.startsWith("/json")) {
       const token = getRelayAuthTokenFromRequest(req, url);
-      if (!token || token !== relayAuthToken) {
+      if (!token || !validAuthTokens.includes(token)) {
         res.writeHead(401);
         res.end("Unauthorized");
         return;
@@ -432,7 +452,8 @@ export async function ensureChromeExtensionRelayServer(opts: {
       return;
     }
 
-    const hostHeader = req.headers.host?.trim() || `${info.host}:${info.port}`;
+    const formattedHost = formatHostForUrl(info.host);
+    const hostHeader = req.headers.host?.trim() || `${formattedHost}:${info.port}`;
     const wsHost = `ws://${hostHeader}`;
     const cdpWsUrl = `${wsHost}/cdp`;
 
@@ -529,7 +550,7 @@ export async function ensureChromeExtensionRelayServer(opts: {
 
     if (pathname === "/extension") {
       const token = getRelayAuthTokenFromRequest(req, url);
-      if (!token || token !== relayAuthToken) {
+      if (!token || !validAuthTokens.includes(token)) {
         rejectUpgrade(socket, 401, "Unauthorized");
         return;
       }
@@ -553,7 +574,7 @@ export async function ensureChromeExtensionRelayServer(opts: {
 
     if (pathname === "/cdp") {
       const token = getRelayAuthTokenFromRequest(req, url);
-      if (!token || token !== relayAuthToken) {
+      if (!token || !validAuthTokens.includes(token)) {
         rejectUpgrade(socket, 401, "Unauthorized");
         return;
       }
@@ -791,20 +812,21 @@ export async function ensureChromeExtensionRelayServer(opts: {
       (await probeAuthenticatedRelay({
         baseUrl: info.baseUrl,
         relayAuthHeader: RELAY_AUTH_HEADER,
-        relayAuthToken,
+        relayAuthToken: validAuthTokens[0],
       }))
     ) {
+      const formattedHost = formatHostForUrl(info.host);
       const existingRelay: ChromeExtensionRelayServer = {
         host: info.host,
         port: info.port,
         baseUrl: info.baseUrl,
-        cdpWsUrl: `ws://${info.host}:${info.port}/cdp`,
+        cdpWsUrl: `ws://${formattedHost}:${info.port}/cdp`,
         extensionConnected: () => false,
         stop: async () => {
           relayRuntimeByPort.delete(info.port);
         },
       };
-      relayRuntimeByPort.set(info.port, { server: existingRelay, relayAuthToken });
+      relayRuntimeByPort.set(info.port, { server: existingRelay, validAuthTokens });
       return existingRelay;
     }
     throw err;
@@ -813,13 +835,14 @@ export async function ensureChromeExtensionRelayServer(opts: {
   const addr = server.address() as AddressInfo | null;
   const port = addr?.port ?? info.port;
   const host = info.host;
-  const baseUrl = `${info.protocol}//${host}:${port}`;
+  const formattedHost = formatHostForUrl(host);
+  const baseUrl = `${info.protocol}//${formattedHost}:${port}`;
 
   const relay: ChromeExtensionRelayServer = {
     host,
     port,
     baseUrl,
-    cdpWsUrl: `ws://${host}:${port}/cdp`,
+    cdpWsUrl: `ws://${formattedHost}:${port}/cdp`,
     extensionConnected,
     stop: async () => {
       relayRuntimeByPort.delete(port);
@@ -843,14 +866,29 @@ export async function ensureChromeExtensionRelayServer(opts: {
     },
   };
 
-  relayRuntimeByPort.set(port, { server: relay, relayAuthToken });
+  relayRuntimeByPort.set(port, { server: relay, validAuthTokens });
   logger.info({ host, port }, "Chrome extension relay started");
   return relay;
 }
 
-export async function stopChromeExtensionRelayServer(opts: { cdpUrl: string }): Promise<boolean> {
-  const info = parseBaseUrl(opts.cdpUrl);
-  const existing = relayRuntimeByPort.get(info.port);
+export async function stopChromeExtensionRelayServer(opts: {
+  cdpUrl?: string;
+  port?: number;
+}): Promise<boolean> {
+  let port: number | undefined;
+
+  if (opts.cdpUrl) {
+    const info = parseBaseUrl(opts.cdpUrl);
+    port = info.port;
+  } else if (opts.port) {
+    port = opts.port;
+  }
+
+  if (!port) {
+    return false;
+  }
+
+  const existing = relayRuntimeByPort.get(port);
   if (!existing) {
     return false;
   }
@@ -865,9 +903,13 @@ export async function stopAllChromeExtensionRelays(): Promise<void> {
 }
 
 export async function getExtensionRelayStatus(
-  cdpUrl: string,
+  opts: { cdpUrl?: string; port?: number },
   config: MoziConfig,
 ): Promise<ExtensionRelayStatus> {
-  const relay = await ensureChromeExtensionRelayServer({ cdpUrl, config });
+  const relay = await ensureChromeExtensionRelayServer({
+    cdpUrl: opts.cdpUrl,
+    config,
+    port: opts.port,
+  });
   return { connected: relay.extensionConnected() };
 }

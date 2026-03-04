@@ -150,6 +150,7 @@ export async function runPromptWithCoordinator(params: {
     attempt: number;
     error: string;
   }) => Promise<void> | void;
+  abortSignal?: AbortSignal;
   config: MoziConfig;
   logger: PromptCoordinatorLogger;
   agentManager: PromptCoordinatorAgentManager;
@@ -183,6 +184,7 @@ export async function runPromptWithCoordinator(params: {
     traceId,
     onStream,
     onFallback,
+    abortSignal,
     config,
     logger,
     agentManager,
@@ -227,6 +229,7 @@ export async function runPromptWithCoordinator(params: {
     traceId,
     onStream,
     onFallback,
+    abortSignal,
     onContextOverflow: async (attempt) => {
       logger.warn(
         { traceId, sessionKey, agentId, attempt },

@@ -18,6 +18,7 @@ export interface ActivePromptRun {
   readonly modelRef: string;
   readonly startedAt: number;
   readonly agent: PromptAgent;
+  readonly abortRun?: (reason?: unknown) => void;
 }
 
 export interface PromptAgent {
@@ -171,6 +172,7 @@ export async function runPromptWithFallback(params: {
   onStream?: StreamingCallback;
   onFallback?: (info: FallbackInfo) => Promise<void> | void;
   onContextOverflow?: (attempt: number) => Promise<void>;
+  abortSignal?: AbortSignal;
   deps: PromptRunnerDeps;
   activeMap: Map<string, ActivePromptRun>;
   interruptedSet: Set<string>;
@@ -183,6 +185,7 @@ export async function runPromptWithFallback(params: {
     onStream,
     onFallback,
     onContextOverflow,
+    abortSignal,
     deps,
     activeMap,
     interruptedSet,
@@ -233,6 +236,18 @@ export async function runPromptWithFallback(params: {
 
       let unsubscribe: (() => void) | undefined;
       let accumulatedText = "";
+        const runAbortController = new AbortController();
+        let aborted = false;
+        const abortRun = (reason?: unknown): void => {
+          if (aborted) {
+            return;
+          }
+          aborted = true;
+          runAbortController.abort(reason);
+          if (typeof agent.abort === "function") {
+            void Promise.resolve(agent.abort()).catch(() => undefined);
+          }
+        };
 
       try {
         registerActivePromptRun(activeMap, interruptedSet, {
@@ -241,6 +256,7 @@ export async function runPromptWithFallback(params: {
           modelRef,
           startedAt,
           agent,
+          abortRun,
         });
 
         if (onStream && typeof agent.subscribe === "function") {
@@ -274,18 +290,23 @@ export async function runPromptWithFallback(params: {
           });
         }
 
-        const runAbortController = new AbortController();
-        let aborted = false;
-        const abortRun = (reason?: unknown): void => {
-          if (aborted) {
-            return;
+        if (abortSignal) {
+          if (abortSignal.aborted) {
+            abortRun(abortSignal.reason ?? new Error("Agent prompt aborted"));
+          } else {
+            const onExternalAbort = () => {
+              abortRun(abortSignal.reason ?? new Error("Agent prompt aborted"));
+            };
+            abortSignal.addEventListener("abort", onExternalAbort, { once: true });
+            runAbortController.signal.addEventListener(
+              "abort",
+              () => {
+                abortSignal.removeEventListener("abort", onExternalAbort);
+              },
+              { once: true },
+            );
           }
-          aborted = true;
-          runAbortController.abort(reason);
-          if (typeof agent.abort === "function") {
-            void Promise.resolve(agent.abort()).catch(() => undefined);
-          }
-        };
+        }
 
         const abortable = async <T>(promise: Promise<T>): Promise<T> => {
           const signal = runAbortController.signal;

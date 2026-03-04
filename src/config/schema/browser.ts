@@ -6,7 +6,7 @@ const BrowserDriverSchema = z.enum(["extension", "cdp"]);
 const BrowserProfileSchema = z
   .object({
     driver: BrowserDriverSchema,
-    cdpUrl: z.string().min(1),
+    cdpUrl: z.string().min(1).optional(),
   })
   .strict();
 
@@ -84,7 +84,7 @@ function validateLoopbackCdpUrl(
   const parsed = parseHttpUrl(cdpUrl);
   if (!parsed) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path,
       message: `${driver} cdpUrl must be an http(s) URL`,
     });
@@ -93,7 +93,7 @@ function validateLoopbackCdpUrl(
 
   if (!parsed.port) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path,
       message: `${driver} cdpUrl must include an explicit port`,
     });
@@ -102,7 +102,7 @@ function validateLoopbackCdpUrl(
 
   if (!isLoopbackHost(parsed.hostname)) {
     ctx.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: "custom",
       path,
       message: `${driver} cdpUrl must use a loopback host (localhost/127.0.0.1/::1)`,
     });
@@ -119,38 +119,77 @@ export const BrowserConfigSchema = z
   .strict()
   .superRefine((browser, ctx) => {
     const profiles = browser.profiles ?? {};
+    const relay = browser.relay;
+
     for (const [name, profile] of Object.entries(profiles)) {
-      const path = ["profiles", name, "cdpUrl"];
-      validateLoopbackCdpUrl(profile.cdpUrl, ctx, path, profile.driver);
+      const path: (string | number)[] = ["profiles", name, "cdpUrl"];
+
+      // For CDP driver, cdpUrl is always required
+      if (profile.driver === "cdp") {
+        if (!profile.cdpUrl) {
+          ctx.addIssue({
+            code: "custom",
+            path,
+            message: "cdp driver requires cdpUrl",
+          });
+          continue;
+        }
+        validateLoopbackCdpUrl(profile.cdpUrl, ctx, path, profile.driver);
+        continue;
+      }
+
+      // For extension driver, cdpUrl is optional
+      if (profile.driver === "extension") {
+        // If cdpUrl is provided, validate it as loopback
+        if (profile.cdpUrl) {
+          validateLoopbackCdpUrl(profile.cdpUrl, ctx, path, profile.driver);
+        } else {
+          // If cdpUrl is omitted, require relay.enabled and relay.port
+          if (!relay?.enabled) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["profiles", name],
+              message: "extension profile without cdpUrl requires browser.relay.enabled=true",
+            });
+          }
+          if (!relay?.port) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["profiles", name],
+              message: "extension profile without cdpUrl requires browser.relay.port",
+            });
+          }
+        }
+      }
     }
 
     if (browser.defaultProfile && !profiles[browser.defaultProfile]) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["defaultProfile"],
         message: `defaultProfile must reference an existing browser profile`,
       });
     }
 
-    const relay = browser.relay;
     if (relay?.bindHost && !isLoopbackHost(relay.bindHost)) {
       ctx.addIssue({
-        code: z.ZodIssueCode.custom,
+        code: "custom",
         path: ["relay", "bindHost"],
         message: "relay.bindHost must be a loopback host (localhost/127.0.0.1/::1)",
       });
     }
 
+    // Port mismatch validation only when extension cdpUrl exists
     if (relay?.enabled && relay.port) {
       for (const [name, profile] of Object.entries(profiles)) {
-        if (profile.driver !== "extension") {
+        if (profile.driver !== "extension" || !profile.cdpUrl) {
           continue;
         }
         const parsed = parseHttpUrl(profile.cdpUrl);
         const port = parsed ? parsePort(parsed) : null;
         if (port && port !== relay.port) {
           ctx.addIssue({
-            code: z.ZodIssueCode.custom,
+            code: "custom",
             path: ["profiles", name, "cdpUrl"],
             message: `extension profile cdpUrl port must match relay.port (${relay.port})`,
           });
