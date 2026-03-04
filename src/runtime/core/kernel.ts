@@ -336,7 +336,8 @@ export class RuntimeKernel implements RuntimeIngress {
     await runPumpLoop({
       isStopped: () => this.stopped,
       state: this.pumpState,
-      processOne: async (queueItem, releaseSession) => await this.processOne(queueItem, releaseSession),
+      processOne: async (queueItem, releaseSession) =>
+        await this.processOne(queueItem, releaseSession),
       schedulePump: () => this.schedulePump(),
     });
   }

@@ -218,8 +218,6 @@ export class AcpSessionManager {
     return this.actorQueue.run(sessionKey, async () => {
       const now = Date.now();
       const turnStart = Date.now();
-      let _turnCompleted = false;
-      let _turnFailed = false;
 
       try {
         // Get session meta
@@ -305,10 +303,17 @@ export class AcpSessionManager {
           };
 
           const events: AcpRuntimeEvent[] = [];
+          let terminalSeen = false;
           for await (const event of runtime.runTurn(turnInput)) {
+            if (terminalSeen) {
+              continue;
+            }
             events.push(event);
             if (input.onEvent) {
               await input.onEvent(event);
+            }
+            if (event.type === "done" || event.type === "error") {
+              terminalSeen = true;
             }
           }
 
@@ -359,7 +364,6 @@ export class AcpSessionManager {
             },
           });
 
-          _turnCompleted = true;
           this.completedTurnsTotal++;
 
           // Update turn stats
@@ -368,7 +372,6 @@ export class AcpSessionManager {
           this.activeTurns.delete(sessionKey);
         }
       } catch (error) {
-        _turnFailed = true;
         this.failedTurnsTotal++;
 
         // Track error by code

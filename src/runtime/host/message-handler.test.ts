@@ -455,10 +455,15 @@ describe("MessageHandler commands", () => {
   it("handles /models by showing available models", async () => {
     await handler.handle(createMessage("/models"), channel);
     expect(setSessionModel).not.toHaveBeenCalled();
-    const payload = send.mock.calls[0]?.[1] as { text: string; buttons?: { text: string; callbackData?: string }[][] };
+    const payload = send.mock.calls[0]?.[1] as {
+      text: string;
+      buttons?: { text: string; callbackData?: string }[][];
+    };
     expect(payload.text).toContain("Current model:");
     expect(payload.buttons).toBeDefined();
-    expect(payload.buttons!.flat().some((btn) => btn.text.includes("quotio/gemini-3-flash-preview"))).toBe(true);
+    expect(
+      payload.buttons!.flat().some((btn) => btn.text.includes("quotio/gemini-3-flash-preview")),
+    ).toBe(true);
   });
 
   it("handles /skill by showing available skills", async () => {

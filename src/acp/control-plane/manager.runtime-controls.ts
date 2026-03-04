@@ -32,7 +32,12 @@ export async function resolveManagerRuntimeCapabilities(params: {
   if (params.runtime.getStatus) {
     controls.add("session/status");
   }
-  const normalizedKeys = (reported?.configOptionKeys ?? [])
+  const legacyConfigOptionKeys = (reported as { config_option_keys?: unknown } | undefined)
+    ?.config_option_keys;
+  const normalizedKeys = [
+    ...(reported?.configOptionKeys ?? []),
+    ...(Array.isArray(legacyConfigOptionKeys) ? legacyConfigOptionKeys : []),
+  ]
     .map((entry) => normalizeText(entry))
     .filter(Boolean) as string[];
   return {
@@ -97,7 +102,7 @@ export async function applyManagerRuntimeControls(params: {
           if (advertisedKeys.size > 0 && !advertisedKeys.has(key)) {
             throw new AcpRuntimeError(
               "ACP_BACKEND_UNSUPPORTED_CONTROL",
-              `ACP backend "${backend}" does not accept config key "${key}".`,
+              `ACP backend "${backend}" does not advertise required config key "${key}" (advertised: ${[...advertisedKeys].toSorted().join(", ")}).`,
             );
           }
           await params.runtime.setConfigOption({

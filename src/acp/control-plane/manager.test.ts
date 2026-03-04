@@ -5,6 +5,7 @@ import type { AcpRuntime, AcpRuntimeHandle, AcpRuntimeEvent } from "../runtime/t
 import type { SessionAcpMeta } from "../types";
 import { AcpSessionManager } from "./manager";
 import type { AcpSessionManagerDeps } from "./manager.types";
+import type { CachedRuntimeState } from "./runtime-cache";
 
 // Mock store for session meta
 const mockStore = new Map<string, { acp: SessionAcpMeta }>();
@@ -75,6 +76,8 @@ function createMockRuntime(overrides?: Partial<AcpRuntime>): AcpRuntime {
   return {
     ensureSession: vi.fn(async () => mockHandle),
     runTurn: vi.fn(async function* () {
+      // Proper lifecycle: started -> progress* -> done
+      yield { type: "started", requestId: "req-test" };
       yield { type: "text_delta", text: "Hello" };
       yield { type: "done", stopReason: "stop" };
     }),
@@ -168,6 +171,136 @@ describe("AcpSessionManager", () => {
 
       const requireBackend = deps.requireRuntimeBackend as ReturnType<typeof vi.fn>;
       expect(requireBackend).toHaveBeenCalledTimes(1);
+    });
+
+    it("should clear cache and re-ensure when identity mismatches cached handle", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const deps = createMockDeps();
+      const manager = new AcpSessionManager(deps);
+
+      await manager.ensureSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        agent: "main",
+        mode: "persistent",
+      });
+
+      const current = mockStore.get("test:main")?.acp;
+      if (!current) {
+        throw new Error("missing test meta");
+      }
+      mockStore.set("test:main", {
+        acp: {
+          ...current,
+          identity: {
+            state: "resolved",
+            acpxSessionId: "changed-session-id",
+            source: "status",
+            lastUpdatedAt: Date.now(),
+          },
+        },
+      });
+
+      await manager.ensureSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        agent: "main",
+        mode: "persistent",
+      });
+
+      const requireBackend = deps.requireRuntimeBackend as ReturnType<typeof vi.fn>;
+      expect(requireBackend).toHaveBeenCalledTimes(2);
+    });
+
+    it("should serialize concurrent ensure calls for same session", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const ensureSessionMock = vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return {
+          sessionKey: "test:main",
+          backend: "test-backend",
+          runtimeSessionName: "test-session",
+        };
+      });
+      const runtime = createMockRuntime({
+        ensureSession: ensureSessionMock,
+      });
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime,
+          healthy: () => true,
+        })),
+      });
+      const manager = new AcpSessionManager(deps);
+
+      await Promise.all([
+        manager.ensureSession({
+          cfg: {} as MoziConfig,
+          sessionKey: "test:main",
+          agent: "main",
+          mode: "persistent",
+        }),
+        manager.ensureSession({
+          cfg: {} as MoziConfig,
+          sessionKey: "test:main",
+          agent: "main",
+          mode: "persistent",
+        }),
+      ]);
+
+      expect(ensureSessionMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not leave dirty cache after ensure failure", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      let shouldFail = true;
+      const ensureSessionMock = vi.fn(async () => {
+        if (shouldFail) {
+          throw new Error("ensure failed");
+        }
+        return {
+          sessionKey: "test:main",
+          backend: "test-backend",
+          runtimeSessionName: "test-session",
+        };
+      });
+      const runtime = createMockRuntime({
+        ensureSession: ensureSessionMock,
+      });
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime,
+          healthy: () => true,
+        })),
+      });
+      const manager = new AcpSessionManager(deps);
+
+      await expect(
+        manager.ensureSession({
+          cfg: {} as MoziConfig,
+          sessionKey: "test:main",
+          agent: "main",
+          mode: "persistent",
+        }),
+      ).rejects.toBeInstanceOf(AcpRuntimeError);
+
+      shouldFail = false;
+      await manager.ensureSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        agent: "main",
+        mode: "persistent",
+      });
+
+      expect(ensureSessionMock).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -282,6 +415,145 @@ describe("AcpSessionManager", () => {
       );
       expect(states).toContain("error");
     });
+
+    it("should emit events in correct lifecycle order: started -> progress -> terminal", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          yield { type: "text_delta", text: "Hello" };
+          yield { type: "status", text: "working" };
+          yield { type: "tool_call", text: "tool" };
+          yield { type: "done", stopReason: "stop" };
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const events: AcpRuntimeEvent[] = [];
+
+      await manager.runTurn({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        text: "hello",
+        mode: "prompt",
+        requestId: "req-1",
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      // Verify lifecycle order: started -> (progress)* -> done
+      expect(events.length).toBe(5);
+      expect(events[0]?.type).toBe("started");
+      expect(events[1]?.type).toBe("text_delta");
+      expect(events[2]?.type).toBe("status");
+      expect(events[3]?.type).toBe("tool_call");
+      expect(events[4]?.type).toBe("done");
+
+      // Verify exactly one terminal event
+      const terminalEvents = events.filter((e) => e.type === "done" || e.type === "error");
+      expect(terminalEvents.length).toBe(1);
+    });
+
+    it("should emit error as terminal event when turn fails", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          yield { type: "text_delta", text: "Partial" };
+          yield {
+            type: "error",
+            message: "Runtime failed",
+            code: "RUNTIME_ERR",
+            category: "runtime",
+          };
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const events: AcpRuntimeEvent[] = [];
+
+      await manager.runTurn({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        text: "hello",
+        mode: "prompt",
+        requestId: "req-1",
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      // Verify error is the terminal event
+      expect(events.length).toBe(3);
+      expect(events[0]?.type).toBe("started");
+      expect(events[1]?.type).toBe("text_delta");
+      expect(events[2]?.type).toBe("error");
+      expect((events[2] as { message: string }).message).toBe("Runtime failed");
+
+      // Verify exactly one terminal event
+      const terminalEvents = events.filter((e) => e.type === "done" || e.type === "error");
+      expect(terminalEvents.length).toBe(1);
+    });
+
+    it("should keep terminal event unique even when runtime yields multiple terminal events", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          yield { type: "done", stopReason: "stop" };
+          yield { type: "error", message: "late", code: "LATE", category: "runtime" };
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const events: AcpRuntimeEvent[] = [];
+
+      await manager.runTurn({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        text: "hello",
+        mode: "prompt",
+        requestId: "req-1",
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+
+      const terminalEvents = events.filter((e) => e.type === "done" || e.type === "error");
+      expect(terminalEvents).toHaveLength(1);
+      expect(terminalEvents[0]?.type).toBe("done");
+    });
   });
 
   describe("closeSession", () => {
@@ -334,6 +606,35 @@ describe("AcpSessionManager", () => {
 
       expect(result.metaCleared).toBe(true);
       expect(mockStore.has("test:main")).toBe(false);
+    });
+
+    it("should be idempotent on repeated close", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const deps = createMockDeps();
+      const manager = new AcpSessionManager(deps);
+
+      await manager.ensureSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        agent: "main",
+        mode: "persistent",
+      });
+
+      const first = await manager.closeSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        reason: "cleanup",
+      });
+      const second = await manager.closeSession({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        reason: "cleanup-again",
+      });
+
+      expect(first.runtimeClosed).toBe(true);
+      expect(second.runtimeClosed).toBe(false);
     });
   });
 
@@ -489,6 +790,70 @@ describe("AcpSessionManager", () => {
       const manager = new AcpSessionManager(createMockDeps());
       const evicted = manager.evictIdleRuntimes({} as MoziConfig);
       expect(evicted).toBe(0);
+    });
+
+    it("should evict stale runtime but keep active turn runtime", () => {
+      const manager = new AcpSessionManager(createMockDeps());
+      const internal = manager as unknown as {
+        runtimeCache: {
+          set: (key: string, state: CachedRuntimeState, params?: { now?: number }) => void;
+          has: (key: string) => boolean;
+        };
+        activeTurns: Map<string, unknown>;
+      };
+
+      const now = Date.now();
+      internal.runtimeCache.set(
+        "stale:main",
+        {
+          runtime: createMockRuntime(),
+          handle: {
+            sessionKey: "stale:main",
+            backend: "test-backend",
+            runtimeSessionName: "stale",
+          },
+          backend: "test-backend",
+          agent: "main",
+          mode: "persistent",
+        },
+        { now: now - 10 * 60 * 1000 },
+      );
+      internal.runtimeCache.set(
+        "active:main",
+        {
+          runtime: createMockRuntime(),
+          handle: {
+            sessionKey: "active:main",
+            backend: "test-backend",
+            runtimeSessionName: "active",
+          },
+          backend: "test-backend",
+          agent: "main",
+          mode: "persistent",
+        },
+        { now: now - 10 * 60 * 1000 },
+      );
+      internal.activeTurns.set("active:main", {
+        runtime: createMockRuntime(),
+        handle: {
+          sessionKey: "active:main",
+          backend: "test-backend",
+          runtimeSessionName: "active",
+        },
+        abortController: new AbortController(),
+      });
+
+      const evicted = manager.evictIdleRuntimes({
+        acp: {
+          runtime: {
+            ttlMinutes: 1,
+          },
+        },
+      } as unknown as MoziConfig);
+
+      expect(evicted).toBe(1);
+      expect(internal.runtimeCache.has("stale:main")).toBe(false);
+      expect(internal.runtimeCache.has("active:main")).toBe(true);
     });
   });
 

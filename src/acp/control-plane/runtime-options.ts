@@ -312,8 +312,15 @@ export function buildRuntimeConfigOptionPairs(
     pairs.set("timeout", String(normalized.timeoutSeconds));
   }
   for (const [key, value] of Object.entries(normalized.backendExtras ?? {})) {
-    if (!pairs.has(key)) {
+    const existing = pairs.get(key);
+    if (existing === undefined) {
       pairs.set(key, value);
+      continue;
+    }
+    if (existing !== value) {
+      failInvalidOption(
+        `Conflicting runtime option for "${key}": received both "${existing}" and "${value}".`,
+      );
     }
   }
   return [...pairs.entries()];

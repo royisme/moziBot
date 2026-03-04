@@ -14,7 +14,11 @@ export function resolveAcpDispatchPolicyState(cfg: MoziConfig): AcpDispatchPolic
   if (!isAcpEnabledByPolicy(cfg)) {
     return "acp_disabled";
   }
-  if (cfg.acp?.dispatch?.enabled !== true) {
+  const dispatchEnabled =
+    cfg.acp?.dispatch?.enabled ??
+    (cfg.acp as { dispatchEnabled?: boolean } | undefined)?.dispatchEnabled ??
+    false;
+  if (!dispatchEnabled) {
     return "dispatch_disabled";
   }
   return "enabled";

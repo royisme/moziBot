@@ -4,12 +4,12 @@ import path from "node:path";
 import WebSocket from "ws";
 import { z } from "zod";
 import type { MoziConfig } from "../../config";
+import { formatHostForUrl, rawDataToString } from "../../runtime/browser/cdp-utils";
 import { ensureChromeExtensionRelayServer } from "../../runtime/browser/extension-relay";
 import {
   RELAY_AUTH_HEADER,
   resolveRelayAuthTokenForPort,
 } from "../../runtime/browser/extension-relay-auth";
-import { formatHostForUrl, rawDataToString } from "../../runtime/browser/cdp-utils";
 import { detectSuspiciousPatterns, wrapExternalContent } from "../../security/external-content";
 import {
   normalizeTargetId,

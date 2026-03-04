@@ -207,9 +207,13 @@ describe("formatResult", () => {
 
     const abortController = new AbortController();
 
-    await tool.execute("tool-call-1", {
-      command: ["echo", "hello"],
-    }, abortController.signal);
+    await tool.execute(
+      "tool-call-1",
+      {
+        command: ["echo", "hello"],
+      },
+      abortController.signal,
+    );
 
     expect(mockExecute).toHaveBeenCalledWith(
       expect.objectContaining({

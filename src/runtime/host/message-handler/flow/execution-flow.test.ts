@@ -14,11 +14,12 @@ vi.mock("../../../hooks", () => ({
   getRuntimeHookRunner: () => hookMocks.runner,
 }));
 
-function createDeps(): OrchestratorDeps {
+function createDeps(): OrchestratorDeps & { __loggerInfoMock: ReturnType<typeof vi.fn> } {
+  const loggerInfo = vi.fn();
   return {
     config: {} as OrchestratorDeps["config"],
     logger: {
-      info: vi.fn(),
+      info: loggerInfo,
       warn: vi.fn(),
       error: vi.fn(),
     },
@@ -54,12 +55,15 @@ function createDeps(): OrchestratorDeps {
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
     emitStatusSafely: vi.fn(async () => {}),
-    createStreamingBuffer: vi.fn(() => ({
-      append: vi.fn(),
-      initialize: vi.fn(async () => {}),
-      finalize: vi.fn(async () => null),
-      getAccumulatedText: vi.fn(() => ""),
-    })),
+    createStreamingBuffer: vi.fn(
+      () =>
+        ({
+          append: vi.fn(),
+          initialize: vi.fn(async () => {}),
+          finalize: vi.fn(async () => null),
+          getAccumulatedText: vi.fn(() => ""),
+        }) as unknown as ReturnType<OrchestratorDeps["createStreamingBuffer"]>,
+    ),
     runPromptWithFallback: vi.fn(async ({ onStream }) => {
       if (onStream) {
         await onStream({ type: "agent_end", fullText: "hi" });
@@ -71,9 +75,11 @@ function createDeps(): OrchestratorDeps {
     dispatchReply: vi.fn(async () => "out-1"),
     toError: vi.fn((err: unknown) => (err instanceof Error ? err : new Error(String(err)))),
     isAbortError: vi.fn(() => false),
+    isAgentBusyError: vi.fn(() => false),
     createErrorReplyText: vi.fn(() => "error"),
     setSessionModel: vi.fn(async () => {}),
     stopTypingIndicator: vi.fn(async () => {}),
+    __loggerInfoMock: loggerInfo,
   };
 }
 
@@ -111,7 +117,7 @@ describe("runExecutionFlow", () => {
   });
 
   it("emits message_sent hook after dispatch", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "message_sent");
+    hookMocks.runner.hasHooks.mockReturnValue(true);
     const ctx = createContext();
     const deps = createDeps();
 
@@ -132,11 +138,22 @@ describe("runExecutionFlow", () => {
         agentId: "mozi",
       }),
     );
+
+    expect(deps.__loggerInfoMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        traceId: "turn:m1",
+        sessionKey: "agent:mozi:telegram:dm:chat-1",
+        agentId: "mozi",
+        deliveryMode: "direct_dispatch",
+        terminalSource: "final_only",
+      }),
+      "Terminal reply delivered",
+    );
   });
 
   it("skips dispatch when message_sending cancels", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "message_sending");
-    hookMocks.runner.runMessageSending.mockResolvedValue({ cancel: true });
+    hookMocks.runner.hasHooks.mockReturnValue(true);
+    hookMocks.runner.runMessageSending.mockImplementation(async () => ({ cancel: true }) as never);
     const ctx = createContext();
     const deps = createDeps();
     const dispatchReply = vi.spyOn(deps, "dispatchReply");

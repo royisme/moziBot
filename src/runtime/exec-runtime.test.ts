@@ -466,16 +466,18 @@ describe("ExecRuntime", () => {
     it("should preserve partial output when aborted during streaming", async () => {
       let onStdoutCb: ((chunk: string) => void) | undefined;
 
-      mockSupervisor.spawn = vi.fn().mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
-        onStdoutCb = input.onStdout;
-        return {
-          runId: "job_test123",
-          pid: 12345,
-          startedAtMs: Date.now(),
-          wait: () => new Promise<RunExit>(() => {}), // never resolves
-          cancel: vi.fn(),
-        };
-      });
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
+          onStdoutCb = input.onStdout;
+          return {
+            runId: "job_test123",
+            pid: 12345,
+            startedAtMs: Date.now(),
+            wait: () => new Promise<RunExit>(() => {}), // never resolves
+            cancel: vi.fn(),
+          };
+        });
 
       const abortController = new AbortController();
       const chunks: string[] = [];
@@ -512,7 +514,9 @@ describe("ExecRuntime", () => {
       const abortController = new AbortController();
       abortController.abort();
 
-      mockSupervisor.spawn = vi.fn().mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockResolvedValue(mockManagedRun({ ...defaultExit, exitCode: 0 }));
 
       const result = await runtime.execute({
         argv: ["sleep", "10"],
@@ -569,16 +573,18 @@ describe("ExecRuntime", () => {
     it("should preserve partial output when yield execution is aborted", async () => {
       let onStdoutCb: ((chunk: string) => void) | undefined;
 
-      mockSupervisor.spawn = vi.fn().mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
-        onStdoutCb = input.onStdout;
-        return {
-          runId: "job_test123",
-          pid: 12345,
-          startedAtMs: Date.now(),
-          wait: () => new Promise<RunExit>(() => {}), // never resolves
-          cancel: vi.fn(),
-        };
-      });
+      mockSupervisor.spawn = vi
+        .fn()
+        .mockImplementation(async (input: { onStdout?: (c: string) => void }) => {
+          onStdoutCb = input.onStdout;
+          return {
+            runId: "job_test123",
+            pid: 12345,
+            startedAtMs: Date.now(),
+            wait: () => new Promise<RunExit>(() => {}), // never resolves
+            cancel: vi.fn(),
+          };
+        });
 
       const abortController = new AbortController();
       const chunks: string[] = [];

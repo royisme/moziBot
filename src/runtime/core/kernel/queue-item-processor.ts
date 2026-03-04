@@ -58,10 +58,12 @@ export async function processQueueItem(params: {
       terminal,
       error,
       reason,
+      errorCode,
     }: {
       terminal: "completed" | "failed" | "aborted";
       error?: Error;
       reason?: string;
+      errorCode?: string;
     }) => {
       try {
         await handleDetachedTerminal({
@@ -71,9 +73,11 @@ export async function processQueueItem(params: {
           terminal,
           error,
           reason,
+          errorCode,
         });
       } catch (terminalError) {
-        const err = terminalError instanceof Error ? terminalError : new Error(String(terminalError));
+        const err =
+          terminalError instanceof Error ? terminalError : new Error(String(terminalError));
         logger.error(
           {
             queueItemId: params.queueItem.id,
@@ -92,7 +96,10 @@ export async function processQueueItem(params: {
         );
         if (failed) {
           try {
-            await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.FAILED);
+            await params.sessionManager.setStatus(
+              params.queueItem.session_key,
+              SessionStatus.FAILED,
+            );
           } catch (statusError) {
             const statusErr =
               statusError instanceof Error ? statusError : new Error(String(statusError));
@@ -122,6 +129,7 @@ export async function processQueueItem(params: {
               terminal: "completed" | "failed" | "aborted";
               error?: Error;
               reason?: string;
+              errorCode?: string;
             }) => Promise<void> | void;
           }) => Promise<{ runId: string }>;
         };
@@ -204,13 +212,17 @@ async function handleDetachedTerminal(params: {
   terminal: "completed" | "failed" | "aborted";
   error?: Error;
   reason?: string;
+  errorCode?: string;
 }): Promise<void> {
   if (params.terminal === "completed") {
     const completed = runtimeQueue.markCompletedIfRunning(params.queueItem.id);
     if (!completed) {
       const current = runtimeQueue.getById(params.queueItem.id);
       if (current?.status === SessionStatus.INTERRUPTED) {
-        await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+        await params.sessionManager.setStatus(
+          params.queueItem.session_key,
+          SessionStatus.INTERRUPTED,
+        );
       }
       return;
     }
@@ -243,13 +255,17 @@ async function handleDetachedTerminal(params: {
       params.reason || "Interrupted by detached run",
     );
     if (interrupted) {
-      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.INTERRUPTED);
+      await params.sessionManager.setStatus(
+        params.queueItem.session_key,
+        SessionStatus.INTERRUPTED,
+      );
       logger.warn(
         {
           queueItemId: params.queueItem.id,
           sessionKey: params.queueItem.session_key,
           messageId: params.inbound.id,
           reason: params.reason,
+          errorCode: params.errorCode,
           durationMs: Date.now() - params.startedAt,
         },
         "Queue item interrupted while processing",

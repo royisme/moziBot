@@ -21,6 +21,8 @@ export type AcpConfig = {
   /** Global ACP runtime gate. */
   enabled?: boolean;
   dispatch?: AcpDispatchConfig;
+  /** @deprecated Use acp.dispatch.enabled */
+  dispatchEnabled?: boolean;
   /** Backend id registered by ACP runtime plugin (for example: acpx). */
   backend?: string;
   defaultAgent?: string;

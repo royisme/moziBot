@@ -236,18 +236,18 @@ export async function runPromptWithFallback(params: {
 
       let unsubscribe: (() => void) | undefined;
       let accumulatedText = "";
-        const runAbortController = new AbortController();
-        let aborted = false;
-        const abortRun = (reason?: unknown): void => {
-          if (aborted) {
-            return;
-          }
-          aborted = true;
-          runAbortController.abort(reason);
-          if (typeof agent.abort === "function") {
-            void Promise.resolve(agent.abort()).catch(() => undefined);
-          }
-        };
+      const runAbortController = new AbortController();
+      let aborted = false;
+      const abortRun = (reason?: unknown): void => {
+        if (aborted) {
+          return;
+        }
+        aborted = true;
+        runAbortController.abort(reason);
+        if (typeof agent.abort === "function") {
+          void Promise.resolve(agent.abort()).catch(() => undefined);
+        }
+      };
 
       try {
         registerActivePromptRun(activeMap, interruptedSet, {

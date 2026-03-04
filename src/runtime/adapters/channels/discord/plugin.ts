@@ -704,10 +704,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
       };
 
       // Only intercept MessageComponent interactions with command-like custom_ids
-      if (
-        data.type === InteractionType.MessageComponent &&
-        data.data?.custom_id?.startsWith("/")
-      ) {
+      if (data.type === InteractionType.MessageComponent && data.data?.custom_id?.startsWith("/")) {
         const customId = data.data.custom_id;
         const user = data.member?.user ?? data.user;
 

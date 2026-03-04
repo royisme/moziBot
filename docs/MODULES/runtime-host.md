@@ -97,6 +97,61 @@ Primary entrypoint in this layer:
   - `src/runtime/host/sessions/*.test.ts`
   - channel adapter tests if host output behavior changed
 
+## Detached Run Observability Runbook (P3-T4)
+
+### Canonical Fields
+
+Use these fields as the single correlation keyset across host/core logs:
+
+- `runId`: detached run identity (e.g. `run:m-1`)
+- `sessionKey`: session partition key
+- `traceId`: turn trace identity (e.g. `turn:m-1`)
+- `terminal`: `completed | failed | aborted`
+- `reason`: terminal reason / abort reason / failure summary
+- `errorCode`: normalized runtime error code when available
+
+### Where These Fields Are Emitted
+
+1. Detached terminal projection in host:
+   - `src/runtime/host/message-handler.ts`
+   - log message: `Detached run terminal observed`
+2. Terminal reply projection in execution path:
+   - `src/runtime/host/message-handler/flow/execution-flow.ts`
+   - log message: `Terminal reply delivered`
+3. Queue detached run acceptance + terminal handling:
+   - `src/runtime/core/kernel/queue-item-processor.ts`
+   - log messages: `Queue item detached run accepted`, `Queue item interrupted while processing`, error/retry/failure logs
+
+### Fast Trace Procedure (single run)
+
+1. Find `runId` from `Queue item detached run accepted`.
+2. Use `runId` + `traceId` to locate `Detached run terminal observed`.
+3. For success path, verify `Terminal reply delivered` with matching `traceId` and expected `deliveryMode`.
+4. For failed/aborted path, verify queue terminal handling logs include aligned `reason`/`errorCode` and final session status transition.
+
+### Symptom → Check
+
+- Symptom: duplicate terminal effects
+  - Check `Detached run terminal observed` count per `runId` (should be one terminal projection)
+  - Validate lifecycle uniqueness tests:
+    - `src/runtime/host/message-handler/services/run-lifecycle-registry.test.ts`
+    - `src/runtime/host/message-handler.detached-run.test.ts`
+
+- Symptom: streamed text and final reply mismatch
+  - Check `Terminal reply decision` + `Terminal reply delivered`
+  - Compare `terminalSource`, `terminalChars`, `deliveryMode`
+
+- Symptom: queue item stuck or wrong final status
+  - Check `Queue item detached run accepted` exists first
+  - Then inspect terminal handling logs in queue processor by `queueItemId/sessionKey/runId`
+
+### High-Signal Validation Commands
+
+- `pnpm run test -- src/runtime/host/message-handler.detached-run.test.ts`
+- `pnpm run test -- src/runtime/host/message-handler/services/run-lifecycle-registry.test.ts`
+- `pnpm run test -- src/runtime/host/message-handler/flow/execution-flow.test.ts`
+- `pnpm run test -- src/runtime/host/message-handler/services/run-dispatch.test.ts`
+
 ## Host-Layer Constraints
 
 - Keep command text, routing, and session-key behavior internally consistent.

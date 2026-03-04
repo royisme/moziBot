@@ -1,7 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { AcpRuntime, AcpRuntimeHandle } from "../runtime/types";
+import { applyManagerRuntimeControls } from "./manager.runtime-controls";
 import { RuntimeCache } from "./runtime-cache";
 import type { CachedRuntimeState } from "./runtime-cache";
+import { buildRuntimeConfigOptionPairs, buildRuntimeControlSignature } from "./runtime-options";
 
 function createMockRuntimeState(): CachedRuntimeState {
   return {
@@ -98,7 +100,6 @@ describe("RuntimeCache", () => {
       const state = createMockRuntimeState();
       cache.set("key1", state, { now: now1 });
 
-      const _now2 = now1 + 1000;
       cache.peek("key1");
 
       expect(cache.getLastTouchedAt("key1")).toBe(now1);
@@ -177,6 +178,62 @@ describe("RuntimeCache", () => {
 
       const snapshot = cache.snapshot({ now: now + 5000 });
       expect(snapshot[0].idleMs).toBe(5000);
+    });
+  });
+
+  describe("runtime control selection semantics", () => {
+    it("should keep selection signature stable for semantically equal options", () => {
+      const a = buildRuntimeControlSignature({
+        model: "gpt-4o",
+        backendExtras: { z: "1", a: "2" },
+      });
+      const b = buildRuntimeControlSignature({
+        model: "gpt-4o",
+        backendExtras: { a: "2", z: "1" },
+      });
+      expect(a).toBe(b);
+    });
+
+    it("should throw when required config key is not advertised", async () => {
+      const setConfigOption = async () => {};
+      const runtime = {
+        setConfigOption,
+        getCapabilities: async () => ({
+          controls: ["session/set_config_option"],
+          configOptionKeys: ["model"],
+        }),
+      } as unknown as AcpRuntime;
+
+      await expect(
+        applyManagerRuntimeControls({
+          sessionKey: "agent:main:acp:test",
+          runtime,
+          handle: {
+            sessionKey: "agent:main:acp:test",
+            backend: "test",
+            runtimeSessionName: "test",
+          },
+          meta: {
+            backend: "test",
+            agent: "main",
+            runtimeSessionName: "test",
+            mode: "persistent",
+            state: "idle",
+            lastActivityAt: Date.now(),
+            runtimeOptions: { permissionProfile: "strict" },
+          },
+          getCachedRuntimeState: () => null,
+        }),
+      ).rejects.toMatchObject({ code: "ACP_BACKEND_UNSUPPORTED_CONTROL" });
+    });
+
+    it("should throw on conflicting runtime option values", () => {
+      expect(() =>
+        buildRuntimeConfigOptionPairs({
+          model: "gpt-4o",
+          backendExtras: { model: "gpt-4.1" },
+        }),
+      ).toThrow("Conflicting runtime option");
     });
   });
 

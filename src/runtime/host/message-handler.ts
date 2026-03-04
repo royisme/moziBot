@@ -40,20 +40,20 @@ import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from ".
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
 import { waitForAgentIdle, type PromptAgent } from "./message-handler/services/prompt-runner";
-import {
-  RunLifecycleRegistry,
-  type RunLifecycleEntry,
-  type RunTerminal,
-} from "./message-handler/services/run-lifecycle-registry";
-import { extractAssistantText } from "./reply-utils";
 import { dispatchReply as _unusedDispatchReply } from "./message-handler/services/reply-dispatcher";
 import {
   shouldSuppressHeartbeatReply as _unusedShouldSuppressHeartbeatReply,
   shouldSuppressSilentReply as _unusedShouldSuppressSilentReply,
 } from "./message-handler/services/reply-finalizer";
+import {
+  RunLifecycleRegistry,
+  type RunLifecycleEntry,
+  type RunTerminal,
+} from "./message-handler/services/run-lifecycle-registry";
 import { performSessionReset } from "./message-handler/services/session-control-command";
 import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } from "./message-handler/services/status-reaction";
 import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler/services/streaming";
+import { extractAssistantText } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import type { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -119,11 +119,29 @@ export class MessageHandler {
       partialText?: string;
       error?: Error;
       reason?: string;
+      errorCode?: string;
     }) => Promise<void> | void
   >();
   private runLifecycle = new RunLifecycleRegistry({
     onTerminal: (entry, payload) => {
       const callback = this.detachedTerminalCallbacks.get(entry.runId);
+      const errorCode =
+        payload.error && typeof (payload.error as unknown as { code?: unknown }).code === "string"
+          ? ((payload.error as unknown as { code: string }).code ?? undefined)
+          : undefined;
+      const logPayload = {
+        runId: entry.runId,
+        sessionKey: entry.sessionKey,
+        traceId: entry.traceId,
+        terminal: payload.state,
+        reason: payload.reason,
+        errorCode,
+      };
+      if (payload.state === "failed") {
+        logger.warn(logPayload, "Detached run terminal observed");
+      } else {
+        logger.info(logPayload, "Detached run terminal observed");
+      }
       if (!callback) {
         return;
       }
@@ -135,11 +153,17 @@ export class MessageHandler {
             partialText: payload.partialText,
             error: payload.error,
             reason: payload.reason,
+            errorCode,
           }),
         ).catch((error) => {
           const err = toErrorService(error);
           logger.error(
-            { runId: entry.runId, sessionKey: entry.sessionKey, error: err.message },
+            {
+              runId: entry.runId,
+              sessionKey: entry.sessionKey,
+              traceId: entry.traceId,
+              error: err.message,
+            },
             "Detached terminal callback failed",
           );
         });
@@ -288,7 +312,10 @@ export class MessageHandler {
   }
 
   isSessionActive(sessionKey: string): boolean {
-    return this.activePromptRuns.has(sessionKey) || Boolean(this.runLifecycle.getRunBySession(sessionKey));
+    return (
+      this.activePromptRuns.has(sessionKey) ||
+      Boolean(this.runLifecycle.getRunBySession(sessionKey))
+    );
   }
 
   getActivePromptRunCount(): number {
@@ -511,6 +538,7 @@ export class MessageHandler {
       partialText?: string;
       error?: Error;
       reason?: string;
+      errorCode?: string;
     }) => Promise<void> | void;
   }): Promise<DetachedRunHandle> {
     const route = this.resolveSessionContext(params.message);
@@ -569,10 +597,7 @@ export class MessageHandler {
     };
   }
 
-  private resolveLifecycleRun(
-    sessionKey: string,
-    traceId?: string,
-  ): RunLifecycleEntry | undefined {
+  private resolveLifecycleRun(sessionKey: string, traceId?: string): RunLifecycleEntry | undefined {
     const run = this.runLifecycle.getRunBySession(sessionKey);
     if (!run) {
       return undefined;

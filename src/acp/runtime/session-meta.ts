@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { SessionAcpMeta } from "../types";
+import type { SessionAcpMeta, SessionAcpError, SessionAcpErrorCategory } from "../types";
 
 export type AcpSessionStoreEntry = {
   sessionKey: string;
@@ -12,6 +12,74 @@ export type AcpSessionStoreEntry = {
 type AcpSessionStore = Record<string, { acp: SessionAcpMeta }>;
 
 const DEFAULT_ACP_SESSIONS_PATH = path.join(homedir(), ".mozi", "acp-sessions.json");
+
+/**
+ * Creates a structured error object for session-level errors.
+ */
+export function createSessionAcpError(params: {
+  message: string;
+  code?: string;
+  category?: SessionAcpErrorCategory;
+  retryable?: boolean;
+}): SessionAcpError {
+  return {
+    message: params.message,
+    code: params.code,
+    category: params.category,
+    timestamp: Date.now(),
+    retryable: params.retryable,
+  };
+}
+
+/**
+ * Updates session meta with an error state.
+ * Enforces terminal uniqueness constraint: when state is "error", lastErrorDetails MUST be set.
+ */
+export function applySessionError(
+  current: SessionAcpMeta | undefined,
+  error: SessionAcpError | Error | string,
+): SessionAcpMeta | null {
+  if (!current) {
+    return null;
+  }
+
+  const now = Date.now();
+  let errorDetails: SessionAcpError;
+
+  if (typeof error === "string") {
+    errorDetails = createSessionAcpError({ message: error });
+  } else if (error instanceof Error) {
+    errorDetails = createSessionAcpError({ message: error.message });
+  } else {
+    errorDetails = error;
+  }
+
+  return {
+    ...current,
+    state: "error",
+    lastActivityAt: now,
+    // Keep deprecated lastError for backward compatibility
+    lastError: errorDetails.message,
+    // Set structured error details (terminal uniqueness constraint)
+    lastErrorDetails: errorDetails,
+  };
+}
+
+/**
+ * Clears error state from session meta, transitioning to idle.
+ */
+export function clearSessionError(current: SessionAcpMeta | undefined): SessionAcpMeta | null {
+  if (!current) {
+    return null;
+  }
+
+  return {
+    ...current,
+    state: "idle",
+    lastError: undefined,
+    lastErrorDetails: undefined,
+  };
+}
 
 function resolveStorePath(storePath?: string): string {
   return storePath ?? DEFAULT_ACP_SESSIONS_PATH;

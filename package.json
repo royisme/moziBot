@@ -13,6 +13,10 @@
   "bin": {
     "mozi": "dist/mozi.mjs"
   },
+  "workspaces": [
+    ".",
+    "desktop-widget"
+  ],
   "files": [
     "dist",
     "desktop-widget/dist",
