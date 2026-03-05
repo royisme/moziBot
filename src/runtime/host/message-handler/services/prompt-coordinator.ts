@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { ImageContent } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../../../config";
 import {
   resolveMemoryBackendConfig,
@@ -142,6 +143,7 @@ export async function runPromptWithCoordinator(params: {
   sessionKey: string;
   agentId: string;
   text: string;
+  images?: ImageContent[];
   traceId?: string;
   onStream?: StreamingCallback;
   onFallback?: (info: {
@@ -181,6 +183,7 @@ export async function runPromptWithCoordinator(params: {
     sessionKey,
     agentId,
     text,
+    images,
     traceId,
     onStream,
     onFallback,
@@ -226,6 +229,7 @@ export async function runPromptWithCoordinator(params: {
     sessionKey,
     agentId,
     text,
+    images,
     traceId,
     onStream,
     onFallback,

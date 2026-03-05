@@ -8,6 +8,10 @@ describe("reply-finalizer suppression policy", () => {
     expect(shouldSuppressSilentReply("normal answer")).toBe(false);
   });
 
+  it("does not suppress silent token when forceReply=true", () => {
+    expect(shouldSuppressSilentReply("NO_REPLY", { forceReply: true })).toBe(false);
+  });
+
   it("suppresses heartbeat HEARTBEAT_OK replies only for heartbeat source", () => {
     expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, "HEARTBEAT_OK")).toBe(true);
     expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, " HEARTBEAT_OK ")).toBe(true);

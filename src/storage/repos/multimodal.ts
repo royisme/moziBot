@@ -40,6 +40,15 @@ export const multimodal = {
         )
         .run(asset),
     ),
+  getMediaAssetById: (id: string): MultimodalMediaAsset | null =>
+    withConnection((conn) => {
+      const row = conn
+        .prepare(
+          `SELECT id, tenant_id, sha256, mime_type, byte_size, duration_ms, width, height, filename, blob_uri, scan_status, created_at FROM multimodal_media_assets WHERE id = ? LIMIT 1`,
+        )
+        .get(id) as MultimodalMediaAsset | undefined;
+      return row ?? null;
+    }),
   createDeliveryAttempt: (attempt: MultimodalDeliveryAttempt) =>
     withConnection((conn) =>
       conn

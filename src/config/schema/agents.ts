@@ -47,6 +47,7 @@ export const SubagentPolicySchema = z
   .object({
     allow: z.array(z.string()).optional(),
     promptMode: SubagentPromptModeSchema.optional(),
+    maxDepth: z.number().int().min(0).max(5).optional().default(2),
   })
   .strict();
 

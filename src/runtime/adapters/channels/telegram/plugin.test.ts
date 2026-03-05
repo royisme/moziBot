@@ -629,6 +629,94 @@ describe("TelegramPlugin", () => {
     });
   });
 
+  it("should map inbound photo URL to telegram download URL", async () => {
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const handler = botInstance.on.mock.calls.find(
+      (call: unknown[]) => (call[0] as string) === "message:photo",
+    )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
+    expect(handler).toBeDefined();
+    if (!handler) {
+      return;
+    }
+
+    vi.spyOn(
+      plugin as unknown as { getDownloadUrl: (fileId: string) => Promise<string> },
+      "getDownloadUrl",
+    ).mockResolvedValue("https://api.telegram.org/file/bottest-token/path/file.jpg");
+
+    let receivedMsg: unknown;
+    plugin.on("message", (msg) => {
+      receivedMsg = msg;
+    });
+
+    await handler({
+      message: {
+        message_id: 458,
+        chat: { id: 789, type: "private" },
+        from: { id: 101, first_name: "John" },
+        caption: "photo note",
+        photo: [
+          {
+            file_id: "photo-file-small",
+            width: 320,
+            height: 240,
+          },
+          {
+            file_id: "photo-file-large",
+            width: 1280,
+            height: 960,
+            file_size: 8192,
+          },
+        ],
+        date: 1675468800,
+      },
+    });
+
+    const inbound = receivedMsg as { media?: Array<Record<string, unknown>> };
+    expect(inbound.media?.[0]).toMatchObject({
+      type: "photo",
+      url: "https://api.telegram.org/file/bottest-token/path/file.jpg",
+      caption: "photo note",
+      byteSize: 8192,
+      width: 1280,
+      height: 960,
+    });
+  });
+
+  it("should inject replied message text into inbound text", async () => {
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const handler = botInstance.on.mock.calls.find(
+      (call: unknown[]) => (call[0] as string) === "message:text",
+    )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
+    expect(handler).toBeDefined();
+    if (!handler) {
+      return;
+    }
+
+    let receivedMsg: unknown;
+    plugin.on("message", (msg) => {
+      receivedMsg = msg;
+    });
+
+    await handler({
+      message: {
+        message_id: 459,
+        chat: { id: 789, type: "private" },
+        from: { id: 101, first_name: "John" },
+        text: "I agree",
+        reply_to_message: {
+          message_id: 123,
+          caption: "Original caption",
+        },
+        date: 1675468800,
+      },
+    });
+
+    const inbound = receivedMsg as { text: string; replyToId?: string };
+    expect(inbound.text).toBe("Replying to: Original caption\n\nI agree");
+    expect(inbound.replyToId).toBe("123");
+  });
+
   it("should respect allowedChats whitelist", async () => {
     const whiteListedPlugin = new TelegramPlugin({
       ...config,

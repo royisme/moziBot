@@ -17,7 +17,7 @@ export type AgentEntry = {
   imageModel?: unknown;
   skills?: string[];
   tools?: string[];
-  subagents?: { allow?: string[]; promptMode?: "minimal" | "full" };
+  subagents?: { allow?: string[]; promptMode?: "minimal" | "full"; maxDepth?: number };
   sandbox?: unknown;
   exec?: { allowlist?: string[]; allowedSecrets?: string[] };
   heartbeat?: { enabled?: boolean; every?: string; prompt?: string };

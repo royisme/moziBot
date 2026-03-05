@@ -177,7 +177,7 @@ export async function buildTools(
   const allowSet = new Set(allowList);
   const tools: AgentTool[] = [];
 
-  if (deps.subagents && allowSet.has("subagent_run")) {
+  if (deps.subagents) {
     tools.push(
       createSubagentTool({
         subagents: deps.subagents,

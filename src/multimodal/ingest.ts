@@ -74,6 +74,21 @@ function buildParts(message: InboundMessage): ContentPart[] {
   }
 
   for (const [mediaIndex, media] of (message.media ?? []).entries()) {
+    // Debug: help diagnose why vision providers can't see images.
+    logger.info(
+      {
+        channel: message.channel,
+        messageId: message.id,
+        mediaIndex,
+        type: media.type,
+        url: media.url,
+        path: media.path,
+        hasBuffer: Boolean(media.buffer?.byteLength),
+        mimeType: media.mimeType,
+      },
+      "multimodal ingest: inbound media",
+    );
+
     const sha256 = buildMediaHash(message, media, mediaIndex);
     const mediaId = `media:${sha256.slice(0, 24)}`;
     const mimeType = media.mimeType ?? "application/octet-stream";

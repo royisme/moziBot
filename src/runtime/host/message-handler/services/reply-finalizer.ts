@@ -14,7 +14,16 @@ export interface MessageRawShape {
 /**
  * Determines if a reply should be suppressed based on the silent reply token.
  */
-export function shouldSuppressSilentReply(replyText: string | undefined): boolean {
+export function shouldSuppressSilentReply(
+  replyText: string | undefined,
+  opts?: {
+    /** If true, do NOT suppress NO_REPLY. Useful when media is present and we want an explicit reply. */
+    forceReply?: boolean;
+  },
+): boolean {
+  if (opts?.forceReply) {
+    return false;
+  }
   return isSilentReplyText(replyText);
 }
 

@@ -395,10 +395,7 @@ async function writeEnvFile(baseDir: string, envKey: string, apiKey: string) {
 }
 
 async function seedFiles(dir: string, files: string[], label: string) {
-  // Resolve template directory relative to this file
-  // This file is in src/cli/commands/, templates are in src/agents/templates/
-  const templateDir =
-    resolveTemplatesDir() ?? path.join(import.meta.dirname, "..", "..", "agents", "templates");
+  const templateDir = resolveTemplatesDir();
 
   await fs.mkdir(dir, { recursive: true });
 
@@ -409,8 +406,14 @@ async function seedFiles(dir: string, files: string[], label: string) {
       // File exists, skip
     } catch {
       // File doesn't exist, copy from template
-      const srcPath = path.join(templateDir, file);
+      let srcPath: string | null = null;
+      if (templateDir) {
+        srcPath = path.join(templateDir, file);
+      }
       try {
+        if (!srcPath) {
+          throw new Error("templates_not_found");
+        }
         const content = await fs.readFile(srcPath, "utf-8");
         // Strip frontmatter
         const stripped = content.replace(/^---[\s\S]*?---\s*/, "");

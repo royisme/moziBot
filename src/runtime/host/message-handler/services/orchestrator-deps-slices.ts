@@ -1,4 +1,5 @@
 import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
+import type { ImageContent } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../../../config";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { ingestInboundMessage } from "../../../../multimodal/ingest";
@@ -70,6 +71,7 @@ export interface OrchestratorDepsBuilderParams {
     sessionKey: string;
     agentId: string;
     text: string;
+    images?: ImageContent[];
     traceId?: string;
     onStream?: (event: {
       type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
@@ -372,6 +374,7 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
       sessionKey,
       agentId,
       text,
+      images,
       traceId,
       onStream,
       onFallback,
@@ -381,6 +384,7 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         sessionKey,
         agentId,
         text,
+        images,
         traceId,
         onStream,
         onFallback,
@@ -396,7 +400,7 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
 function buildReplyDeps(params: OrchestratorDepsBuilderParams): ReplyDeps {
   const { channel } = params;
   return {
-    shouldSuppressSilentReply: (text) => shouldSuppressSilentReply(text),
+    shouldSuppressSilentReply: (text, opts) => shouldSuppressSilentReply(text, opts),
     shouldSuppressHeartbeatReply: (raw, text) =>
       shouldSuppressHeartbeatReply(raw as { source?: string } | undefined, text),
     dispatchReply: async ({ peerId, channelId, replyText, inboundPlan, traceId }) =>

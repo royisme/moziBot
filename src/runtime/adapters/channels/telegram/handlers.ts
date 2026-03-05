@@ -14,6 +14,15 @@ function getDebouncer(channelId: string): MediaGroupDebouncer {
   return debouncerMap.get(channelId)!;
 }
 
+function getReplyPreview(msg: Context["message"]): string | undefined {
+  if (!msg?.reply_to_message) {
+    return undefined;
+  }
+  const repliedText = msg.reply_to_message.text || msg.reply_to_message.caption || "";
+  const normalized = repliedText.trim();
+  return normalized ? normalized : undefined;
+}
+
 export async function handleMessage(
   ctx: Context,
   config: TelegramPluginConfig,
@@ -32,6 +41,10 @@ export async function handleMessage(
   const senderId = msg.from?.id.toString() || "unknown";
   const senderUsername = msg.from?.username || undefined;
   const text = msg.text || msg.caption || "";
+  const replyPreview = getReplyPreview(msg);
+  const textWithReply = replyPreview
+    ? `Replying to: ${replyPreview}${text ? `\n\n${text}` : ""}`
+    : text;
   const peerType = msg.chat.type === "private" ? "dm" : "group";
 
   // Check whitelist if configured
@@ -95,7 +108,7 @@ export async function handleMessage(
     peerType,
     senderId,
     senderName: msg.from?.first_name || "Unknown",
-    text,
+    text: textWithReply,
     timestamp: new Date(msg.date * 1000),
     raw: msg,
     replyToId: msg.reply_to_message?.message_id?.toString(),
@@ -106,9 +119,34 @@ export async function handleMessage(
   const media: NonNullable<InboundMessage["media"]> = [];
   if (msg.photo) {
     const photo = msg.photo[msg.photo.length - 1]; // Largest size
+    const downloadUrl = await getDownloadUrl(photo.file_id);
+
+    // Prefer downloading to a local temp path so the multimodal pipeline does not rely on a URL fetch.
+    // Telegram file URLs require the bot token; some provider fetchers won't have access.
+    let localPath: string | undefined;
+    if (downloadUrl) {
+      try {
+        const res = await fetch(downloadUrl);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          const buf = Buffer.from(arrayBuffer);
+          const os = await import("node:os");
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const dir = path.join(os.tmpdir(), "mozi-telegram");
+          await fs.mkdir(dir, { recursive: true });
+          localPath = path.join(dir, `${channelId}-${msg.message_id}-${photo.file_id}.jpg`);
+          await fs.writeFile(localPath, buf);
+        }
+      } catch {
+        // best-effort; fallback to URL
+      }
+    }
+
     media.push({
       type: "photo",
-      url: photo.file_id,
+      url: downloadUrl || photo.file_id,
+      path: localPath,
       mimeType: "image/jpeg",
       caption: msg.caption,
       byteSize: photo.file_size,

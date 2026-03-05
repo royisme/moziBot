@@ -121,14 +121,28 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function readTemplateContent(filename: string): Promise<string> {
+async function readBootstrapTemplate(
+  filename: string,
+): Promise<{ content: string; missing: boolean }> {
   const templatePath = resolveTemplatePath(filename);
   if (!templatePath) {
-    logger.warn(`Templates directory not found; using empty template for ${filename}`);
-    return "";
+    logger.warn(`Templates directory not found for ${filename}; skipping bootstrap auto-complete`);
+    return { content: "", missing: true };
   }
-  const raw = await fs.readFile(templatePath, "utf-8");
-  return stripFrontmatter(raw);
+
+  try {
+    const raw = await fs.readFile(templatePath, "utf-8");
+    return { content: stripFrontmatter(raw), missing: false };
+  } catch (err) {
+    const anyErr = err as NodeJS.ErrnoException;
+    if (anyErr.code === "ENOENT") {
+      logger.warn(
+        `Template file missing (${filename}) at ${templatePath}; skipping bootstrap auto-complete`,
+      );
+      return { content: "", missing: true };
+    }
+    throw err;
+  }
 }
 
 export async function ensureHome(dir: string): Promise<void> {
@@ -241,11 +255,28 @@ export async function autoCompleteBootstrapIfReady(dir: string): Promise<boolean
     await writeHomeState(dir, state);
   }
 
-  const [identityTemplate, userTemplate, soulTemplate] = await Promise.all([
-    readTemplateContent(HOME_FILES.IDENTITY),
-    readTemplateContent(HOME_FILES.USER),
-    readTemplateContent(HOME_FILES.SOUL),
-  ]);
+  let identityTemplate = "";
+  let userTemplate = "";
+  let soulTemplate = "";
+  let missingTemplate = false;
+  try {
+    const [identity, user, soul] = await Promise.all([
+      readBootstrapTemplate(HOME_FILES.IDENTITY),
+      readBootstrapTemplate(HOME_FILES.USER),
+      readBootstrapTemplate(HOME_FILES.SOUL),
+    ]);
+    identityTemplate = identity.content;
+    userTemplate = user.content;
+    soulTemplate = soul.content;
+    missingTemplate = identity.missing || user.missing || soul.missing;
+  } catch (err) {
+    logger.warn(`Failed to read bootstrap templates, skipping auto-complete: ${String(err)}`);
+    return false;
+  }
+
+  if (missingTemplate) {
+    return false;
+  }
 
   let identityContent = "";
   let userContent = "";

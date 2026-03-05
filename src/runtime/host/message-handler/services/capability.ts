@@ -101,7 +101,16 @@ export async function checkInputCapability(params: {
     // 1. Skip audio degradation if a transcript already exists
     if (input === "audio" && hasAudioTranscript) {
       deps.logger.info(
-        { sessionKey, agentId, mediaCount: media.length, input },
+        {
+          sessionKey,
+          agentId,
+          mediaCount: media.length,
+          input,
+          requiredInputs,
+          selectedModelRef: restoreModelRef,
+          switched: false,
+          restoreModelRef,
+        },
         "Skipping audio capability degradation because transcript is available",
       );
       continue;
@@ -118,7 +127,17 @@ export async function checkInputCapability(params: {
       if (routed.switched) {
         switched = true;
         deps.logger.info(
-          { sessionKey, agentId, modelRef: routed.modelRef, mediaCount: media.length, input },
+          {
+            sessionKey,
+            agentId,
+            modelRef: routed.modelRef,
+            mediaCount: media.length,
+            input,
+            requiredInputs,
+            selectedModelRef: routed.modelRef,
+            switched: routed.switched,
+            restoreModelRef,
+          },
           "Input capability auto-switched model",
         );
       }
@@ -143,6 +162,10 @@ export async function checkInputCapability(params: {
         mediaCount: media.length,
         candidates: routed.candidates,
         input,
+        requiredInputs,
+        selectedModelRef: routed.modelRef,
+        switched: false,
+        restoreModelRef,
       },
       "Input capability degraded to text",
     );

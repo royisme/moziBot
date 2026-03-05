@@ -19,6 +19,7 @@ export class SubagentRegistry {
   private activeCounts = new Map<string, number>();
   private tempCounters = new Map<string, number>();
   private tempAgents = new Map<string, Agent>();
+  private readonly depthMap = new Map<string, number>();
 
   constructor(
     private modelRegistry: ModelRegistry,
@@ -37,6 +38,10 @@ export class SubagentRegistry {
   private decActive(sessionKey: string) {
     const current = this.activeCounts.get(sessionKey) || 0;
     this.activeCounts.set(sessionKey, Math.max(0, current - 1));
+  }
+
+  private getSpawnDepth(sessionKey: string): number {
+    return this.depthMap.get(sessionKey) ?? 0;
   }
 
   private nextTempId(parentAgentId: string, sessionKey: string): string {
@@ -62,11 +67,20 @@ export class SubagentRegistry {
     } as unknown as Model<Api>;
   }
 
-  private ensureAllowed(params: { parentAgentId: string; targetAgentId: string }) {
+  private ensureAllowed(params: {
+    parentAgentId: string;
+    targetAgentId: string;
+    sessionKey: string;
+  }) {
     if (params.targetAgentId === "mozi") {
       throw new Error("Primary agent cannot be called as a subagent");
     }
+    const depth = this.getSpawnDepth(params.sessionKey);
     const parentEntry = this.agentManager.getAgentEntry(params.parentAgentId);
+    const maxDepth = parentEntry?.subagents?.maxDepth ?? 2;
+    if (depth >= maxDepth) {
+      throw new Error(`Max subagent spawn depth (${maxDepth}) reached`);
+    }
     const allow = parentEntry?.subagents?.allow ?? [];
     if (!allow.includes(params.targetAgentId)) {
       throw new Error(`Subagent not allowlisted: ${params.targetAgentId}`);
@@ -80,8 +94,11 @@ export class SubagentRegistry {
         this.ensureAllowed({
           parentAgentId: params.parentAgentId,
           targetAgentId: params.agentId,
+          sessionKey: params.parentSessionKey,
         });
         const subSessionKey = `${params.agentId}::${params.parentSessionKey}`;
+        const parentDepth = this.getSpawnDepth(params.parentSessionKey);
+        this.depthMap.set(subSessionKey, parentDepth + 1);
         const subagentPromptMode = this.agentManager.resolveSubagentPromptMode(
           params.parentAgentId,
         );
