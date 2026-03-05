@@ -31,14 +31,9 @@ export function buildPromptText(params: {
   }
 
   if (providerPayload.media.length > 0) {
-    const mediaSummary = providerPayload.media
-      .map((item, index) => {
-        const mime = item.mimeType ? `, mime=${item.mimeType}` : "";
-        const filename = item.filename ? `, filename=${item.filename}` : "";
-        return `- [media#${index + 1}] modality=${item.modality}, id=${item.mediaId}${mime}${filename}`;
-      })
-      .join("\n");
-    lines.push(`Attached media:\n${mediaSummary}`);
+    lines.push(
+      `Attached media metadata (${providerPayload.media.length} item(s)) included for fallback/debug only. Vision-capable providers should consume structured media payloads instead of this summary.`,
+    );
   }
 
   if (providerPayload.metadata.fallbackUsed && providerPayload.metadata.transforms.length > 0) {

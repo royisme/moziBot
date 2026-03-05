@@ -1,3 +1,4 @@
+import type { ImageContent } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../../config";
 import type { DeliveryPlan } from "../../../multimodal/capabilities";
 import type {
@@ -140,13 +141,14 @@ export interface OrchestratorDeps {
     sessionKey: string;
     agentId: string;
     text: string;
+    images?: ImageContent[];
     traceId?: string;
     onStream?: StreamingCallback;
     onFallback?: (info: FallbackInfo) => Promise<void>;
     abortSignal?: AbortSignal;
   }): Promise<void>;
   maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
-  shouldSuppressSilentReply(text: string | undefined): boolean;
+  shouldSuppressSilentReply(text: string | undefined, opts?: { forceReply?: boolean }): boolean;
   shouldSuppressHeartbeatReply(raw: unknown, text: string): boolean;
   dispatchReply(params: {
     peerId: string;

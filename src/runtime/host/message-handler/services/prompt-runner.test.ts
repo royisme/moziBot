@@ -4,7 +4,7 @@ import { runPromptWithFallback, type PromptAgent, type PromptRunnerDeps } from "
 
 const hookMocks = vi.hoisted(() => ({
   runner: {
-    hasHooks: vi.fn(() => false),
+    hasHooks: vi.fn((_name?: string) => false),
     runLlmInput: vi.fn(async () => {}),
     runLlmOutput: vi.fn(async () => {}),
     runAgentEnd: vi.fn(async () => {}),
@@ -87,7 +87,7 @@ describe("runPromptWithFallback agent events", () => {
 
   it("emits llm_input and llm_output hooks for successful runs", async () => {
     hookMocks.runner.hasHooks.mockImplementation(
-      (name: string) => name === "llm_input" || name === "llm_output",
+      (name?: string) => name === "llm_input" || name === "llm_output",
     );
 
     const agent: PromptAgent = {
@@ -142,7 +142,7 @@ describe("runPromptWithFallback agent events", () => {
   });
 
   it("emits llm_output hook on error", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "llm_output");
+    hookMocks.runner.hasHooks.mockImplementation((name?: string) => name === "llm_output");
 
     const agent: PromptAgent = {
       prompt: vi.fn(async () => {
@@ -180,7 +180,7 @@ describe("runPromptWithFallback agent events", () => {
   });
 
   it("emits agent_end hook on success", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "agent_end");
+    hookMocks.runner.hasHooks.mockImplementation((name?: string) => name === "agent_end");
 
     const agent: PromptAgent = {
       prompt: vi.fn(async () => {}),
@@ -212,7 +212,7 @@ describe("runPromptWithFallback agent events", () => {
   });
 
   it("emits agent_end hook on error", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "agent_end");
+    hookMocks.runner.hasHooks.mockImplementation((name?: string) => name === "agent_end");
 
     const agent: PromptAgent = {
       prompt: vi.fn(async () => {
@@ -337,6 +337,126 @@ describe("runPromptWithFallback agent events", () => {
         runId: "turn:t3",
         data: expect.objectContaining({ phase: "error", error: "boom" }),
       }),
+    );
+  });
+
+  it("uses followUp streamingBehavior by default for prompt calls", async () => {
+    const prompt = vi.fn(async () => {});
+    const agent: PromptAgent = { prompt };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-followup-default",
+      agentId: "mozi",
+      text: "hello",
+      traceId: "turn:followup-default",
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledWith("hello", { streamingBehavior: "followUp" });
+  });
+
+
+  it("passes multimodal images to prompt options", async () => {
+    const prompt = vi.fn(async () => {});
+    const agent: PromptAgent = { prompt };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-images",
+      agentId: "mozi",
+      text: "look at this",
+      images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+      traceId: "turn:images",
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledWith("look at this", {
+      streamingBehavior: "followUp",
+      images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+    });
+  });
+
+  it("falls back to image-preserving prompt call when options are unsupported", async () => {
+    const prompt = vi.fn(async (_text: string, options?: { streamingBehavior?: string }) => {
+      if (options?.streamingBehavior) {
+        throw new Error("streamingBehavior is not supported by this SDK version");
+      }
+    });
+    const followUp = vi.fn(async () => {});
+    const images = [{ type: "image" as const, data: "AQID", mimeType: "image/png" }];
+    const agent: PromptAgent = { prompt, followUp };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-followup-fallback",
+      agentId: "mozi",
+      text: "hello",
+      images,
+      traceId: "turn:followup-fallback",
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect(prompt).toHaveBeenNthCalledWith(2, "hello", { images });
+    expect(followUp).not.toHaveBeenCalled();
+  });
+  it("falls back to steer when prompt options are unsupported and followUp is missing", async () => {
+    const prompt = vi.fn(async (_text: string, options?: { streamingBehavior?: string }) => {
+      if (options?.streamingBehavior) {
+        throw new Error("streamingBehavior unsupported");
+      }
+    });
+    const steer = vi.fn(async () => {});
+    const agent: PromptAgent = { prompt, steer };
+
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-steer-fallback",
+      agentId: "mozi",
+      text: "hello",
+      traceId: "turn:steer-fallback",
+      deps: buildDeps(agent),
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledTimes(1);
+    expect(steer).toHaveBeenCalledWith("hello");
+  });
+
+  it("does not retry busy errors inside runner", async () => {
+    const busyError = new Error(
+      "Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
+    );
+    const prompt = vi.fn(async () => {
+      throw busyError;
+    });
+    const agent: PromptAgent = { prompt };
+    const deps = buildDeps(agent);
+    deps.errorClassifiers.isAgentBusyError = vi.fn(() => true);
+
+    await expect(
+      runPromptWithFallback({
+        sessionKey: "agent:mozi:dm:peer-busy-cap",
+        agentId: "mozi",
+        text: "hello",
+        traceId: "turn:busy-cap",
+        deps,
+        activeMap: new Map(),
+        interruptedSet: new Set(),
+      }),
+    ).rejects.toThrow(busyError.message);
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(deps.logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "Agent busy, retrying prompt with backoff",
     );
   });
 });

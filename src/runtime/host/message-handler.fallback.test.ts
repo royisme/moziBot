@@ -32,7 +32,7 @@ function createConfig(): MoziConfig {
 }
 
 describe("MessageHandler fallback behavior", () => {
-  it("retries same model when agent reports busy", async () => {
+  it("falls back when agent reports busy", async () => {
     const handler = new MessageHandler(createConfig());
 
     let shouldFailBusy = true;
@@ -91,7 +91,12 @@ describe("MessageHandler fallback behavior", () => {
     });
 
     expect(prompt).toHaveBeenCalledTimes(2);
-    expect(setSessionModel).not.toHaveBeenCalled();
+    expect(prompt).toHaveBeenNthCalledWith(1, "hello", { streamingBehavior: "followUp" });
+    expect(prompt).toHaveBeenNthCalledWith(2, "hello", { streamingBehavior: "followUp" });
+    expect(setSessionModel).toHaveBeenCalledTimes(1);
+    expect(setSessionModel).toHaveBeenCalledWith("s1", "quotio/fallback-model", {
+      persist: false,
+    });
   });
 
   it("switches to fallback model on real model error", async () => {

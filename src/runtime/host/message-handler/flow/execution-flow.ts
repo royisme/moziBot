@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provider-media";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { getRuntimeHookRunner } from "../../../hooks";
 import { renderAssistantReply } from "../../reply-utils";
@@ -98,11 +99,17 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     sessionKey: string;
     agentId: string;
     text: string;
+    images?: import("@mariozechner/pi-ai").ImageContent[];
     traceId?: string;
     onStream?: Parameters<typeof deps.runPromptWithFallback>[0]["onStream"];
     onFallback?: (info: FallbackInfo) => Promise<void>;
   }) => deps.runPromptWithFallback(params);
-  const isSilent = (text: string | undefined) => deps.shouldSuppressSilentReply(text);
+  const isSilent = (text: string | undefined) => {
+    const hasNonTextInput = Boolean(
+      ingestPlanArtifact?.acceptedInput?.some((p) => p.modality && p.modality !== "text"),
+    );
+    return deps.shouldSuppressSilentReply(text, { forceReply: hasNonTextInput });
+  };
   const isHeartbeatOk = (raw: unknown, text: string) =>
     deps.shouldSuppressHeartbeatReply(raw, text);
   const dispatchReply = (params: {
@@ -158,7 +165,22 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   let streamedDeltaText = "";
   let terminalEventSeen = false;
 
-  const effectivePromptText = promptText;
+  const hasVisionInput = Boolean(
+    ingestPlanArtifact?.providerInput?.some((part) => part.modality === "image"),
+  );
+  const { images: promptImages, degradationNotices } = await resolveProviderInputMediaAsImages(
+    ingestPlanArtifact,
+    { strict: hasVisionInput },
+  );
+
+  const effectivePromptText = degradationNotices.length
+    ? [
+        promptText.trim(),
+        ["Multimodal input notes:", ...degradationNotices].join("\n"),
+      ]
+        .filter((value) => value.length > 0)
+        .join("\n\n")
+    : promptText;
 
   // 3. Prompt Execution
   if (supportsStreaming) {
@@ -174,6 +196,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       sessionKey,
       agentId,
       text: effectivePromptText,
+      images: promptImages,
       traceId: ctx.traceId,
       onFallback: async (info: FallbackInfo) => {
         await dispatchReply({
@@ -244,6 +267,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       sessionKey,
       agentId,
       text: effectivePromptText,
+      images: promptImages,
       traceId: ctx.traceId,
       onFallback: async (info: FallbackInfo) => {
         await dispatchReply({

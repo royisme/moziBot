@@ -1,4 +1,5 @@
 import { agentEvents } from "../../../../infra/agent-events";
+import type { ImageContent } from "@mariozechner/pi-ai";
 import { getRuntimeHookRunner } from "../../../hooks";
 import {
   handleAgentStreamEvent,
@@ -22,8 +23,16 @@ export interface ActivePromptRun {
 }
 
 export interface PromptAgent {
-  prompt(text: string): Promise<void> | void;
+  prompt(
+    text: string,
+    options?: {
+      streamingBehavior?: "steer" | "followUp";
+      images?: ImageContent[];
+    },
+  ): Promise<void> | void;
   abort?: () => Promise<void> | void;
+  followUp?: (message: string) => Promise<void> | void;
+  steer?: (message: string) => Promise<void> | void;
   subscribe?: (listener: (event: unknown) => void) => () => void;
   messages?: unknown[];
 }
@@ -61,6 +70,77 @@ export interface PromptRunnerDeps {
     isTransientError(message: string): boolean;
     toError(err: unknown): Error;
   };
+}
+
+
+function isPromptOptionsUnsupportedError(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    (message.includes("streamingbehavior") &&
+      (message.includes("unsupported") ||
+        message.includes("unknown") ||
+        message.includes("invalid") ||
+        message.includes("not supported"))) ||
+    (message.includes("argument") &&
+      (message.includes("expected 1") ||
+        message.includes("too many") ||
+        message.includes("cannot be invoked")))
+  );
+}
+
+async function callPromptWithQueueBehavior(
+  agent: PromptAgent,
+  text: string,
+  images: ImageContent[] | undefined,
+  deps: Pick<PromptRunnerDeps, "logger" | "errorClassifiers">,
+  meta: {
+    traceId?: string;
+    sessionKey: string;
+    agentId: string;
+    modelRef: string;
+    attempt: number;
+  },
+): Promise<void> {
+  const promptOptions = images?.length
+    ? { streamingBehavior: "followUp" as const, images }
+    : { streamingBehavior: "followUp" as const };
+
+  try {
+    await Promise.resolve(agent.prompt(text, promptOptions));
+    return;
+  } catch (error) {
+    if (!isPromptOptionsUnsupportedError(error)) {
+      throw error;
+    }
+    deps.logger.warn(
+      {
+        traceId: meta.traceId,
+        sessionKey: meta.sessionKey,
+        agentId: meta.agentId,
+        modelRef: meta.modelRef,
+        attempt: meta.attempt,
+        error: deps.errorClassifiers.toError(error).message,
+      },
+      "Agent prompt options unsupported; falling back to followUp/steer",
+    );
+  }
+
+  if (images?.length) {
+    await Promise.resolve(agent.prompt(text, { images }));
+    return;
+  }
+
+  if (typeof agent.followUp === "function") {
+    await Promise.resolve(agent.followUp(text));
+    return;
+  }
+
+  if (typeof agent.steer === "function") {
+    await Promise.resolve(agent.steer(text));
+    return;
+  }
+
+  await Promise.resolve(agent.prompt(text));
 }
 
 function redactSensitiveText(text: string): string {
@@ -168,6 +248,7 @@ export async function runPromptWithFallback(params: {
   sessionKey: string;
   agentId: string;
   text: string;
+  images?: ImageContent[];
   traceId?: string;
   onStream?: StreamingCallback;
   onFallback?: (info: FallbackInfo) => Promise<void> | void;
@@ -181,6 +262,7 @@ export async function runPromptWithFallback(params: {
     sessionKey,
     agentId,
     text,
+    images,
     traceId,
     onStream,
     onFallback,
@@ -193,7 +275,6 @@ export async function runPromptWithFallback(params: {
 
   const fallbacks = deps.agentManager.getAgentFallbacks(agentId);
   const tried = new Set<string>();
-  const transientRetryCounts = new Map<string, number>();
   let attempt = 0;
   let overflowCompactionAttempts = 0;
   const promptExecutionTimeoutMs = deps.agentManager.resolvePromptTimeoutMs(agentId);
@@ -355,7 +436,15 @@ export async function runPromptWithFallback(params: {
             );
           }
 
-          await abortable(Promise.resolve(agent.prompt(text)));
+          await abortable(
+            callPromptWithQueueBehavior(agent, text, images, deps, {
+              traceId,
+              sessionKey,
+              agentId,
+              modelRef,
+              attempt,
+            }),
+          );
 
           if (onStream) {
             await onStream({ type: "agent_end", fullText: accumulatedText });
@@ -408,11 +497,6 @@ export async function runPromptWithFallback(params: {
           throw abortError;
         }
 
-        if (deps.errorClassifiers.isAgentBusyError(err)) {
-          await waitForAgentIdle(agent);
-          continue; // Retry busy current model
-        }
-
         if (deps.errorClassifiers.isAbortError(error)) {
           throw error;
         }
@@ -421,30 +505,6 @@ export async function runPromptWithFallback(params: {
           overflowCompactionAttempts++;
           await onContextOverflow(overflowCompactionAttempts);
           continue; // Retry overflow
-        }
-
-        // Transient error retry before fallback (exclude our own prompt timeout)
-        const isSelfTimeout = error.message === "Agent prompt timeout";
-        if (deps.errorClassifiers.isTransientError(error.message) && !isSelfTimeout) {
-          const transientAttempts = transientRetryCounts.get(modelRef) ?? 0;
-          if (transientAttempts < 2) {
-            transientRetryCounts.set(modelRef, transientAttempts + 1);
-            const delayMs = 1000 * 2 ** transientAttempts;
-            deps.logger.warn(
-              {
-                traceId,
-                sessionKey,
-                agentId,
-                modelRef,
-                attempt,
-                transientAttempts: transientAttempts + 1,
-                delayMs,
-              },
-              "Transient error, retrying current model after backoff",
-            );
-            await new Promise((r) => setTimeout(r, delayMs));
-            continue;
-          }
         }
 
         // Handle Fallback

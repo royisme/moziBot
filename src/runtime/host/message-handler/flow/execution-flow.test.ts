@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageTurnContext, OrchestratorDeps, PreparedPromptBundle } from "../contract";
 import { runExecutionFlow } from "./execution-flow";
 
+const multimodalMocks = vi.hoisted(() => ({
+  resolveProviderInputMediaAsImages: vi.fn(async () => ({ images: [], degradationNotices: [] })),
+}));
+
+vi.mock("../../../../multimodal/provider-media", () => ({
+  resolveProviderInputMediaAsImages: multimodalMocks.resolveProviderInputMediaAsImages,
+}));
+
 const hookMocks = vi.hoisted(() => ({
   runner: {
     hasHooks: vi.fn(() => false),
@@ -111,6 +119,82 @@ function createBundle(): PreparedPromptBundle {
 }
 
 describe("runExecutionFlow", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hookMocks.runner.hasHooks.mockReturnValue(false);
+    multimodalMocks.resolveProviderInputMediaAsImages.mockResolvedValue({
+      images: [],
+      degradationNotices: [],
+    });
+  });
+  it("fails fast when vision media exists but strict resolution fails", async () => {
+    multimodalMocks.resolveProviderInputMediaAsImages.mockRejectedValueOnce(
+      new Error("strict media resolution failed"),
+    );
+    const ctx = createContext();
+    const deps = createDeps();
+    const ingestPlan = {
+      acceptedInput: [],
+      providerInput: [
+        {
+          id: "p-image",
+          role: "user",
+          index: 0,
+          modality: "image",
+          media: { mediaId: "missing", mimeType: "image/png", byteSize: 1, sha256: "sha" },
+        },
+      ],
+      outputModalities: ["text"],
+      transforms: [],
+      fallbackUsed: false,
+    };
+
+    await expect(
+      runExecutionFlow(ctx, deps, {
+        ...createBundle(),
+        config: { promptText: "look", ingestPlan },
+      }),
+    ).rejects.toThrow("strict media resolution failed");
+
+    expect(deps.runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("passes structured images into prompt runner on vision path", async () => {
+    multimodalMocks.resolveProviderInputMediaAsImages.mockResolvedValueOnce({
+      images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+      degradationNotices: [],
+    } as never);
+    const ctx = createContext();
+    const deps = createDeps();
+    const ingestPlan = {
+      acceptedInput: [],
+      providerInput: [
+        {
+          id: "p-image",
+          role: "user",
+          index: 0,
+          modality: "image",
+          media: { mediaId: "img-ok", mimeType: "image/png", byteSize: 4, sha256: "sha" },
+        },
+      ],
+      outputModalities: ["text"],
+      transforms: [],
+      fallbackUsed: false,
+    };
+
+    await runExecutionFlow(ctx, deps, {
+      ...createBundle(),
+      config: { promptText: "describe", ingestPlan },
+    });
+
+    expect(deps.runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        images: expect.arrayContaining([
+          expect.objectContaining({ type: "image", data: "AQID", mimeType: "image/png" }),
+        ]),
+      }),
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     hookMocks.runner.hasHooks.mockReturnValue(false);
