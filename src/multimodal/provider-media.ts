@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ImageContent } from "@mariozechner/pi-ai";
 import type { DeliveryPlan } from "./capabilities";
@@ -14,6 +15,12 @@ type MediaResolutionResult = {
 type MediaResolutionOptions = {
   maxInlineBytes?: number;
   strict?: boolean;
+  localFileAllowlist?: string[];
+  remote?: {
+    timeoutMs?: number;
+    maxBytes?: number;
+    allowedHosts?: string[];
+  };
 };
 
 function normalizeMimeType(value: string | undefined): string {
@@ -35,12 +42,36 @@ function buildNotice(mediaId: string, reason: string): string {
   return `- media ${mediaId}: ${reason}`;
 }
 
+function isPathWithin(parentDir: string, candidatePath: string): boolean {
+  const relative = path.relative(parentDir, candidatePath);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function assertAllowedLocalFile(filePath: string, allowlist?: string[]): Promise<void> {
+  if (!allowlist || allowlist.length === 0) {
+    return;
+  }
+
+  const realFilePath = await realpath(filePath);
+  for (const base of allowlist) {
+    const basePath = path.resolve(base);
+    const realBasePath = await realpath(basePath).catch(() => null);
+    if (realBasePath && isPathWithin(realBasePath, realFilePath)) {
+      return;
+    }
+  }
+
+  throw new Error("local file path is not in allowlist");
+}
+
 async function readFileBlobAsImage(params: {
   blobUri: string;
   mimeType: string;
   maxBytes: number;
+  localFileAllowlist?: string[];
 }): Promise<ImageContent | null> {
   const filePath = fileURLToPath(params.blobUri);
+  await assertAllowedLocalFile(filePath, params.localFileAllowlist);
   const info = await stat(filePath);
   if (info.size > params.maxBytes) {
     return null;
@@ -56,12 +87,32 @@ async function readFileBlobAsImage(params: {
   };
 }
 
+function isRemoteHostAllowed(blobUri: string, allowedHosts?: string[]): boolean {
+  if (!allowedHosts || allowedHosts.length === 0) {
+    return true;
+  }
+  const host = new URL(blobUri).hostname.toLowerCase();
+  return allowedHosts.some((entry) => host === entry.toLowerCase());
+}
+
 async function fetchRemoteBlobAsImage(params: {
   blobUri: string;
   mimeType: string;
   maxBytes: number;
+  timeoutMs?: number;
+  allowedHosts?: string[];
 }): Promise<ImageContent> {
-  const response = await fetch(params.blobUri);
+  if (!isRemoteHostAllowed(params.blobUri, params.allowedHosts)) {
+    throw new Error("remote host is not allowed by policy");
+  }
+
+  const timeoutMs = params.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const response = await fetch(params.blobUri, { signal: controller.signal }).finally(() => {
+    clearTimeout(timer);
+  });
   if (!response.ok) {
     throw new Error(`fetch failed with status ${response.status}`);
   }
@@ -120,6 +171,7 @@ export async function resolveProviderInputMediaAsImages(
 ): Promise<MediaResolutionResult> {
   const maxBytes = options?.maxInlineBytes ?? MAX_PROVIDER_INLINE_MEDIA_BYTES;
   const strict = options?.strict === true;
+  const remoteMaxBytes = options?.remote?.maxBytes ?? maxBytes;
   const images: ImageContent[] = [];
   const degradationNotices: string[] = [];
   const providerInput = plan?.providerInput ?? [];
@@ -148,6 +200,7 @@ export async function resolveProviderInputMediaAsImages(
           blobUri,
           mimeType,
           maxBytes,
+          localFileAllowlist: options?.localFileAllowlist,
         });
         if (!image) {
           degradationNotices.push(
@@ -163,7 +216,9 @@ export async function resolveProviderInputMediaAsImages(
         const image = await fetchRemoteBlobAsImage({
           blobUri,
           mimeType,
-          maxBytes,
+          maxBytes: remoteMaxBytes,
+          timeoutMs: options?.remote?.timeoutMs,
+          allowedHosts: options?.remote?.allowedHosts,
         });
         images.push(image);
         continue;

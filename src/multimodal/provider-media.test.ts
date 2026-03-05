@@ -1,14 +1,16 @@
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Model, OpenAICompletionsCompat } from "@mariozechner/pi-ai";
 import { convertMessages } from "@mariozechner/pi-ai/dist/providers/openai-completions.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, initDb, multimodal } from "../storage/db";
 import type { DeliveryPlan } from "./capabilities";
 import { resolveProviderInputMediaAsImages } from "./provider-media";
 
 const TEST_DB = "data/multimodal-provider-media.test.db";
 const TMP_DIR = "data/tmp-multimodal-provider-media";
+const TMP_ALLOWED_DIR = path.resolve(TMP_DIR, "allowed");
+const TMP_BLOCKED_DIR = path.resolve(TMP_DIR, "blocked");
 
 function cleanup() {
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -101,6 +103,8 @@ describe("resolveProviderInputMediaAsImages", () => {
     closeDb();
     cleanup();
     mkdirSync(TMP_DIR, { recursive: true });
+    mkdirSync(TMP_ALLOWED_DIR, { recursive: true });
+    mkdirSync(TMP_BLOCKED_DIR, { recursive: true });
     initDb(TEST_DB, 1);
   });
 
@@ -193,6 +197,131 @@ describe("resolveProviderInputMediaAsImages", () => {
       mimeType: "image/png",
       data: "AQIDBA==",
     });
+  });
+
+  it("allows file:// media when realpath stays in allowlist", async () => {
+    const localPath = path.resolve(TMP_ALLOWED_DIR, "allowed-image.bin");
+    const bytes = Buffer.from([1, 2, 3, 4]);
+    writeFileSync(localPath, bytes);
+
+    upsertMediaAsset({
+      id: "media-allowlisted",
+      blobUri: `file://${localPath}`,
+      byteSize: bytes.length,
+    });
+
+    const result = await resolveProviderInputMediaAsImages(buildPlan("media-allowlisted"), {
+      localFileAllowlist: [TMP_ALLOWED_DIR],
+    });
+
+    expect(result.degradationNotices).toEqual([]);
+    expect(result.images).toHaveLength(1);
+  });
+
+  it("blocks file:// symlink escape outside allowlist via realpath", async () => {
+    const blockedFile = path.resolve(TMP_BLOCKED_DIR, "blocked-image.bin");
+    writeFileSync(blockedFile, Buffer.from([1, 2, 3, 4]));
+
+    const symlinkPath = path.resolve(TMP_ALLOWED_DIR, "link-outside.bin");
+    if (!existsSync(symlinkPath)) {
+      symlinkSync(blockedFile, symlinkPath);
+    }
+
+    upsertMediaAsset({
+      id: "media-symlink-escape",
+      blobUri: `file://${symlinkPath}`,
+      byteSize: 4,
+    });
+
+    const result = await resolveProviderInputMediaAsImages(buildPlan("media-symlink-escape"), {
+      localFileAllowlist: [TMP_ALLOWED_DIR],
+    });
+
+    expect(result.images).toEqual([]);
+    expect(result.degradationNotices.some((item) => item.includes("not in allowlist"))).toBe(true);
+  });
+
+  it("blocks remote media when host is not allowed by policy", async () => {
+    upsertMediaAsset({
+      id: "media-remote-host",
+      blobUri: "https://blocked.example.com/image.png",
+      byteSize: 4,
+    });
+
+    const result = await resolveProviderInputMediaAsImages(buildPlan("media-remote-host"), {
+      remote: { allowedHosts: ["allowed.example.com"] },
+    });
+
+    expect(result.images).toEqual([]);
+    expect(result.degradationNotices.some((item) => item.includes("host is not allowed"))).toBe(true);
+  });
+
+  it("enforces remote maxBytes policy", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => {
+      const body = new Uint8Array([1, 2, 3, 4]);
+      return new Response(body, {
+        status: 200,
+        headers: { "content-length": "4" },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      upsertMediaAsset({
+        id: "media-remote-size",
+        blobUri: "https://allowed.example.com/image.png",
+        byteSize: 4,
+      });
+
+      const result = await resolveProviderInputMediaAsImages(buildPlan("media-remote-size"), {
+        remote: { allowedHosts: ["allowed.example.com"], maxBytes: 2 },
+      });
+
+      expect(result.images).toEqual([]);
+      expect(result.degradationNotices.some((item) => item.includes("remote media too large"))).toBe(
+        true,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("enforces remote fetch timeout policy", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const signal = init?.signal;
+      await new Promise<void>((resolve, reject) => {
+        if (!signal) {
+          resolve();
+          return;
+        }
+        if (signal.aborted) {
+          reject(new Error("aborted"));
+          return;
+        }
+        signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+      return new Response(new Uint8Array([1]), { status: 200 });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      upsertMediaAsset({
+        id: "media-remote-timeout",
+        blobUri: "https://allowed.example.com/slow-image.png",
+        byteSize: 4,
+      });
+
+      const result = await resolveProviderInputMediaAsImages(buildPlan("media-remote-timeout"), {
+        remote: { allowedHosts: ["allowed.example.com"], timeoutMs: 5 },
+      });
+
+      expect(result.images).toEqual([]);
+      expect(result.degradationNotices.some((item) => item.includes("aborted"))).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("throws in strict mode when any media cannot be resolved", async () => {

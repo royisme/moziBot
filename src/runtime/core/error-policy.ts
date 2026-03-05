@@ -60,13 +60,17 @@ function isCapabilityError(message: string): boolean {
   );
 }
 
+function clampRetryAfterMs(value: number): number {
+  return Math.min(Math.round(value), RETRY_AFTER_MS_CAP);
+}
+
 function parseRetryAfterMs(message: string): number | null {
   const lower = message.toLowerCase();
   const secondsMatch = lower.match(/retry[- ]?after\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b/);
   if (secondsMatch) {
     const seconds = Number(secondsMatch[1]);
     if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(Math.round(seconds * 1000), RETRY_AFTER_MS_CAP);
+      return clampRetryAfterMs(seconds * 1000);
     }
   }
 
@@ -74,7 +78,7 @@ function parseRetryAfterMs(message: string): number | null {
   if (msMatch) {
     const ms = Number(msMatch[1]);
     if (Number.isFinite(ms) && ms >= 0) {
-      return Math.min(Math.round(ms), RETRY_AFTER_MS_CAP);
+      return clampRetryAfterMs(ms);
     }
   }
 
@@ -82,7 +86,104 @@ function parseRetryAfterMs(message: string): number | null {
   if (headerLikeMatch) {
     const seconds = Number(headerLikeMatch[1]);
     if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(Math.round(seconds * 1000), RETRY_AFTER_MS_CAP);
+      return clampRetryAfterMs(seconds * 1000);
+    }
+  }
+
+  return null;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function parseRetryAfterValue(raw: unknown, unit: "ms" | "seconds"): number | null {
+  if (typeof raw === "number") {
+    if (!Number.isFinite(raw) || raw < 0) {
+      return null;
+    }
+    return clampRetryAfterMs(unit === "ms" ? raw : raw * 1000);
+  }
+
+  if (typeof raw !== "string") {
+    return null;
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && numeric >= 0) {
+    return clampRetryAfterMs(unit === "ms" ? numeric : numeric * 1000);
+  }
+
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    const delta = dateMs - Date.now();
+    if (delta >= 0) {
+      return clampRetryAfterMs(delta);
+    }
+  }
+
+  return null;
+}
+
+function parseRetryAfterMsFromStructuredError(error: Error): number | null {
+  const stack: unknown[] = [error];
+  const visited = new Set<object>();
+
+  while (stack.length > 0) {
+    const next = stack.pop();
+    const record = toRecord(next);
+    if (!record) {
+      continue;
+    }
+    if (visited.has(record)) {
+      continue;
+    }
+    visited.add(record);
+
+    const directMs =
+      parseRetryAfterValue(record.retryAfterMs, "ms") ??
+      parseRetryAfterValue(record.retry_after_ms, "ms") ??
+      parseRetryAfterValue(record.retryAfterMillis, "ms");
+    if (directMs !== null) {
+      return directMs;
+    }
+
+    const directSeconds =
+      parseRetryAfterValue(record.retryAfter, "seconds") ??
+      parseRetryAfterValue(record.retry_after, "seconds") ??
+      parseRetryAfterValue(record["retry-after"], "seconds");
+    if (directSeconds !== null) {
+      return directSeconds;
+    }
+
+    const headers = record.headers;
+    if (headers instanceof Headers) {
+      const headerValue = headers.get("retry-after");
+      const parsed = parseRetryAfterValue(headerValue, "seconds");
+      if (parsed !== null) {
+        return parsed;
+      }
+    } else {
+      const headersRecord = toRecord(headers);
+      if (headersRecord) {
+        const parsed =
+          parseRetryAfterValue(headersRecord["retry-after"], "seconds") ??
+          parseRetryAfterValue(headersRecord["Retry-After"], "seconds");
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+    }
+
+    for (const key of ["cause", "response", "data", "error", "details", "meta", "metadata"]) {
+      if (record[key] !== undefined) {
+        stack.push(record[key]);
+      }
     }
   }
 
@@ -112,7 +213,7 @@ export class DefaultRuntimeErrorPolicy implements RuntimeErrorPolicy {
 
     const shouldRetry = isAgentBusyError(error) || isTransientError(message) || isFormatError(message);
     if (shouldRetry && attempt < this.maxRetries) {
-      const retryAfterMs = parseRetryAfterMs(message);
+      const retryAfterMs = parseRetryAfterMsFromStructuredError(error) ?? parseRetryAfterMs(message);
       return {
         retry: true,
         delayMs: retryAfterMs ?? this.baseDelayMs * 2 ** attempt,
