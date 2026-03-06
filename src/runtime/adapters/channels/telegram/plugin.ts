@@ -28,6 +28,7 @@ export interface TelegramPluginConfig {
   groupPolicy?: "open" | "allowlist";
   allowFrom?: string[];
   groups?: Record<string, TelegramGroupPolicyConfig>;
+  /** Stream mode: "off" = no streaming, "partial" = stream text only, "full" = stream + reasoning */
   streamMode?: "off" | "partial" | "full";
   polling?: {
     timeoutSeconds?: number;
@@ -43,7 +44,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
   readonly name = "Telegram";
 
   private bot: Bot;
-  private config: TelegramPluginConfig;
+  private _config: TelegramPluginConfig;
   private dedup: TelegramUpdateDedup;
   private runner: ReturnType<typeof run> | null = null;
   private runnerTask: Promise<void> | null = null;
@@ -57,10 +58,15 @@ export class TelegramPlugin extends BaseChannelPlugin {
   private statusReactionEmojis: Record<StatusReaction, string>;
   private statusReactionState = new Map<string, string>();
 
+  /** Expose config for runtime to check streamMode */
+  get config(): TelegramPluginConfig {
+    return this._config;
+  }
+
   constructor(config: TelegramPluginConfig) {
     super();
     const statusReactions = config.statusReactions;
-    this.config = {
+    this._config = {
       ...config,
       allowedChats: (config.allowedChats ?? []).map((item) => item.toString()),
       allowFrom: (config.allowFrom ?? []).map((item) => item.toString()),
@@ -101,7 +107,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:text", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -112,7 +118,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:photo", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -123,7 +129,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:document", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -134,7 +140,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:voice", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -145,7 +151,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:audio", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -156,7 +162,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
     this.bot.on("message:video", (ctx) =>
       handleMessage(
         ctx,
-        this.config,
+        this._config,
         this.id,
         this.botUsername,
         this.botId,
@@ -165,7 +171,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
       ),
     );
     this.bot.on("callback_query:data", (ctx) =>
-      handleCallback(ctx, this.config, this.id, (msg) => this.emitMessage(msg)),
+      handleCallback(ctx, this._config, this.id, (msg) => this.emitMessage(msg)),
     );
 
     this.bot.catch((err) => {
@@ -177,7 +183,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
   private async getDownloadUrl(fileId: string): Promise<string | undefined> {
     try {
       const file = await this.bot.api.getFile(fileId);
-      return `https://api.telegram.org/file/bot${this.config.botToken}/${file.file_path}`;
+      return `https://api.telegram.org/file/bot${this._config.botToken}/${file.file_path}`;
     } catch (error) {
       logger.error({ error, fileId }, "Failed to get Telegram file URL");
       return undefined;
@@ -272,11 +278,11 @@ export class TelegramPlugin extends BaseChannelPlugin {
         this.runner = run(this.bot, {
           runner: {
             fetch: {
-              timeout: this.config.polling?.timeoutSeconds,
+              timeout: this._config.polling?.timeoutSeconds,
             },
-            maxRetryTime: this.config.polling?.maxRetryTimeMs,
-            retryInterval: this.config.polling?.retryInterval,
-            silent: this.config.polling?.silentRunnerErrors,
+            maxRetryTime: this._config.polling?.maxRetryTimeMs,
+            retryInterval: this._config.polling?.retryInterval,
+            silent: this._config.polling?.silentRunnerErrors,
           },
         });
 
@@ -339,7 +345,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
   }
 
   private computeRecoveryDelayMs(attempt: number): number {
-    const retryInterval = this.config.polling?.retryInterval;
+    const retryInterval = this._config.polling?.retryInterval;
     const baseMs = 1_000;
     const maxMs = 30_000;
 
@@ -406,7 +412,7 @@ export class TelegramPlugin extends BaseChannelPlugin {
       },
       "Telegram outbound send requested",
     );
-    return sendMessage(this.bot, peerId, message, this.config.botToken);
+    return sendMessage(this.bot, peerId, message, this._config.botToken);
   }
 
   async beginTyping(peerId: string): Promise<(() => Promise<void>) | void> {
@@ -453,11 +459,18 @@ export class TelegramPlugin extends BaseChannelPlugin {
   }
 
   async editMessage(messageId: string, peerId: string, newText: string): Promise<void> {
+    // Check if streaming is disabled
+    if (this._config.streamMode === "off") {
+      logger.debug({ peerId, messageId }, "Streaming disabled, skipping edit");
+      return;
+    }
+
     logger.info(
       {
         peerId,
         messageId,
         textChars: newText.length,
+        streamMode: this._config.streamMode,
       },
       "Telegram outbound edit requested",
     );
