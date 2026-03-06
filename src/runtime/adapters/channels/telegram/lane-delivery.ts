@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import { logger } from "../../../../logger";
-import { editMsg, sendMessage } from "./send";
 import type { OutboundMessage } from "../types";
+import { editMsg, sendMessage } from "./send";
 
 /**
  * Lane names for content separation
@@ -128,14 +128,20 @@ export function createLaneTextDeliverer(
         laneState.messageId = await sendMessage(bot, peerId, message, "");
         laneState.lastText = text;
         if (debug) {
-          logger.debug({ lane, messageId: laneState.messageId, textLength: text.length }, "Lane message sent");
+          logger.debug(
+            { lane, messageId: laneState.messageId, textLength: text.length },
+            "Lane message sent",
+          );
         }
       } else if (!laneState.finalized) {
         // Subsequent updates - edit existing message
         await editMsg(bot, laneState.messageId, peerId, text);
         laneState.lastText = text;
         if (debug) {
-          logger.debug({ lane, messageId: laneState.messageId, textLength: text.length }, "Lane message updated");
+          logger.debug(
+            { lane, messageId: laneState.messageId, textLength: text.length },
+            "Lane message updated",
+          );
         }
       }
     } catch (error) {
@@ -171,7 +177,10 @@ export function createLaneTextDeliverer(
       try {
         await bot.api.deleteMessage(peerId, parseInt(laneState.messageId));
       } catch (error) {
-        logger.warn({ error, lane, messageId: laneState.messageId }, "Failed to delete lane message");
+        logger.warn(
+          { error, lane, messageId: laneState.messageId },
+          "Failed to delete lane message",
+        );
       }
       // Archive for potential cleanup
       state.archivedPreviews.push({

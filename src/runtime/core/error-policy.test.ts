@@ -16,7 +16,11 @@ describe("DefaultRuntimeErrorPolicy", () => {
     const policy = new DefaultRuntimeErrorPolicy(4, 1000);
     const error = new Error("503 service unavailable; retry-after: 7");
 
-    expect(policy.decide(error, 1)).toEqual({ retry: true, delayMs: 7000, reason: "transient_error" });
+    expect(policy.decide(error, 1)).toEqual({
+      retry: true,
+      delayMs: 7000,
+      reason: "transient_error",
+    });
   });
 
   it("prefers structured retry-after fields over message parsing", () => {
@@ -26,7 +30,11 @@ describe("DefaultRuntimeErrorPolicy", () => {
     };
     error.retryAfterMs = 1500;
 
-    expect(policy.decide(error, 1)).toEqual({ retry: true, delayMs: 1500, reason: "transient_error" });
+    expect(policy.decide(error, 1)).toEqual({
+      retry: true,
+      delayMs: 1500,
+      reason: "transient_error",
+    });
   });
 
   it("parses retry-after from structured headers", () => {
@@ -36,7 +44,11 @@ describe("DefaultRuntimeErrorPolicy", () => {
     };
     error.response = { headers: { "retry-after": "2" } };
 
-    expect(policy.decide(error, 1)).toEqual({ retry: true, delayMs: 2000, reason: "transient_error" });
+    expect(policy.decide(error, 1)).toEqual({
+      retry: true,
+      delayMs: 2000,
+      reason: "transient_error",
+    });
   });
 
   it("does not retry auth/billing/capability errors", () => {

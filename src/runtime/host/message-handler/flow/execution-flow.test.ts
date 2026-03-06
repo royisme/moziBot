@@ -22,8 +22,16 @@ vi.mock("../../../hooks", () => ({
   getRuntimeHookRunner: () => hookMocks.runner,
 }));
 
-function createDeps(): OrchestratorDeps & { __loggerInfoMock: ReturnType<typeof vi.fn> } {
+function createDeps(): OrchestratorDeps & {
+  __loggerInfoMock: ReturnType<typeof vi.fn>;
+  __runPromptWithFallbackMock: ReturnType<typeof vi.fn>;
+} {
   const loggerInfo = vi.fn();
+  const runPromptWithFallbackMock = vi.fn(async ({ onStream }) => {
+    if (onStream) {
+      await onStream({ type: "agent_end", fullText: "hi" });
+    }
+  });
   return {
     config: {} as OrchestratorDeps["config"],
     logger: {
@@ -72,11 +80,7 @@ function createDeps(): OrchestratorDeps & { __loggerInfoMock: ReturnType<typeof 
           getAccumulatedText: vi.fn(() => ""),
         }) as unknown as ReturnType<OrchestratorDeps["createStreamingBuffer"]>,
     ),
-    runPromptWithFallback: vi.fn(async ({ onStream }) => {
-      if (onStream) {
-        await onStream({ type: "agent_end", fullText: "hi" });
-      }
-    }),
+    runPromptWithFallback: runPromptWithFallbackMock,
     maybePreFlushBeforePrompt: vi.fn(async () => {}),
     shouldSuppressSilentReply: vi.fn(() => false),
     shouldSuppressHeartbeatReply: vi.fn(() => false),
@@ -88,6 +92,7 @@ function createDeps(): OrchestratorDeps & { __loggerInfoMock: ReturnType<typeof 
     setSessionModel: vi.fn(async () => {}),
     stopTypingIndicator: vi.fn(async () => {}),
     __loggerInfoMock: loggerInfo,
+    __runPromptWithFallbackMock: runPromptWithFallbackMock,
   };
 }
 
@@ -156,7 +161,7 @@ describe("runExecutionFlow", () => {
       }),
     ).rejects.toThrow("strict media resolution failed");
 
-    expect(deps.runPromptWithFallback).not.toHaveBeenCalled();
+    expect(deps.__runPromptWithFallbackMock.mock.calls.length).toBe(0);
   });
 
   it("passes structured images into prompt runner on vision path", async () => {
@@ -187,7 +192,7 @@ describe("runExecutionFlow", () => {
       config: { promptText: "describe", ingestPlan },
     });
 
-    expect(deps.runPromptWithFallback).toHaveBeenCalledWith(
+    expect(deps.__runPromptWithFallbackMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         images: expect.arrayContaining([
           expect.objectContaining({ type: "image", data: "AQID", mimeType: "image/png" }),

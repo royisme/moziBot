@@ -69,10 +69,12 @@ describe("AgentJobRunner", () => {
       "job_tool_end",
       "job_completed",
     ]);
-    expect(registry.listEvents(job.id).slice(2, 4).map((event) => event.runId)).toEqual([
-      "run:job-1",
-      "run:job-1",
-    ]);
+    expect(
+      registry
+        .listEvents(job.id)
+        .slice(2, 4)
+        .map((event) => event.runId),
+    ).toEqual(["run:job-1", "run:job-1"]);
   });
 
   it("marks_failed_snapshot_when_executor_throws", async () => {
@@ -122,7 +124,9 @@ describe("AgentJobRunner", () => {
         await onStream?.({ type: "text_delta", delta: "hello" });
         await onStream?.({ type: "agent_end", fullText: "hello" });
       },
-      delivery: { deliver } as unknown as ConstructorParameters<typeof AgentJobRunner>[0]["delivery"],
+      delivery: { deliver } as unknown as ConstructorParameters<
+        typeof AgentJobRunner
+      >[0]["delivery"],
       now: vi.fn(() => 1_100),
     });
 

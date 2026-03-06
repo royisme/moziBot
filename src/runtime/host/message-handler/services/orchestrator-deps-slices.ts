@@ -1,5 +1,5 @@
-import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
 import type { ImageContent } from "@mariozechner/pi-ai";
+import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
 import type { MoziConfig } from "../../../../config";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { ingestInboundMessage } from "../../../../multimodal/ingest";

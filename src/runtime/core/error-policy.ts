@@ -66,7 +66,9 @@ function clampRetryAfterMs(value: number): number {
 
 function parseRetryAfterMs(message: string): number | null {
   const lower = message.toLowerCase();
-  const secondsMatch = lower.match(/retry[- ]?after\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b/);
+  const secondsMatch = lower.match(
+    /retry[- ]?after\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(seconds?|secs?|s)\b/,
+  );
   if (secondsMatch) {
     const seconds = Number(secondsMatch[1]);
     if (Number.isFinite(seconds) && seconds >= 0) {
@@ -211,9 +213,11 @@ export class DefaultRuntimeErrorPolicy implements RuntimeErrorPolicy {
       return { retry: false, delayMs: 0, reason: "auth_billing_error" };
     }
 
-    const shouldRetry = isAgentBusyError(error) || isTransientError(message) || isFormatError(message);
+    const shouldRetry =
+      isAgentBusyError(error) || isTransientError(message) || isFormatError(message);
     if (shouldRetry && attempt < this.maxRetries) {
-      const retryAfterMs = parseRetryAfterMsFromStructuredError(error) ?? parseRetryAfterMs(message);
+      const retryAfterMs =
+        parseRetryAfterMsFromStructuredError(error) ?? parseRetryAfterMs(message);
       return {
         retry: true,
         delayMs: retryAfterMs ?? this.baseDelayMs * 2 ** attempt,

@@ -1,5 +1,5 @@
-import { agentEvents } from "../../../../infra/agent-events";
 import type { ImageContent } from "@mariozechner/pi-ai";
+import { agentEvents } from "../../../../infra/agent-events";
 import { getRuntimeHookRunner } from "../../../hooks";
 import {
   handleAgentStreamEvent,
@@ -71,7 +71,6 @@ export interface PromptRunnerDeps {
     toError(err: unknown): Error;
   };
 }
-
 
 function isPromptOptionsUnsupportedError(error: unknown): boolean {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
@@ -341,8 +340,8 @@ export async function runPromptWithFallback(params: {
         });
 
         if (onStream && typeof agent.subscribe === "function") {
-          unsubscribe = agent.subscribe((event: unknown) => {
-            const mapped = toStreamEvent(event);
+          unsubscribe = agent.subscribe((agentEvent: unknown) => {
+            const mapped = toStreamEvent(agentEvent);
             if (!mapped) {
               return;
             }
@@ -367,8 +366,8 @@ export async function runPromptWithFallback(params: {
             }
             void handleAgentStreamEvent(
               mapped,
-              async (event) => {
-                await onStream({ ...event, runId });
+              async (streamEvent) => {
+                await onStream({ ...streamEvent, runId });
               },
               (delta) => {
                 accumulatedText += delta;

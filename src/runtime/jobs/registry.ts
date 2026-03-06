@@ -71,7 +71,9 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
 
     this.activeJobs.set(entry.id, entry);
     this.jobLogContext.set(entry.id, buildJobLogContext(entry));
-    this.appendEvent(createAgentJobEvent({ jobId: entry.id, type: "job_queued", at: entry.createdAt }));
+    this.appendEvent(
+      createAgentJobEvent({ jobId: entry.id, type: "job_queued", at: entry.createdAt }),
+    );
     return entry;
   }
 
@@ -114,12 +116,12 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
       status: nextStatus,
       startedAt:
         nextStatus === "running"
-          ? patch.startedAt ?? current.startedAt ?? now
-          : patch.startedAt ?? current.startedAt,
+          ? (patch.startedAt ?? current.startedAt ?? now)
+          : (patch.startedAt ?? current.startedAt),
       finishedAt:
         nextStatus === "completed" || nextStatus === "failed" || nextStatus === "cancelled"
-          ? patch.finishedAt ?? current.finishedAt ?? now
-          : patch.finishedAt ?? current.finishedAt,
+          ? (patch.finishedAt ?? current.finishedAt ?? now)
+          : (patch.finishedAt ?? current.finishedAt),
     };
 
     this.activeJobs.set(jobId, updated);
@@ -391,7 +393,8 @@ function buildToolPayload(event: AgentJobEvent): Record<string, unknown> | undef
   return {
     phase: event.type,
     phaseCategory: "active",
-    outcome: event.type === "job_tool_end" ? (event.payload?.isError ? "failed" : "completed") : "started",
+    outcome:
+      event.type === "job_tool_end" ? (event.payload?.isError ? "failed" : "completed") : "started",
     toolName: event.payload?.toolName,
     toolCallId: event.payload?.toolCallId,
     isError: event.payload?.isError,

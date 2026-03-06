@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provider-media";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
+import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provider-media";
 import { getRuntimeHookRunner } from "../../../hooks";
 import { renderAssistantReply } from "../../reply-utils";
 import type { ExecutionFlow } from "../contract";
@@ -183,10 +183,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   );
 
   const effectivePromptText = degradationNotices.length
-    ? [
-        promptText.trim(),
-        ["Multimodal input notes:", ...degradationNotices].join("\n"),
-      ]
+    ? [promptText.trim(), ["Multimodal input notes:", ...degradationNotices].join("\n")]
         .filter((value) => value.length > 0)
         .join("\n\n")
     : promptText;

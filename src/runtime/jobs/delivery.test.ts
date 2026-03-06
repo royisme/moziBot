@@ -43,10 +43,12 @@ describe("AgentJobDelivery", () => {
       "job_delivery_requested",
       "job_delivery_succeeded",
     ]);
-    expect(registry.listEvents(job.id).slice(1).map((event) => event.runId)).toEqual([
-      "run:job-1",
-      "run:job-1",
-    ]);
+    expect(
+      registry
+        .listEvents(job.id)
+        .slice(1)
+        .map((event) => event.runId),
+    ).toEqual(["run:job-1", "run:job-1"]);
   });
 
   it("records_failed_delivery_without_throwing", async () => {
@@ -80,9 +82,11 @@ describe("AgentJobDelivery", () => {
       "job_delivery_requested",
       "job_delivery_failed",
     ]);
-    expect(registry.listEvents(job.id).slice(1).map((event) => event.runId)).toEqual([
-      "run:job-1",
-      "run:job-1",
-    ]);
+    expect(
+      registry
+        .listEvents(job.id)
+        .slice(1)
+        .map((event) => event.runId),
+    ).toEqual(["run:job-1", "run:job-1"]);
   });
 });

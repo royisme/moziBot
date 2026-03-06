@@ -185,7 +185,10 @@ export async function ensureSessionModelForInput(params: {
   // IMPORTANT: For image input, always route via configured imageModel (agents.{id}.imageModel
   // or agents.defaults.imageModel). Do not short-circuit just because the current model also
   // claims to support image.
-  if (input !== "image" && modelSupportsInput({ modelRegistry: params.modelRegistry, modelRef, input })) {
+  if (
+    input !== "image" &&
+    modelSupportsInput({ modelRegistry: params.modelRegistry, modelRef, input })
+  ) {
     return { ok: true, modelRef, switched: false };
   }
 

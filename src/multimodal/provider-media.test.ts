@@ -140,10 +140,7 @@ describe("resolveProviderInputMediaAsImages", () => {
         messages: [
           {
             role: "user",
-            content: [
-              { type: "text", text: "describe attached media" },
-              ...result.images,
-            ],
+            content: [{ type: "text", text: "describe attached media" }, ...result.images],
             timestamp: Date.now(),
           },
         ],
@@ -152,9 +149,8 @@ describe("resolveProviderInputMediaAsImages", () => {
     );
 
     expect(messages).toHaveLength(1);
-    const content = messages[0]?.role === "user" && Array.isArray(messages[0].content)
-      ? messages[0].content
-      : [];
+    const content =
+      messages[0]?.role === "user" && Array.isArray(messages[0].content) ? messages[0].content : [];
     const imagePart = content.find((part) => part.type === "image_url");
     expect(imagePart).toBeDefined();
     expect(imagePart && "image_url" in imagePart ? imagePart.image_url.url : "").toContain(
@@ -253,7 +249,9 @@ describe("resolveProviderInputMediaAsImages", () => {
     });
 
     expect(result.images).toEqual([]);
-    expect(result.degradationNotices.some((item) => item.includes("host is not allowed"))).toBe(true);
+    expect(result.degradationNotices.some((item) => item.includes("host is not allowed"))).toBe(
+      true,
+    );
   });
 
   it("enforces remote maxBytes policy", async () => {
@@ -279,9 +277,9 @@ describe("resolveProviderInputMediaAsImages", () => {
       });
 
       expect(result.images).toEqual([]);
-      expect(result.degradationNotices.some((item) => item.includes("remote media too large"))).toBe(
-        true,
-      );
+      expect(
+        result.degradationNotices.some((item) => item.includes("remote media too large")),
+      ).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
     }

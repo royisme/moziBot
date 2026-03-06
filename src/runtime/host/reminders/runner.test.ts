@@ -75,15 +75,10 @@ describe("ReminderRunner", () => {
     vi.mocked(reminders.markFired).mockReturnValue(true);
 
     const create = vi.fn((input) => ({ ...input, status: "queued" }));
-    const runner = new ReminderRunner(
-      { enqueueInbound } as never,
-      1000,
-      10,
-      {
-        jobRunner: { run } as never,
-        jobRegistry: { create } as never,
-      },
-    );
+    const runner = new ReminderRunner({ enqueueInbound } as never, 1000, 10, {
+      jobRunner: { run } as never,
+      jobRegistry: { create } as never,
+    });
     await runner.tick();
 
     expect(run).toHaveBeenCalledTimes(1);

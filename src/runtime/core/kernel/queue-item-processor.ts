@@ -60,7 +60,9 @@ export async function processQueueItem(params: {
       const job = params.agentJobRegistry.create({
         id: params.queueItem.id,
         sessionKey: params.queueItem.session_key,
-        agentId: inbound.channel ? params.messageHandler.resolveSessionContext(inbound).agentId : "mozi",
+        agentId: inbound.channel
+          ? params.messageHandler.resolveSessionContext(inbound).agentId
+          : "mozi",
         channelId: params.queueItem.channel_id,
         peerId: params.queueItem.peer_id,
         source: "tool",

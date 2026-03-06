@@ -10,11 +10,11 @@ import type { MoziConfig } from "../../config/schema";
 import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
 import { continuationRegistry } from "../../runtime/core/continuation";
 import type { ContinuationRequest } from "../../runtime/core/contracts";
-import { resolveAgentJobEscalationTarget } from "../../runtime/jobs/policy";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
 import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
 import { spawnSubAgent } from "../../runtime/host/sessions/spawn";
 import type { Session } from "../../runtime/host/sessions/types";
+import { resolveAgentJobEscalationTarget } from "../../runtime/jobs/policy";
 
 export interface SessionToolsContext {
   sessionManager: SessionManager;

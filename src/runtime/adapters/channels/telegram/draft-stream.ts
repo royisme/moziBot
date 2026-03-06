@@ -1,7 +1,7 @@
 import type { Bot } from "grammy";
 import { logger } from "../../../../logger";
-import { editMsg, sendMessage } from "./send";
 import type { OutboundMessage } from "../types";
+import { editMsg, sendMessage } from "./send";
 
 /**
  * Telegram Draft Stream configuration
@@ -125,14 +125,20 @@ export function createTelegramDraftStream(
         currentGeneration.messageId = await transport.send(text);
         currentGeneration.lastText = text;
         if (debug) {
-          logger.debug({ messageId: currentGeneration.messageId, textLength: text.length }, "Draft sent");
+          logger.debug(
+            { messageId: currentGeneration.messageId, textLength: text.length },
+            "Draft sent",
+          );
         }
       } else if (!currentGeneration.finalized) {
         // Subsequent updates - edit existing message
         await transport.edit(currentGeneration.messageId, text);
         currentGeneration.lastText = text;
         if (debug) {
-          logger.debug({ messageId: currentGeneration.messageId, textLength: text.length }, "Draft updated");
+          logger.debug(
+            { messageId: currentGeneration.messageId, textLength: text.length },
+            "Draft updated",
+          );
         }
       }
     } catch (error) {

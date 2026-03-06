@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, initDb, runtimeQueue } from "../../storage/db";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
-import { continuationRegistry } from "./continuation";
 import { InMemoryAgentJobRegistry } from "../jobs";
+import { continuationRegistry } from "./continuation";
 import { RuntimeKernel } from "./kernel";
 
 const TEST_DB = "data/test-runtime-kernel.db";
@@ -911,5 +911,4 @@ describe("RuntimeKernel", () => {
       }),
     );
   });
-
 });

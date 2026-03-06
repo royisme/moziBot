@@ -6,10 +6,7 @@ export type AgentJobStatus =
   | "failed"
   | "cancelled";
 
-export type AgentJobTerminalStatus = Extract<
-  AgentJobStatus,
-  "completed" | "failed" | "cancelled"
->;
+export type AgentJobTerminalStatus = Extract<AgentJobStatus, "completed" | "failed" | "cancelled">;
 
 export type AgentJobSource = "inbound" | "reminder" | "tool" | "api" | "system";
 

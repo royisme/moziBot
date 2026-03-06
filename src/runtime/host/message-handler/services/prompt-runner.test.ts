@@ -358,7 +358,6 @@ describe("runPromptWithFallback agent events", () => {
     expect(prompt).toHaveBeenCalledWith("hello", { streamingBehavior: "followUp" });
   });
 
-
   it("passes multimodal images to prompt options", async () => {
     const prompt = vi.fn(async () => {});
     const agent: PromptAgent = { prompt };
@@ -454,9 +453,10 @@ describe("runPromptWithFallback agent events", () => {
     ).rejects.toThrow(busyError.message);
 
     expect(prompt).toHaveBeenCalledTimes(1);
-    expect(deps.logger.warn).not.toHaveBeenCalledWith(
-      expect.anything(),
-      "Agent busy, retrying prompt with backoff",
-    );
+    expect(
+      deps.logger.warn.mock.calls.some(
+        (call) => call[1] === "Agent busy, retrying prompt with backoff",
+      ),
+    ).toBe(false);
   });
 });

@@ -14,6 +14,7 @@ import {
   stopAllChromeExtensionRelays,
 } from "../browser/extension-relay";
 import { RuntimeKernel } from "../core/kernel";
+import { AgentJobDelivery, AgentJobRunner, InMemoryAgentJobRegistry } from "../jobs";
 import { bootstrapSandboxes } from "../sandbox/bootstrap";
 import { ConfigManager } from "./config-manager";
 import { CronScheduler } from "./cron/scheduler";
@@ -23,7 +24,6 @@ import { HeartbeatRunner } from "./heartbeat";
 import { Lifecycle } from "./lifecycle";
 import { resolveLocalDesktopDecision } from "./local-desktop-mode";
 import { MessageHandler } from "./message-handler";
-import { AgentJobDelivery, AgentJobRunner, InMemoryAgentJobRegistry } from "../jobs";
 import { ReminderRunner } from "./reminders/runner";
 import { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";

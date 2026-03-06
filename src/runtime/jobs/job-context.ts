@@ -10,6 +10,8 @@ export interface AgentJobExecutionContext {
 }
 
 /** Build a minimal execution context for AgentJob-driven prompt runs. */
-export function createAgentJobExecutionContext(params: AgentJobExecutionContext): AgentJobExecutionContext {
+export function createAgentJobExecutionContext(
+  params: AgentJobExecutionContext,
+): AgentJobExecutionContext {
   return params;
 }

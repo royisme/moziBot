@@ -2,8 +2,8 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { DeliveryPlan } from "./capabilities";
 import { multimodal } from "../storage/db";
+import type { DeliveryPlan } from "./capabilities";
 
 export const MAX_PROVIDER_INLINE_MEDIA_BYTES = 10 * 1024 * 1024;
 
@@ -204,7 +204,10 @@ export async function resolveProviderInputMediaAsImages(
         });
         if (!image) {
           degradationNotices.push(
-            buildNotice(mediaId, `file too large for inline transport (> ${formatBytes(maxBytes)})`),
+            buildNotice(
+              mediaId,
+              `file too large for inline transport (> ${formatBytes(maxBytes)})`,
+            ),
           );
           continue;
         }
