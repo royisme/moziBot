@@ -174,6 +174,22 @@ describe("TelegramPlugin", () => {
     }
   });
 
+  it("should keep thread id continuity across outbound chunks", async () => {
+    const longText = "a".repeat(5000);
+    await plugin.send("12345", { text: longText, threadId: "987" });
+
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const calls = botInstance.api.sendMessage.mock.calls as Array<
+      [string, string, { message_thread_id?: number }]
+    >;
+
+    expect(calls.length).toBe(2);
+    for (const [, text, options] of calls) {
+      expect(text.length).toBeLessThanOrEqual(4096);
+      expect(options?.message_thread_id).toBe(987);
+    }
+  });
+
   it("should map silent=true to disable_notification across all chunks", async () => {
     const longText = "a".repeat(5000);
     await plugin.send("12345", { text: longText, silent: true });
@@ -541,6 +557,38 @@ describe("TelegramPlugin", () => {
     expect((receivedMsg as ReceivedMsg).text).toBe("hello bot");
   });
 
+  it("should map inbound telegram topic id into threadId", async () => {
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    const handler = botInstance.on.mock.calls.find(
+      (call: unknown[]) => (call[0] as string) === "message:text",
+    )?.[1] as ((ctx: unknown) => Promise<void>) | undefined;
+    expect(handler).toBeDefined();
+    if (!handler) {
+      return;
+    }
+
+    let receivedMsg: unknown;
+    plugin.on("message", (msg) => {
+      receivedMsg = msg;
+    });
+
+    await handler({
+      message: {
+        message_id: 460,
+        chat: { id: -1001, type: "supergroup" },
+        from: { id: 101, first_name: "John" },
+        text: "topic hello",
+        message_thread_id: 321,
+        date: 1675468800,
+      },
+    });
+
+    const inbound = receivedMsg as { threadId?: string; peerType?: string; peerId?: string };
+    expect(inbound.threadId).toBe("321");
+    expect(inbound.peerType).toBe("group");
+    expect(inbound.peerId).toBe("-1001");
+  });
+
   it("should preserve slash text parity semantics for host parsing", async () => {
     const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
     const handler = botInstance.on.mock.calls.find(
@@ -618,8 +666,11 @@ describe("TelegramPlugin", () => {
       },
     });
 
-    const inbound = receivedMsg as { media?: Array<Record<string, unknown>> };
-    expect(inbound.media?.[0]).toMatchObject({
+    expect(receivedMsg).toBeDefined();
+    expect(receivedMsg).toMatchObject({ media: expect.any(Array) });
+    const inbound = receivedMsg as { media: Array<Record<string, unknown>> };
+    const firstMedia = inbound.media.at(0);
+    expect(firstMedia).toMatchObject({
       type: "voice",
       url: "voice-file-1",
       mimeType: "audio/ogg",
@@ -672,8 +723,11 @@ describe("TelegramPlugin", () => {
       },
     });
 
-    const inbound = receivedMsg as { media?: Array<Record<string, unknown>> };
-    expect(inbound.media?.[0]).toMatchObject({
+    expect(receivedMsg).toBeDefined();
+    expect(receivedMsg).toMatchObject({ media: expect.any(Array) });
+    const inbound = receivedMsg as { media: Array<Record<string, unknown>> };
+    const firstMedia = inbound.media.at(0);
+    expect(firstMedia).toMatchObject({
       type: "photo",
       url: "https://api.telegram.org/file/bottest-token/path/file.jpg",
       caption: "photo note",

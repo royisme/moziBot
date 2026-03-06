@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MessageTurnContext, OrchestratorDeps } from "./contract";
+import { StreamingBuffer } from "./services/streaming";
 import { MessageTurnRuntime } from "./turn-runtime";
 
 const flowMocks = vi.hoisted(() => ({
@@ -43,7 +44,16 @@ function createDeps(): OrchestratorDeps {
     normalizeImplicitControlCommand: vi.fn((v: string) => v),
     parseCommand: vi.fn(() => null),
     parseInlineOverrides: vi.fn(() => null),
-    resolveSessionContext: vi.fn(() => ({ sessionKey: "s", agentId: "a", peerId: "p" })),
+    resolveSessionContext: vi.fn(() => ({
+      sessionKey: "s",
+      agentId: "a",
+      peerId: "p",
+      route: {
+        channelId: "telegram",
+        peerId: "p",
+        peerType: "dm" as const,
+      },
+    })),
     rememberLastRoute: vi.fn(),
     sendDirect: vi.fn(async () => {}),
     getCommandHandlerMap: vi.fn(
@@ -70,12 +80,15 @@ function createDeps(): OrchestratorDeps {
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
     emitStatusSafely: vi.fn(async () => {}),
-    createStreamingBuffer: vi.fn(() => ({
-      append: vi.fn(),
-      initialize: vi.fn(async () => {}),
-      finalize: vi.fn(async () => null),
-      getAccumulatedText: vi.fn(() => ""),
-    })),
+    createStreamingBuffer: vi.fn(() =>
+      new StreamingBuffer(
+        {
+          send: async () => "out",
+          editMessage: async () => {},
+        },
+        "peer-1",
+      ),
+    ),
     runPromptWithFallback: vi.fn(async () => {}),
     maybePreFlushBeforePrompt: vi.fn(async () => {}),
     shouldSuppressSilentReply: vi.fn(() => false),
@@ -154,10 +167,12 @@ describe("MessageTurnRuntime stage registry", () => {
   });
 
   it("emits turn_completed hook when session context is available", async () => {
-    hookMocks.runner.hasHooks.mockImplementation((name: string) => name === "turn_completed");
+    hookMocks.runner.hasHooks.mockImplementation(() => true);
     const runtime = new MessageTurnRuntime(createDeps());
-    const ctx = createContext();
-    ctx.state = { sessionKey: "agent:mozi:telegram:dm:chat-1", agentId: "mozi" };
+    const ctx: MessageTurnContext = {
+      ...createContext(),
+      state: { sessionKey: "agent:mozi:telegram:dm:chat-1", agentId: "mozi" },
+    };
 
     await runtime.run(ctx);
 

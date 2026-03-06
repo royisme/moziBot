@@ -56,6 +56,7 @@ import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler
 import { extractAssistantText } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import type { SessionManager } from "./sessions/manager";
+import type { RouteContext } from "./routing/types";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { createBrowserTools } from "./tools/browser";
 import { createSessionTools } from "./tools/sessions";
@@ -189,6 +190,10 @@ export class MessageHandler {
       createdAt: session.createdAt ?? Date.now(),
       updatedAt: session.updatedAt,
     };
+  }
+
+  getLastRoute(agentId: string): RouteContext | undefined {
+    return this.lastRoutes.get(agentId);
   }
 
   async initExtensions(): Promise<void> {
@@ -586,16 +591,18 @@ export class MessageHandler {
     return { runId };
   }
 
-  resolveSessionContext(message: InboundMessage): { sessionKey: string; agentId: string } {
-    const resolved = resolveSessionContextService({
+  resolveSessionContext(message: InboundMessage): {
+    sessionKey: string;
+    agentId: string;
+    dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+    peerId: string;
+    route: RouteContext;
+  } {
+    return resolveSessionContextService({
       message,
       router: this.router,
       defaultAgentId: this.agentManager.resolveDefaultAgentId(),
     });
-    return {
-      sessionKey: resolved.sessionKey,
-      agentId: resolved.agentId,
-    };
   }
 
   private resolveLifecycleRun(sessionKey: string, traceId?: string): RunLifecycleEntry | undefined {

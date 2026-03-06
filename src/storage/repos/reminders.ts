@@ -8,6 +8,9 @@ export const reminders = {
     channelId: string;
     peerId: string;
     peerType: string;
+    accountId?: string;
+    threadId?: string;
+    replyToId?: string;
     message: string;
     scheduleKind: "at" | "every" | "cron";
     scheduleJson: string;
@@ -17,8 +20,8 @@ export const reminders = {
       const now = new Date().toISOString();
       conn
         .prepare(
-          `INSERT INTO reminders (id, session_key, channel_id, peer_id, peer_type, message, schedule_kind, schedule_json, enabled, next_run_at, last_run_at, cancelled_at, created_at, updated_at)
-           VALUES ($id, $session_key, $channel_id, $peer_id, $peer_type, $message, $schedule_kind, $schedule_json, 1, $next_run_at, NULL, NULL, $created_at, $updated_at)`,
+          `INSERT INTO reminders (id, session_key, channel_id, peer_id, peer_type, account_id, thread_id, reply_to_id, message, schedule_kind, schedule_json, enabled, next_run_at, last_run_at, cancelled_at, created_at, updated_at)
+           VALUES ($id, $session_key, $channel_id, $peer_id, $peer_type, $account_id, $thread_id, $reply_to_id, $message, $schedule_kind, $schedule_json, 1, $next_run_at, NULL, NULL, $created_at, $updated_at)`,
         )
         .run({
           id: item.id,
@@ -26,6 +29,9 @@ export const reminders = {
           channel_id: item.channelId,
           peer_id: item.peerId,
           peer_type: item.peerType,
+          account_id: item.accountId ?? null,
+          thread_id: item.threadId ?? null,
+          reply_to_id: item.replyToId ?? null,
           message: item.message,
           schedule_kind: item.scheduleKind,
           schedule_json: item.scheduleJson,

@@ -14,6 +14,7 @@ type MockClient = {
   commands: Array<unknown>;
   handleDeployRequest: ReturnType<typeof vi.fn>;
   rest: {
+    get: ReturnType<typeof vi.fn>;
     post: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
@@ -59,6 +60,7 @@ const mockState = vi.hoisted(() => {
       commands: [],
       handleDeployRequest: vi.fn().mockResolvedValue({}),
       rest: {
+        get: vi.fn().mockResolvedValue({ id: "channel-1", type: 0 }),
         post: vi.fn().mockResolvedValue({ id: "sent-123" }),
         put: vi.fn().mockResolvedValue({}),
         delete: vi.fn().mockResolvedValue({}),
@@ -778,6 +780,44 @@ describe("DiscordPlugin (carbon)", () => {
     expect(msg.peerType).toBe("group");
     expect(msg.senderName).toBe("alice");
     expect(msg.peerId).toBe("chan-1");
+  });
+
+  it("maps inbound discord thread channel into canonical threadId", async () => {
+    const plugin = new DiscordPlugin({ botToken: "test-token" });
+    const client = await connectPlugin(plugin);
+
+    const listener = client.listeners.find((item) => item.type === "MESSAGE_CREATE");
+    expect(listener).toBeDefined();
+    if (!listener) {
+      throw new Error("message listener not found");
+    }
+
+    let received: unknown;
+    plugin.on("message", (msg) => {
+      received = msg;
+    });
+
+    await listener.handle(
+      {
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "alice", bot: false },
+        message: {
+          id: "msg-thread-1",
+          channelId: "thread-999",
+          content: "inside thread",
+          attachments: [],
+          messageReference: { message_id: "parent-msg-1" },
+          channel: { isThread: () => true },
+          timestamp: new Date().toISOString(),
+        },
+      },
+      client,
+    );
+
+    const msg = received as { threadId?: string; replyToId?: string; peerId?: string };
+    expect(msg.threadId).toBe("thread-999");
+    expect(msg.replyToId).toBe("parent-msg-1");
+    expect(msg.peerId).toBe("thread-999");
   });
 
   it("ignores bot messages", async () => {

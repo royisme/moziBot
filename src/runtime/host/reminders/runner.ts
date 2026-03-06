@@ -4,6 +4,7 @@ import { reminders } from "../../../storage/db";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { RuntimeKernel } from "../../core/kernel";
 import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
+import { normalizeRouteContext } from "../routing/route-context";
 import type { Schedule } from "../cron/types";
 import { computeNextRun } from "./schedule";
 
@@ -68,18 +69,30 @@ export class ReminderRunner {
           }
 
           const queueItemId = randomUUID();
+          const route = normalizeRouteContext({
+            channelId: reminder.channel_id,
+            peerId: reminder.peer_id,
+            peerType: parsePeerType(reminder.peer_type),
+            accountId: reminder.account_id ?? undefined,
+            threadId: reminder.thread_id ?? undefined,
+            replyToId: reminder.reply_to_id ?? undefined,
+          });
           const inbound: InboundMessage = {
             id: queueItemId,
-            channel: reminder.channel_id,
-            peerId: reminder.peer_id,
-            peerType: reminder.peer_type as "dm" | "group" | "channel",
+            channel: route.channelId,
+            peerId: route.peerId,
+            peerType: route.peerType,
             senderId: "system:reminder",
             text: reminder.message,
+            accountId: route.accountId,
+            threadId: route.threadId,
+            replyToId: route.replyToId,
             timestamp: now,
             raw: {
               source: "reminder",
               reminderId: reminder.id,
               scheduledAt: fireAt.toISOString(),
+              route,
             },
           };
 
@@ -89,8 +102,7 @@ export class ReminderRunner {
               id: queueItemId,
               sessionKey: reminder.session_key,
               agentId: reminder.session_key.split(":")[1] || "mozi",
-              channelId: reminder.channel_id,
-              peerId: reminder.peer_id,
+              route,
               source: "reminder",
               kind: "scheduled",
               prompt: reminder.message,
@@ -141,4 +153,11 @@ export class ReminderRunner {
       this.running = false;
     }
   }
+}
+
+function parsePeerType(value: string): "dm" | "group" | "channel" {
+  if (value === "group" || value === "channel") {
+    return value;
+  }
+  return "dm";
 }

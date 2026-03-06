@@ -21,6 +21,9 @@ describe("ReminderRunner", () => {
       channel_id: "telegram",
       peer_id: "user1",
       peer_type: "dm",
+      account_id: "acc-1",
+      thread_id: "thread-9",
+      reply_to_id: "reply-7",
       message: "Ping",
       schedule_kind: "every",
       schedule_json: JSON.stringify({ kind: "every", everyMs: 60_000, anchorMs: Date.now() }),
@@ -52,7 +55,17 @@ describe("ReminderRunner", () => {
     expect(enqueueInbound).toHaveBeenCalledWith(
       expect.objectContaining({
         inbound: expect.objectContaining({
-          raw: expect.objectContaining({ source: "reminder" }),
+          raw: expect.objectContaining({
+            source: "reminder",
+            route: {
+              channelId: "telegram",
+              peerId: "user1",
+              peerType: "dm",
+              accountId: "acc-1",
+              threadId: "thread-9",
+              replyToId: "reply-7",
+            },
+          }),
         }),
       }),
     );
@@ -82,6 +95,18 @@ describe("ReminderRunner", () => {
     await runner.tick();
 
     expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: {
+          channelId: "telegram",
+          peerId: "user1",
+          peerType: "dm",
+          accountId: "acc-1",
+          threadId: "thread-9",
+          replyToId: "reply-7",
+        },
+      }),
+    );
     expect(enqueueInbound).not.toHaveBeenCalled();
   });
 });

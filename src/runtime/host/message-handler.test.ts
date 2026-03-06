@@ -827,6 +827,88 @@ describe("MessageHandler commands", () => {
     expect(finalText).toContain("我是 pi，一个 AI 编程助手。");
   });
 
+  it("returns canonical route from resolveSessionContext", () => {
+    const resolved = handler.resolveSessionContext({
+      ...createMessage("hello"),
+      peerType: "group",
+      accountId: "acct-42",
+      threadId: 123,
+      replyToId: "reply-9",
+    });
+
+    expect(resolved.sessionKey).toContain("agent:mozi:telegram:group:chat-1");
+    expect(resolved.agentId).toBe("mozi");
+    expect(resolved.peerId).toBe("chat-1");
+    expect(resolved.route).toEqual({
+      channelId: "telegram",
+      peerId: "chat-1",
+      peerType: "group",
+      accountId: "acct-42",
+      threadId: "123",
+      replyToId: "reply-9",
+    });
+  });
+
+  it("stores canonical last route through inbound orchestration", async () => {
+    await handler.handle(
+      {
+        ...createMessage("remember route"),
+        peerType: "group",
+        accountId: "acct-77",
+        threadId: 456,
+        replyToId: "r-1",
+      },
+      channel,
+    );
+
+    expect(handler.getLastRoute("mozi")).toEqual({
+      channelId: "telegram",
+      peerId: "chat-1",
+      peerType: "group",
+      accountId: "acct-77",
+      threadId: "456",
+      replyToId: "r-1",
+    });
+  });
+
+  it("dispatches host replies using canonical peer routing", async () => {
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: { type: "agent_end"; fullText?: string }) => void;
+      }) => Promise<void>;
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      params.onStream?.({ type: "agent_end", fullText: "routed reply" });
+    });
+
+    await handler.handle(
+      {
+        ...createMessage("hello route"),
+        peerType: "group",
+        threadId: 789,
+        replyToId: "321",
+      },
+      channel,
+    );
+
+    expect(send).toHaveBeenCalledWith(
+      "chat-1",
+      expect.objectContaining({
+        text: "routed reply",
+        traceId: "turn:m-1",
+      }),
+    );
+    expect(handler.getLastRoute("mozi")).toEqual(
+      expect.objectContaining({
+        channelId: "telegram",
+        peerId: "chat-1",
+        threadId: "789",
+        replyToId: "321",
+      }),
+    );
+  });
+
   it("attempts pre-overflow memory flush when context usage is high", async () => {
     const config = createConfig();
     config.memory = {

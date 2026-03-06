@@ -1,4 +1,5 @@
 import { getRuntimeHookRunner } from "../../../hooks";
+import type { RouteContext } from "../../routing/types";
 import type { InboundFlow } from "../contract";
 
 /**
@@ -15,7 +16,7 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
   const normalizeControl = (t: string) => deps.normalizeImplicitControlCommand(t);
   const parseCommand = (t: string) => deps.parseCommand(t);
   const resolveContext = (p: unknown) => deps.resolveSessionContext(p);
-  const rememberRoute = (agentId: string, p: unknown) => deps.rememberLastRoute(agentId, p);
+  const rememberRoute = (agentId: string, route: RouteContext) => deps.rememberLastRoute(agentId, route);
   const sendDirect = (peerId: string, text: string) => deps.sendDirect(peerId, text);
   const getChannel = (p: unknown) => deps.getChannel(p);
   const parseInlineOverrides = (parsed: { name: string; args: string } | null) =>
@@ -47,7 +48,7 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
 
     // 3. Session Resolution
     const context = resolveContext(payload);
-    rememberRoute(context.agentId, payload);
+    rememberRoute(context.agentId, context.route);
 
     const hookRunner = getRuntimeHookRunner();
     if (hookRunner.hasHooks("message_received")) {
@@ -102,6 +103,7 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
     state.sessionKey = context.sessionKey;
     state.peerId = context.peerId;
     state.dmScope = context.dmScope;
+    state.route = context.route;
     state.startedAt = ctx.startTime;
 
     // 6. Logging

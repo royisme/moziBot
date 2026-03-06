@@ -42,11 +42,16 @@ describe("reply-dispatcher", () => {
 
     await dispatchReply({
       channel: { id: "telegram", send },
-      peerId: "chat-1",
-      channelId: "telegram",
+      delivery: {
+        route: {
+          channelId: "telegram",
+          peerId: "chat-1",
+          peerType: "group",
+        },
+        traceId: "trace-1",
+      },
       replyText: "<think>hidden</think>hello",
       inboundPlan: null,
-      traceId: "trace-1",
     });
 
     expect(send).toHaveBeenCalledTimes(1);
@@ -58,5 +63,36 @@ describe("reply-dispatcher", () => {
     };
     expect(payload.text).toBe("hello");
     expect(payload.traceId).toBe("trace-1");
+  });
+
+  it("dispatchReply flattens route threadId/replyToId onto outbound message", async () => {
+    const send = vi.fn(async () => "out-2");
+
+    await dispatchReply({
+      channel: { id: "telegram", send },
+      delivery: {
+        route: {
+          channelId: "telegram",
+          peerId: "chat-2",
+          peerType: "group",
+          threadId: "topic-42",
+          replyToId: "msg-7",
+        },
+        traceId: "trace-2",
+      },
+      replyText: "hello thread",
+      inboundPlan: null,
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      "chat-2",
+      expect.objectContaining({
+        text: "hello thread",
+        threadId: "topic-42",
+        replyToId: "msg-7",
+        traceId: "trace-2",
+      }),
+    );
   });
 });

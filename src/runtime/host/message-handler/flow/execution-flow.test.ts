@@ -44,7 +44,16 @@ function createDeps(): OrchestratorDeps & {
     normalizeImplicitControlCommand: vi.fn((v: string) => v),
     parseCommand: vi.fn(() => null),
     parseInlineOverrides: vi.fn(() => null),
-    resolveSessionContext: vi.fn(() => ({ sessionKey: "s", agentId: "a", peerId: "p" })),
+    resolveSessionContext: vi.fn(() => ({
+      sessionKey: "s",
+      agentId: "a",
+      peerId: "p",
+      route: {
+        channelId: "telegram",
+        peerId: "p",
+        peerType: "dm" as const,
+      },
+    })),
     rememberLastRoute: vi.fn(),
     sendDirect: vi.fn(async () => {}),
     getCommandHandlerMap: vi.fn(

@@ -7,8 +7,14 @@ function createJob() {
     id: "job-1",
     sessionKey: "agent:mozi:telegram:dm:user-1",
     agentId: "mozi",
-    channelId: "telegram",
-    peerId: "user-1",
+    route: {
+      channelId: "telegram",
+      peerId: "user-1",
+      peerType: "dm" as const,
+      accountId: "default",
+      threadId: "42",
+      replyToId: "99",
+    },
     source: "reminder" as const,
     kind: "scheduled" as const,
     prompt: "hello",
@@ -20,9 +26,10 @@ describe("AgentJobDelivery", () => {
   it("delivers_completed_job_result", async () => {
     const registry = new InMemoryAgentJobRegistry();
     const job = registry.create(createJob());
+    const send = vi.fn(async () => "out-1");
     const delivery = new AgentJobDelivery({
       registry,
-      dispatch: { send: vi.fn(async () => "out-1") },
+      dispatch: { send },
     });
 
     const result = await delivery.deliver({
@@ -38,6 +45,25 @@ describe("AgentJobDelivery", () => {
     });
 
     expect(result).toEqual({ delivered: true, attempts: 1, outboundId: "out-1" });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delivery: {
+          route: {
+            channelId: "telegram",
+            peerId: "user-1",
+            peerType: "dm",
+            accountId: "default",
+            threadId: "42",
+            replyToId: "99",
+          },
+          traceId: "trace-job-1",
+          sessionKey: "agent:mozi:telegram:dm:user-1",
+          agentId: "mozi",
+          source: "job",
+        },
+        replyText: "done",
+      }),
+    );
     expect(registry.listEvents(job.id).map((event) => event.type)).toEqual([
       "job_queued",
       "job_delivery_requested",

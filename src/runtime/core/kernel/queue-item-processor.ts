@@ -5,11 +5,56 @@ import type { ChannelPlugin } from "../../adapters/channels/plugin";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { MessageHandler } from "../../host/message-handler";
 import { startDetachedRun as startDetachedRunService } from "../../host/message-handler/services/run-dispatch";
+import { normalizeRouteContext, routeContextFromInbound } from "../../host/routing/route-context";
+import type { RouteContext } from "../../host/routing/types";
 import type { SessionManager } from "../../host/sessions/manager";
 import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
 import { SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
 import type { RuntimeErrorPolicy } from "../contracts";
+
+type RouteLike = {
+  channelId?: unknown;
+  peerId?: unknown;
+  peerType?: unknown;
+  accountId?: unknown;
+  threadId?: unknown;
+  replyToId?: unknown;
+};
+
+function resolveContinuationRoute(rawRoute: unknown, inbound: InboundMessage): RouteContext {
+  if (!rawRoute || typeof rawRoute !== "object") {
+    return routeContextFromInbound(inbound);
+  }
+
+  const routeCandidate = rawRoute as RouteLike;
+  if (typeof routeCandidate.channelId !== "string" || typeof routeCandidate.peerId !== "string") {
+    return routeContextFromInbound(inbound);
+  }
+
+  const peerType: RouteContext["peerType"] =
+    routeCandidate.peerType === "group" || routeCandidate.peerType === "channel"
+      ? routeCandidate.peerType
+      : "dm";
+
+  return normalizeRouteContext({
+    channelId: routeCandidate.channelId,
+    peerId: routeCandidate.peerId,
+    peerType,
+    accountId:
+      typeof routeCandidate.accountId === "string" || typeof routeCandidate.accountId === "number"
+        ? routeCandidate.accountId
+        : undefined,
+    threadId:
+      typeof routeCandidate.threadId === "string" || typeof routeCandidate.threadId === "number"
+        ? routeCandidate.threadId
+        : undefined,
+    replyToId:
+      typeof routeCandidate.replyToId === "string" || typeof routeCandidate.replyToId === "number"
+        ? routeCandidate.replyToId
+        : undefined,
+  });
+}
 
 export async function processQueueItem(params: {
   queueItem: RuntimeQueueItem;
@@ -56,15 +101,16 @@ export async function processQueueItem(params: {
         context?: unknown;
         parentMessageId?: unknown;
         parentQueueItemId?: unknown;
+        route?: unknown;
       };
+      const inheritedRoute = resolveContinuationRoute(continuationRaw.route, inbound);
       const job = params.agentJobRegistry.create({
         id: params.queueItem.id,
         sessionKey: params.queueItem.session_key,
         agentId: inbound.channel
           ? params.messageHandler.resolveSessionContext(inbound).agentId
           : "mozi",
-        channelId: params.queueItem.channel_id,
-        peerId: params.queueItem.peer_id,
+        route: inheritedRoute,
         source: "tool",
         kind: "followup",
         prompt: inbound.text ?? "",
@@ -295,9 +341,7 @@ async function handleDetachedTerminal(params: {
 
     await processPendingContinuations({
       sessionKey: params.queueItem.session_key,
-      channelId: params.queueItem.channel_id,
-      peerId: params.queueItem.peer_id,
-      peerType: params.queueItem.peer_type,
+      route: routeContextFromInbound(params.inbound),
       originalInbound: params.inbound,
       parentQueueItemId: params.queueItem.id,
       sessionManager: params.sessionManager,
@@ -385,9 +429,7 @@ async function handleDetachedTerminal(params: {
 
 async function processPendingContinuations(params: {
   sessionKey: string;
-  channelId: string;
-  peerId: string;
-  peerType: string;
+  route: RouteContext;
   originalInbound: InboundMessage;
   parentQueueItemId: string;
   sessionManager: SessionManager;
@@ -408,9 +450,7 @@ async function processPendingContinuations(params: {
 
 async function enqueueContinuation(params: {
   sessionKey: string;
-  channelId: string;
-  peerId: string;
-  peerType: string;
+  route: RouteContext;
   originalInbound: InboundMessage;
   parentQueueItemId: string;
   continuation: {
@@ -430,11 +470,14 @@ async function enqueueContinuation(params: {
 
   const continuationInbound: InboundMessage = {
     id: queueItemId,
-    channel: params.channelId,
-    peerId: params.peerId,
-    peerType: params.originalInbound.peerType,
+    channel: params.route.channelId,
+    peerId: params.route.peerId,
+    peerType: params.route.peerType,
     senderId: params.originalInbound.senderId,
     text: params.continuation.prompt,
+    accountId: params.route.accountId,
+    threadId: params.route.threadId,
+    replyToId: params.route.replyToId,
     timestamp: now,
     raw: {
       source: "continuation",
@@ -442,6 +485,7 @@ async function enqueueContinuation(params: {
       context: params.continuation.context,
       parentMessageId: params.originalInbound.id,
       parentQueueItemId: params.parentQueueItemId,
+      route: params.route,
     },
   };
 
@@ -449,9 +493,9 @@ async function enqueueContinuation(params: {
     id: queueItemId,
     dedupKey,
     sessionKey: params.sessionKey,
-    channelId: params.channelId,
-    peerId: params.peerId,
-    peerType: params.peerType,
+    channelId: params.route.channelId,
+    peerId: params.route.peerId,
+    peerType: params.route.peerType,
     inboundJson: JSON.stringify(continuationInbound),
     enqueuedAt: now.toISOString(),
     availableAt: availableAt.toISOString(),

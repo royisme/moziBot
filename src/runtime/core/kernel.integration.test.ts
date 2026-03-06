@@ -44,6 +44,7 @@ function buildInbound(id: string, peerId: string): InboundMessage {
     peerType: "dm",
     senderId: `sender-${peerId}`,
     text: `hello-${id}`,
+    threadId: `thread-${peerId}`,
     timestamp: new Date(),
     raw: { source: "test" },
   };
@@ -816,6 +817,7 @@ describe("RuntimeKernel", () => {
         agentId: "mozi",
         channelId: "telegram",
         peerId: "peer-cont-job",
+        threadId: inbound.threadId,
         source: "tool",
         kind: "followup",
         prompt: "follow up prompt",
@@ -832,6 +834,105 @@ describe("RuntimeKernel", () => {
     );
     expect(handled).toEqual([]);
     expect(sessionManager.getStatus("agent:mozi:telegram:dm:peer-cont-job")).toBe("completed");
+  });
+
+  it("prefers canonical continuation route from raw context", async () => {
+    const sessionManager = new FakeSessionManager();
+    const run = vi.fn(async (job) => ({
+      context: {
+        jobId: job.id,
+        sessionKey: job.sessionKey,
+        agentId: job.agentId,
+        source: job.source,
+        kind: job.kind,
+      },
+      snapshot: {
+        id: job.id,
+        status: "completed",
+        resultSummary: "done",
+        ts: Date.now(),
+      },
+      finalText: "done",
+    }));
+    const registry = new InMemoryAgentJobRegistry({ now: vi.fn(() => 1_000) });
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      handle: async (_message: InboundMessage) => {},
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-continuation-route",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "followup",
+      },
+      pollIntervalMs: 10,
+      agentJobRunner: { run } as never,
+      agentJobRegistry: registry,
+    });
+    await kernel.start();
+
+    const inbound: InboundMessage = {
+      ...buildInbound("cont-route-1", "peer-cont-route"),
+      channel: "telegram",
+      peerId: "peer-top",
+      peerType: "dm",
+      accountId: "acc-top",
+      threadId: "thread-top",
+      replyToId: "reply-top",
+      text: "follow up route",
+      raw: {
+        source: "continuation",
+        route: {
+          channelId: "discord",
+          peerId: "thread-88",
+          peerType: "group",
+          accountId: "acc-route",
+          threadId: "thread-route",
+          replyToId: "reply-route",
+        },
+      },
+    };
+
+    const result = await kernel.enqueueInbound({
+      id: "cont-route-e1",
+      inbound,
+      receivedAt: new Date(),
+    });
+
+    const ok = await waitFor(() => runtimeQueue.getById("cont-route-e1")?.status === "completed");
+    await kernel.stop();
+
+    expect(result.accepted).toBe(true);
+    expect(ok).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        route: {
+          channelId: "discord",
+          peerId: "thread-88",
+          peerType: "group",
+          accountId: "acc-route",
+          threadId: "thread-route",
+          replyToId: "reply-route",
+        },
+        channelId: "discord",
+        peerId: "thread-88",
+        peerType: "group",
+        accountId: "acc-route",
+        threadId: "thread-route",
+        replyToId: "reply-route",
+      }),
+    );
   });
 
   it("propagates parent queue item id into followup agent job", async () => {
@@ -885,6 +986,9 @@ describe("RuntimeKernel", () => {
     await kernel.start();
 
     const parentInbound = buildInbound("parent-m1", "peer-parent");
+    parentInbound.accountId = "acc-parent";
+    parentInbound.threadId = "thread-parent";
+    parentInbound.replyToId = "reply-parent";
     const result = await kernel.enqueueInbound({
       id: "parent-q1",
       inbound: parentInbound,
@@ -900,6 +1004,17 @@ describe("RuntimeKernel", () => {
       expect.objectContaining({
         prompt: "child followup",
         parentJobId: "parent-q1",
+        route: {
+          channelId: "telegram",
+          peerId: "peer-parent",
+          peerType: "dm",
+          accountId: "acc-parent",
+          threadId: "thread-parent",
+          replyToId: "reply-parent",
+        },
+        accountId: "acc-parent",
+        threadId: "thread-parent",
+        replyToId: "reply-parent",
         metadata: {
           continuation: {
             reason: "test-parent-link",

@@ -62,6 +62,9 @@ export interface ReminderRecord {
   channel_id: string;
   peer_id: string;
   peer_type: string;
+  account_id: string | null;
+  thread_id: string | null;
+  reply_to_id: string | null;
   message: string;
   schedule_kind: "at" | "every" | "cron";
   schedule_json: string;

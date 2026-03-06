@@ -25,6 +25,7 @@ import { Lifecycle } from "./lifecycle";
 import { resolveLocalDesktopDecision } from "./local-desktop-mode";
 import { MessageHandler } from "./message-handler";
 import { ReminderRunner } from "./reminders/runner";
+import { routeContextToOutboundMessage } from "./routing/route-context";
 import { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { injectMessageHandler } from "./sessions/subagent-announce";
@@ -252,12 +253,18 @@ export class RuntimeHost {
         registry: this.agentJobRegistry,
         retries: config.runtime?.agentJobs?.deliveryRetries ?? 0,
         dispatch: {
-          send: async ({ peerId, channelId, replyText, traceId }) => {
+          send: async ({ delivery, replyText }) => {
+            const channelId = delivery.route.channelId;
+            const peerId = delivery.route.peerId;
             const channel = this.channelRegistry.get(channelId);
             if (!channel) {
               throw new Error(`Channel not found: ${channelId}`);
             }
-            return channel.send(peerId, { text: replyText ?? "", traceId });
+            const outbound = routeContextToOutboundMessage(delivery.route, {
+              text: replyText ?? "",
+              traceId: delivery.traceId,
+            });
+            return channel.send(peerId, outbound);
           },
         },
       });

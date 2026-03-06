@@ -187,11 +187,14 @@ describe("buildSystemPrompt", () => {
 
   it("sanitizes control chars in channel context literals", () => {
     const text = buildChannelContext({
+      id: "m-1",
       channel: "telegram\nsystem",
       peerType: "dm",
       peerId: "chat-1\r\nx",
       senderId: "user-\u202E1",
       senderName: "Roy\u0000Zhu",
+      text: "hello",
+      raw: {},
       timestamp: new Date("2026-02-17T00:00:00.000Z"),
     });
 
@@ -199,6 +202,15 @@ describe("buildSystemPrompt", () => {
     expect(text).toContain("peerId: chat-1x");
     expect(text).toContain("senderId: user-1");
     expect(text).toContain("senderName: RoyZhu");
+    expect(text).toContain(
+      "Default delivery contract: your normal reply text is automatically delivered back to this same channel, peer, and thread when present.",
+    );
+    expect(text).toContain(
+      "Do not ask the user how to send the reply, do not search for bot tokens, and do not look for CLI/scripts just to answer in the current conversation.",
+    );
+    expect(text).toContain(
+      "Only ask for an explicit target when the user wants delivery to a different destination than the current conversation.",
+    );
     expect(text).not.toContain("\u0000");
   });
 
@@ -207,12 +219,12 @@ describe("buildSystemPrompt", () => {
       workspaceDir: "/tmp/a\nb\u202Ec",
       sandboxConfig: {
         mode: "docker",
-        workspaceAccess: "rw\r\nx",
+        workspaceAccess: "rw",
       },
     });
 
     expect(text).toContain("Sandbox workspace: /tmp/abc");
-    expect(text).toContain("Workspace access: rwx");
+    expect(text).toContain("Workspace access: rw");
   });
 
   it("sanitizes runtime path literals", () => {

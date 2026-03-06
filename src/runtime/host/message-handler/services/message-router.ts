@@ -1,19 +1,12 @@
 import type { InboundMessage } from "../../../adapters/channels/types";
+import { routeContextFromInbound } from "../../routing/route-context";
+import type { LastRouteContext, ResolvedTurnContext } from "../../routing/types";
 import type { RuntimeRouter } from "../../router";
 import { buildSessionKey } from "../../session-key";
 
-export type LastRoute = {
-  channelId: string;
-  peerId: string;
-  peerType: "dm" | "group" | "channel";
-  accountId?: string;
-  threadId?: string | number;
-};
+export type LastRoute = LastRouteContext;
 
-export type ResolvedSessionContext = {
-  agentId: string;
-  sessionKey: string;
-  dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
+export type ResolvedSessionContext = ResolvedTurnContext & {
   peerId: string;
 };
 
@@ -23,34 +16,30 @@ export function resolveSessionContext(params: {
   defaultAgentId: string;
 }): ResolvedSessionContext {
   const { message, router, defaultAgentId } = params;
-  const route = router.resolve(message, defaultAgentId);
-  const agentId = route.agentId;
+  const resolvedRoute = router.resolve(message, defaultAgentId);
+  const agentId = resolvedRoute.agentId;
   const sessionKey = buildSessionKey({
     agentId,
     message,
-    dmScope: route.dmScope,
-    mainKey: route.mainKey,
-    identityLinks: route.identityLinks,
+    dmScope: resolvedRoute.dmScope,
+    mainKey: resolvedRoute.mainKey,
+    identityLinks: resolvedRoute.identityLinks,
   });
+  const route = routeContextFromInbound(message);
   return {
     agentId,
     sessionKey,
-    dmScope: route.dmScope,
-    peerId: message.peerId,
+    dmScope: resolvedRoute.dmScope,
+    route,
+    peerId: route.peerId,
   };
 }
 
 export function rememberLastRoute(params: {
   lastRoutes: Map<string, LastRoute>;
   agentId: string;
-  message: InboundMessage;
+  route: LastRoute;
 }): void {
-  const { lastRoutes, agentId, message } = params;
-  lastRoutes.set(agentId, {
-    channelId: message.channel,
-    peerId: message.peerId,
-    peerType: message.peerType ?? "dm",
-    accountId: message.accountId,
-    threadId: message.threadId,
-  });
+  const { lastRoutes, agentId, route } = params;
+  lastRoutes.set(agentId, route);
 }

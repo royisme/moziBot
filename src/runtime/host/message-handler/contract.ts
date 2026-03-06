@@ -7,6 +7,7 @@ import type {
   StatusReactionPayload,
 } from "../../adapters/channels/types";
 import type { SessionTimestamps } from "./lifecycle/temporal";
+import type { LastRouteContext, ResolvedTurnContext, DeliveryContext } from "../routing/types";
 import type { CommandHandlerMap } from "./services/command-handlers";
 import type { InteractionPhase, PhasePayload } from "./services/interaction-lifecycle";
 import type { FallbackInfo } from "./services/prompt-runner";
@@ -61,13 +62,8 @@ export interface OrchestratorDeps {
     reasoningLevel?: "off" | "on" | "stream";
     promptText: string;
   } | null;
-  resolveSessionContext(payload: unknown): {
-    agentId: string;
-    sessionKey: string;
-    peerId: string;
-    dmScope?: string;
-  };
-  rememberLastRoute(agentId: string, payload: unknown): void;
+  resolveSessionContext(payload: unknown): ResolvedTurnContext & { peerId: string };
+  rememberLastRoute(agentId: string, route: LastRouteContext): void;
   sendDirect(peerId: string, text: string): Promise<void>;
   getCommandHandlerMap(): CommandHandlerMap;
   getChannel(payload: unknown): ChannelDispatcherBridge;
@@ -151,11 +147,9 @@ export interface OrchestratorDeps {
   shouldSuppressSilentReply(text: string | undefined, opts?: { forceReply?: boolean }): boolean;
   shouldSuppressHeartbeatReply(raw: unknown, text: string): boolean;
   dispatchReply(params: {
-    peerId: string;
-    channelId: string;
+    delivery: DeliveryContext;
     replyText?: string;
     inboundPlan: DeliveryPlan | null;
-    traceId?: string;
   }): Promise<string>;
 
   // Error Helpers

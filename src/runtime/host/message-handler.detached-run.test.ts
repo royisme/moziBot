@@ -34,7 +34,19 @@ describe("MessageHandler.startDetachedRun observability", () => {
           agentId: string,
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
       };
-      resolveSessionContext: (message: InboundMessage) => { sessionKey: string; agentId: string };
+      resolveSessionContext: (message: InboundMessage) => {
+        sessionKey: string;
+        agentId: string;
+        peerId: string;
+        route: {
+          channelId: string;
+          peerId: string;
+          peerType: "dm" | "group" | "channel";
+          accountId?: string;
+          threadId?: string;
+          replyToId?: string;
+        };
+      };
       handle: (message: InboundMessage, channel: ChannelPlugin) => Promise<void>;
     };
 
@@ -47,6 +59,12 @@ describe("MessageHandler.startDetachedRun observability", () => {
     h.resolveSessionContext = () => ({
       sessionKey: "agent:mozi:telegram:dm:chat-1",
       agentId: "mozi",
+      peerId: "chat-1",
+      route: {
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      },
     });
 
     const err = Object.assign(new Error("boom"), { code: "ACP_TURN_FAILED" });
@@ -108,7 +126,19 @@ describe("MessageHandler.startDetachedRun observability", () => {
           agentId: string,
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
       };
-      resolveSessionContext: (message: InboundMessage) => { sessionKey: string; agentId: string };
+      resolveSessionContext: (message: InboundMessage) => {
+        sessionKey: string;
+        agentId: string;
+        peerId: string;
+        route: {
+          channelId: string;
+          peerId: string;
+          peerType: "dm" | "group" | "channel";
+          accountId?: string;
+          threadId?: string;
+          replyToId?: string;
+        };
+      };
       handle: (message: InboundMessage, channel: ChannelPlugin) => Promise<void>;
     };
 
@@ -121,6 +151,12 @@ describe("MessageHandler.startDetachedRun observability", () => {
     h.resolveSessionContext = () => ({
       sessionKey: "agent:mozi:telegram:dm:chat-1",
       agentId: "mozi",
+      peerId: "chat-1",
+      route: {
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      },
     });
 
     const err = Object.assign(new Error("first-fail"), { code: "ACP_TURN_FAILED" });

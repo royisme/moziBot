@@ -1,4 +1,6 @@
 import { logger } from "../../logger";
+import { normalizeRouteContext } from "../host/routing/route-context";
+import type { RouteContext } from "../host/routing/types";
 import { createAgentJobEvent } from "./events";
 import type {
   AgentJob,
@@ -53,12 +55,18 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
       throw new Error(`Agent job already exists: ${job.id}`);
     }
 
+    const route = resolveJobRoute(job);
     const entry: AgentJob = {
       id: job.id,
       sessionKey: job.sessionKey,
       agentId: job.agentId,
-      channelId: job.channelId,
-      peerId: job.peerId,
+      route,
+      channelId: route.channelId,
+      peerId: route.peerId,
+      peerType: route.peerType,
+      accountId: route.accountId,
+      threadId: route.threadId,
+      replyToId: route.replyToId,
       source: job.source,
       kind: job.kind,
       prompt: job.prompt,
@@ -300,8 +308,10 @@ function buildJobLogContext(job: AgentJob): Record<string, unknown> {
     kind: job.kind,
     traceId: job.traceId,
     parentJobId: job.parentJobId,
-    channelId: job.channelId,
-    peerId: job.peerId,
+    channelId: job.route.channelId,
+    peerId: job.route.peerId,
+    accountId: job.route.accountId,
+    threadId: job.route.threadId,
     metadata: job.metadata,
   };
 }
@@ -316,6 +326,50 @@ function buildLineagePayload(input: {
     runId: input.runId,
     parentJobId: input.parentJobId,
   };
+}
+
+function resolveJobRoute(job: CreateAgentJobInput): RouteContext {
+  if (job.route) {
+    return normalizeRouteContext({
+      channelId: job.route.channelId,
+      peerId: job.route.peerId,
+      peerType: job.route.peerType,
+      accountId: job.route.accountId,
+      threadId: job.route.threadId,
+      replyToId: job.route.replyToId,
+    });
+  }
+
+  if (!job.channelId || !job.peerId) {
+    throw new Error("CreateAgentJobInput requires route or channelId/peerId");
+  }
+
+  return normalizeRouteContext({
+    channelId: job.channelId,
+    peerId: job.peerId,
+    peerType: job.peerType ?? inferLegacyPeerType(job.sessionKey) ?? "dm",
+    accountId: job.accountId,
+    threadId: job.threadId,
+    replyToId: job.replyToId,
+  });
+}
+
+function inferLegacyPeerType(sessionKey: string): RouteContext["peerType"] | undefined {
+  const parts = sessionKey.split(":");
+  if (parts[0] !== "agent") {
+    return undefined;
+  }
+
+  const scopedPeerType = parts[3];
+  if (scopedPeerType === "group" || scopedPeerType === "channel") {
+    return scopedPeerType;
+  }
+
+  if (parts[2] === "dm" || parts[3] === "dm" || parts[4] === "dm") {
+    return "dm";
+  }
+
+  return undefined;
 }
 
 function mapStatusToEvent(status: AgentJobStatus): AgentJobEvent["type"] {
@@ -345,6 +399,8 @@ function buildStatusPayload(job: AgentJob): Record<string, unknown> {
     metadata: job.metadata,
     parentJobId: job.parentJobId,
     traceId: job.traceId,
+    accountId: job.route.accountId,
+    threadId: job.route.threadId,
   };
 }
 

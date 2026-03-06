@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provider-media";
 import { getRuntimeHookRunner } from "../../../hooks";
+import type { DeliveryContext } from "../../routing/types";
 import { renderAssistantReply } from "../../reply-utils";
 import type { ExecutionFlow } from "../contract";
 import type { FallbackInfo } from "../services/prompt-runner";
@@ -113,11 +114,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   const isHeartbeatOk = (raw: unknown, text: string) =>
     deps.shouldSuppressHeartbeatReply(raw, text);
   const dispatchReply = (params: {
-    peerId: string;
-    channelId: string;
+    delivery: DeliveryContext;
     replyText?: string;
     inboundPlan: DeliveryPlan | null;
-    traceId?: string;
   }) => deps.dispatchReply(params);
   const { logger } = deps;
   const hookRunner = getRuntimeHookRunner();
@@ -149,6 +148,25 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
 
   const channel = getChannel(payload);
   const supportsStreaming = typeof channel.editMessage === "function";
+  const routeFromState =
+    state.route &&
+    typeof state.route === "object" &&
+    typeof (state.route as { channelId?: unknown }).channelId === "string" &&
+    typeof (state.route as { peerId?: unknown }).peerId === "string" &&
+    typeof (state.route as { peerType?: unknown }).peerType === "string"
+      ? (state.route as DeliveryContext["route"])
+      : {
+          channelId: channel.id,
+          peerId,
+          peerType: "dm" as const,
+        };
+  const baseDelivery: DeliveryContext = {
+    route: routeFromState,
+    traceId: ctx.traceId,
+    sessionKey,
+    agentId,
+    source: "turn",
+  };
   const sessionMetadata = deps.getSessionMetadata(sessionKey) as
     | { reasoningLevel?: "off" | "on" | "stream" }
     | undefined;
@@ -206,11 +224,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       traceId: ctx.traceId,
       onFallback: async (info: FallbackInfo) => {
         await dispatchReply({
-          peerId,
-          channelId: channel.id,
+          delivery: baseDelivery,
           replyText: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}). You can /switch if you want to keep using it.`,
           inboundPlan: null,
-          traceId: ctx.traceId,
         });
         await emitStatus({
           status: "error",
@@ -277,11 +293,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       traceId: ctx.traceId,
       onFallback: async (info: FallbackInfo) => {
         await dispatchReply({
-          peerId,
-          channelId: channel.id,
+          delivery: baseDelivery,
           replyText: `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`,
           inboundPlan: null,
-          traceId: ctx.traceId,
         });
         await emitStatus({
           status: "error",
@@ -402,21 +416,17 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     if (!outboundId) {
       deliveryMode = "streaming_finalize_then_dispatch";
       outboundId = await dispatchReply({
-        peerId,
-        channelId: channel.id,
+        delivery: baseDelivery,
         replyText: terminalReplyText,
         inboundPlan: ingestPlanArtifact,
-        traceId: ctx.traceId,
       });
     }
   } else {
     deliveryMode = "direct_dispatch";
     outboundId = await dispatchReply({
-      peerId,
-      channelId: channel.id,
+      delivery: baseDelivery,
       replyText: terminalReplyText,
       inboundPlan: ingestPlanArtifact,
-      traceId: ctx.traceId,
     });
   }
 

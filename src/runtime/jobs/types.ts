@@ -1,3 +1,5 @@
+import type { RouteContext } from "../host/routing/types";
+
 export type AgentJobStatus =
   | "queued"
   | "running"
@@ -16,8 +18,13 @@ export interface AgentJob {
   readonly id: string;
   readonly sessionKey: string;
   readonly agentId: string;
-  readonly channelId: string;
-  readonly peerId: string;
+  readonly route: RouteContext;
+  readonly channelId?: string;
+  readonly peerId?: string;
+  readonly peerType?: RouteContext["peerType"];
+  readonly accountId?: string;
+  readonly threadId?: string;
+  readonly replyToId?: string;
   readonly source: AgentJobSource;
   readonly kind: AgentJobKind;
   readonly prompt: string;
@@ -36,8 +43,13 @@ export interface CreateAgentJobInput {
   readonly id: string;
   readonly sessionKey: string;
   readonly agentId: string;
-  readonly channelId: string;
-  readonly peerId: string;
+  readonly route?: RouteContext;
+  readonly channelId?: string;
+  readonly peerId?: string;
+  readonly peerType?: RouteContext["peerType"];
+  readonly accountId?: string;
+  readonly threadId?: string | number;
+  readonly replyToId?: string | number;
   readonly source: AgentJobSource;
   readonly kind: AgentJobKind;
   readonly prompt: string;

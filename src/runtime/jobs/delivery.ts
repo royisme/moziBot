@@ -1,12 +1,11 @@
+import type { DeliveryContext } from "../host/routing/types";
 import { createAgentJobEvent } from "./events";
 import type { AgentJob, AgentJobRegistry, AgentJobSnapshot } from "./types";
 
 export interface AgentJobDeliveryDispatcher {
   send(params: {
-    peerId: string;
-    channelId: string;
+    delivery: DeliveryContext;
     replyText?: string;
-    traceId?: string;
   }): Promise<string>;
 }
 
@@ -55,10 +54,14 @@ export class AgentJobDelivery {
       attempt += 1;
       try {
         const outboundId = await this.deps.dispatch.send({
-          peerId: job.peerId,
-          channelId: job.channelId,
+          delivery: {
+            route: job.route,
+            traceId: job.traceId,
+            sessionKey: job.sessionKey,
+            agentId: job.agentId,
+            source: "job",
+          },
           replyText: text || snapshot.resultSummary,
-          traceId: job.traceId,
         });
 
         this.deps.registry.appendEvent(

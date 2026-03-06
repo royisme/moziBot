@@ -21,8 +21,8 @@ export function buildChannelContext(message: InboundMessage): string {
   if (message.accountId) {
     lines.push(`accountId: ${sanitizePromptLiteral(message.accountId)}`);
   }
-  if (message.threadId) {
-    lines.push(`threadId: ${sanitizePromptLiteral(message.threadId)}`);
+  if (message.threadId !== undefined) {
+    lines.push(`threadId: ${sanitizePromptLiteral(String(message.threadId))}`);
   }
   if (message.senderId) {
     lines.push(`senderId: ${sanitizePromptLiteral(message.senderId)}`);
@@ -33,6 +33,15 @@ export function buildChannelContext(message: InboundMessage): string {
   if (message.timestamp instanceof Date) {
     lines.push(`timestamp: ${sanitizePromptLiteral(message.timestamp.toISOString())}`);
   }
+  lines.push(
+    "Default delivery contract: your normal reply text is automatically delivered back to this same channel, peer, and thread when present.",
+  );
+  lines.push(
+    "Do not ask the user how to send the reply, do not search for bot tokens, and do not look for CLI/scripts just to answer in the current conversation.",
+  );
+  lines.push(
+    "Only ask for an explicit target when the user wants delivery to a different destination than the current conversation.",
+  );
   return lines.join("\n");
 }
 

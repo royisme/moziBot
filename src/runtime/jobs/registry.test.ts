@@ -21,11 +21,43 @@ function createJob(id = "job-1") {
     id,
     sessionKey: "agent:mozi:telegram:dm:user-1",
     agentId: "mozi",
-    channelId: "telegram",
-    peerId: "user-1",
+    route: {
+      channelId: "telegram",
+      peerId: "user-1",
+      peerType: "dm" as const,
+    },
     source: "reminder" as const,
     kind: "scheduled" as const,
     prompt: "ping",
+  };
+}
+
+function createLegacyJob(id = "legacy-job-1") {
+  return {
+    id,
+    sessionKey: "agent:mozi:telegram:group:chat-1",
+    agentId: "mozi",
+    channelId: "telegram",
+    peerId: "chat-1",
+    peerType: "group" as const,
+    threadId: 42,
+    replyToId: 101,
+    source: "tool" as const,
+    kind: "followup" as const,
+    prompt: "legacy",
+  };
+}
+
+function createLegacyJobWithoutPeerType(id = "legacy-job-2") {
+  return {
+    id,
+    sessionKey: "agent:mozi:telegram:group:chat-2",
+    agentId: "mozi",
+    channelId: "telegram",
+    peerId: "chat-2",
+    source: "tool" as const,
+    kind: "followup" as const,
+    prompt: "legacy-no-peer-type",
   };
 }
 
@@ -81,6 +113,35 @@ describe("InMemoryAgentJobRegistry", () => {
       }),
       "AgentJob event",
     );
+  });
+
+  it("preserves_peer_type_for_legacy_create_input", () => {
+    const registry = createRegistry();
+    const job = registry.create(createLegacyJob());
+
+    expect(job.route).toEqual({
+      channelId: "telegram",
+      peerId: "chat-1",
+      peerType: "group",
+      threadId: "42",
+      replyToId: "101",
+    });
+    expect(job.peerType).toBe("group");
+  });
+
+  it("infers_legacy_peer_type_from_session_key_when_missing", () => {
+    const registry = createRegistry();
+    const job = registry.create(createLegacyJobWithoutPeerType());
+
+    expect(job.route).toEqual({
+      channelId: "telegram",
+      peerId: "chat-2",
+      peerType: "group",
+      threadId: undefined,
+      replyToId: undefined,
+      accountId: undefined,
+    });
+    expect(job.peerType).toBe("group");
   });
 
   it("rejects_illegal_status_transition", () => {

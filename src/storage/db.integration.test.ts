@@ -229,6 +229,9 @@ describe("Database", () => {
         channelId: "telegram",
         peerId: "user1",
         peerType: "dm",
+        accountId: "acc-1",
+        threadId: "thread-42",
+        replyToId: "reply-9",
         message: "Reminder text",
         scheduleKind: "every",
         scheduleJson: JSON.stringify({ kind: "every", everyMs: 60_000, anchorMs: now.getTime() }),
@@ -253,6 +256,9 @@ describe("Database", () => {
       expect(row).not.toBeNull();
       expect(row?.last_run_at).toBe(now.toISOString());
       expect(row?.next_run_at).toBe(nextRunAt);
+      expect(row?.account_id).toBe("acc-1");
+      expect(row?.thread_id).toBe("thread-42");
+      expect(row?.reply_to_id).toBe("reply-9");
 
       const cancelled = reminders.cancel("rem-1");
       expect(cancelled).toBe(true);
@@ -270,6 +276,9 @@ describe("Database", () => {
         channelId: "telegram",
         peerId: "user1",
         peerType: "dm",
+        accountId: "acc-scope",
+        threadId: "thread-scope",
+        replyToId: "reply-scope",
         message: "scope",
         scheduleKind: "every",
         scheduleJson: JSON.stringify({ kind: "every", everyMs: 60_000, anchorMs: now }),

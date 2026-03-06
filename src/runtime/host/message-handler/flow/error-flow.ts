@@ -1,3 +1,4 @@
+import type { DeliveryContext } from "../../routing/types";
 import type { ErrorFlow } from "../contract";
 
 /**
@@ -10,7 +11,7 @@ import type { ErrorFlow } from "../contract";
  * - User-facing error message generation and delivery
  */
 export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
-  const { state } = ctx;
+  const { state, payload } = ctx;
   const toError = (err: unknown) => deps.toError(err);
   const emitPhase = (params: Parameters<typeof deps.emitPhaseSafely>[0]) =>
     deps.emitPhaseSafely(params);
@@ -21,11 +22,9 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const createErrorReplyText = (err: Error) => deps.createErrorReplyText(err);
   const getChannel = (payload: unknown) => deps.getChannel(payload);
   const dispatchReply = (params: {
-    peerId: string;
-    channelId: string;
+    delivery: DeliveryContext;
     replyText?: string;
     inboundPlan: null;
-    traceId?: string;
   }) => deps.dispatchReply(params);
   const { logger } = deps;
 
@@ -33,7 +32,21 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const sessionKey = typeof state.sessionKey === "string" ? state.sessionKey : undefined;
   const agentId = typeof state.agentId === "string" ? state.agentId : undefined;
   const peerId = typeof state.peerId === "string" ? state.peerId : undefined;
-  const channelId = getChannel(ctx.payload).id;
+  const channel = getChannel(payload);
+  const routeFromState =
+    state.route &&
+    typeof state.route === "object" &&
+    typeof (state.route as { channelId?: unknown }).channelId === "string" &&
+    typeof (state.route as { peerId?: unknown }).peerId === "string" &&
+    typeof (state.route as { peerType?: unknown }).peerType === "string"
+      ? (state.route as DeliveryContext["route"])
+      : peerId
+        ? {
+            channelId: channel.id,
+            peerId,
+            peerType: "dm" as const,
+          }
+        : undefined;
   const streamingBuffer =
     state.streamingBuffer &&
     typeof state.streamingBuffer === "object" &&
@@ -100,13 +113,21 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
         } catch {}
       }
 
+      if (!routeFromState) {
+        return "handled";
+      }
+
       try {
         await dispatchReply({
-          peerId,
-          channelId,
+          delivery: {
+            route: routeFromState,
+            traceId: ctx.traceId,
+            sessionKey,
+            agentId,
+            source: "turn",
+          },
           replyText: errorText,
           inboundPlan: null,
-          traceId: ctx.traceId,
         });
       } catch (deliveryError) {
         // Double-fault protection: log failure if error reply cannot be delivered

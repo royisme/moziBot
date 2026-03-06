@@ -8,7 +8,11 @@ import type { InboundMessage } from "../../../adapters/channels/types";
 import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
 import { parseInlineOverrides } from "../../commands/reasoning";
 import type { OrchestratorDeps } from "../contract";
-import { checkInputCapability as checkInputCapabilityService } from "./capability";
+import {
+  checkInputCapability as checkInputCapabilityService,
+  type MediaItem,
+  type MediaType,
+} from "./capability";
 import { createErrorReplyText as createErrorReplyTextService } from "./error-reply";
 import {
   isAbortError as isAbortErrorService,
@@ -26,8 +30,13 @@ import { resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
 import { dispatchReply } from "./reply-dispatcher";
 import { shouldSuppressHeartbeatReply, shouldSuppressSilentReply } from "./reply-finalizer";
-import { emitStatusReactionSafely as emitStatusReactionSafelyService } from "./status-reaction";
+import {
+  emitStatusReactionSafely as emitStatusReactionSafelyService,
+  type ChannelWithStatusReaction,
+} from "./status-reaction";
 import { StreamingBuffer } from "./streaming";
+import { rememberLastRoute as rememberLastRouteService } from "./message-router";
+import type { LastRouteContext } from "../../routing/types";
 
 export interface BuilderLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -43,21 +52,13 @@ export interface OrchestratorDepsBuilderParams {
   agentManager: AgentManager;
   modelRegistry: ModelRegistry;
   mediaPreprocessor: InboundMediaPreprocessor;
-  lastRoutes: Map<
-    string,
-    {
-      channelId: string;
-      peerId: string;
-      peerType: "dm" | "group" | "channel";
-      accountId?: string;
-      threadId?: string | number;
-    }
-  >;
+  lastRoutes: Map<string, LastRouteContext>;
   resolveSessionContext: (message: InboundMessage) => {
     agentId: string;
     sessionKey: string;
     dmScope?: "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer";
     peerId: string;
+    route: LastRouteContext;
   };
   parseCommand: (text: string) => { name: string; args: string } | null;
   normalizeImplicitControlCommand: (text: string) => string | null;
@@ -139,6 +140,7 @@ type ReplyDeps = Pick<
   "shouldSuppressSilentReply" | "shouldSuppressHeartbeatReply" | "dispatchReply"
 >;
 
+
 type ErrorDeps = Pick<
   OrchestratorDeps,
   | "toError"
@@ -165,14 +167,11 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
     parseCommand: (text) => parseCommand(text),
     parseInlineOverrides: (parsedCommand) => parseInlineOverrides(parsedCommand),
     resolveSessionContext: (payload) => resolveSessionContext(payload as InboundMessage),
-    rememberLastRoute: (agentId, payload) => {
-      const message = payload as InboundMessage;
-      lastRoutes.set(agentId, {
-        channelId: message.channel,
-        peerId: message.peerId,
-        peerType: message.peerType ?? "dm",
-        accountId: message.accountId !== undefined ? String(message.accountId) : undefined,
-        threadId: message.threadId !== undefined ? String(message.threadId) : undefined,
+    rememberLastRoute: (agentId, route) => {
+      rememberLastRouteService({
+        lastRoutes,
+        agentId,
+        route,
       });
     },
     sendDirect: async (peerId, text) => {
@@ -234,13 +233,35 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
     maybePreFlushBeforePrompt,
     lastRoutes,
   } = params;
-  const lifecycleChannel = {
+
+  const mapInboundMediaToCapabilityMedia = (message: InboundMessage): MediaItem[] => {
+    const supportedMediaTypes: readonly MediaType[] = ["photo", "video", "audio", "document", "voice"];
+    const typeSet = new Set<MediaType>(supportedMediaTypes);
+
+    return (message.media || [])
+      .filter((item): item is typeof item & { type: MediaType } => typeSet.has(item.type as MediaType))
+      .map((item, index) => ({
+        type: item.type,
+        mediaId: `media-${index + 1}`,
+      }));
+  };
+
+  const lifecycleChannel: {
+    beginTyping?: (peerId: string) => Promise<(() => Promise<void> | void) | undefined>;
+    emitPhase?: (peerId: string, phase: InteractionPhase, payload?: PhasePayload) => Promise<void>;
+    setStatusReaction?: ChannelWithStatusReaction["setStatusReaction"];
+  } = {
     beginTyping: channel.beginTyping
       ? async (peerId: string) => (await channel.beginTyping!(peerId)) ?? undefined
       : undefined,
     emitPhase: channel.emitPhase
       ? async (peerId: string, phase: InteractionPhase, payload?: PhasePayload) => {
           await channel.emitPhase!(peerId, phase, payload);
+        }
+      : undefined,
+    setStatusReaction: channel.setStatusReaction
+      ? async (peerId: string, messageId: string, status, payload) => {
+          await channel.setStatusReaction!(peerId, messageId, status, payload);
         }
       : undefined,
   };
@@ -264,10 +285,7 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         agentId,
         peerId,
         hasAudioTranscript,
-        media: ((message as InboundMessage).media || []).map((item, index) => ({
-          type: item.type,
-          mediaId: `media-${index + 1}`,
-        })),
+        media: mapInboundMediaToCapabilityMedia(message as InboundMessage),
         deps: {
           logger,
           channel: {
@@ -403,16 +421,15 @@ function buildReplyDeps(params: OrchestratorDepsBuilderParams): ReplyDeps {
     shouldSuppressSilentReply: (text, opts) => shouldSuppressSilentReply(text, opts),
     shouldSuppressHeartbeatReply: (raw, text) =>
       shouldSuppressHeartbeatReply(raw as { source?: string } | undefined, text),
-    dispatchReply: async ({ peerId, channelId, replyText, inboundPlan, traceId }) =>
-      dispatchReply({
+    dispatchReply: async ({ delivery, replyText, inboundPlan }) => {
+      return dispatchReply({
         channel,
-        peerId,
-        channelId,
+        delivery,
         replyText,
         inboundPlan,
-        traceId,
         showThinking: channel.id === "localDesktop",
-      }),
+      });
+    },
   };
 }
 

@@ -93,6 +93,9 @@ export function runMigrations(conn: DatabaseType): void {
       channel_id TEXT NOT NULL,
       peer_id TEXT NOT NULL,
       peer_type TEXT NOT NULL,
+      account_id TEXT,
+      thread_id TEXT,
+      reply_to_id TEXT,
       message TEXT NOT NULL,
       schedule_kind TEXT NOT NULL,
       schedule_json TEXT NOT NULL,
@@ -114,6 +117,10 @@ export function runMigrations(conn: DatabaseType): void {
     CREATE INDEX IF NOT EXISTS idx_reminders_session
     ON reminders(session_key, created_at DESC);
   `);
+
+  ensureColumn(conn, "reminders", "account_id", "TEXT");
+  ensureColumn(conn, "reminders", "thread_id", "TEXT");
+  ensureColumn(conn, "reminders", "reply_to_id", "TEXT");
 
   conn.exec(`
     CREATE TABLE IF NOT EXISTS auth_secrets (
@@ -253,4 +260,15 @@ export function runMigrations(conn: DatabaseType): void {
   `);
 
   logger.info("Database migrations completed");
+}
+
+function ensureColumn(conn: DatabaseType, table: string, column: string, definition: string): void {
+  const columns = conn
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name: string }>;
+  const exists = columns.some((entry) => entry.name === column);
+  if (exists) {
+    return;
+  }
+  conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

@@ -1,6 +1,8 @@
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
 import type { OutboundMessage } from "../../../adapters/channels/types";
+import { routeContextToOutboundMessage } from "../../routing/route-context";
+import type { DeliveryContext } from "../../routing/types";
 import { renderAssistantReply } from "../../reply-utils";
 
 /**
@@ -42,22 +44,21 @@ export function buildReplyOutbound(params: {
 
 export async function dispatchReply(params: {
   channel: ChannelDispatcherShape;
-  peerId: string;
-  channelId: string;
+  delivery: DeliveryContext;
   replyText?: string;
   inboundPlan?: DeliveryPlan | null;
-  traceId?: string;
   showThinking?: boolean;
 }): Promise<string> {
-  const { channel, peerId, channelId, replyText, inboundPlan, traceId, showThinking } = params;
+  const { channel, delivery, replyText, inboundPlan, showThinking } = params;
   const outbound = buildReplyOutbound({
-    channelId,
+    channelId: delivery.route.channelId,
     replyText,
     inboundPlan,
     showThinking,
   });
-  if (traceId) {
-    outbound.traceId = traceId;
-  }
-  return channel.send(peerId, outbound);
+  const flattened = routeContextToOutboundMessage(delivery.route, {
+    ...outbound,
+    traceId: delivery.traceId ?? outbound.traceId,
+  });
+  return channel.send(delivery.route.peerId, flattened);
 }

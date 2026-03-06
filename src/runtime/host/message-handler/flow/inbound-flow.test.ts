@@ -14,6 +14,18 @@ vi.mock("../../../hooks", () => ({
 }));
 
 function createDeps(): OrchestratorDeps {
+  const resolvedContext: ReturnType<OrchestratorDeps["resolveSessionContext"]> = {
+    sessionKey: "agent:mozi:telegram:dm:chat-1",
+    agentId: "mozi",
+    peerId: "peer-1",
+    dmScope: "main",
+    route: {
+      channelId: "telegram",
+      peerId: "peer-1",
+      peerType: "dm",
+    },
+  };
+
   return {
     config: {} as OrchestratorDeps["config"],
     logger: {
@@ -26,12 +38,7 @@ function createDeps(): OrchestratorDeps {
     normalizeImplicitControlCommand: vi.fn((v: string) => v),
     parseCommand: vi.fn(() => null),
     parseInlineOverrides: vi.fn(() => null),
-    resolveSessionContext: vi.fn(() => ({
-      sessionKey: "agent:mozi:telegram:dm:chat-1",
-      agentId: "mozi",
-      peerId: "peer-1",
-      dmScope: "dm",
-    })),
+    resolveSessionContext: vi.fn(() => resolvedContext),
     rememberLastRoute: vi.fn(),
     sendDirect: vi.fn(async () => {}),
     getCommandHandlerMap: vi.fn(
@@ -169,5 +176,31 @@ describe("runInboundFlow", () => {
     expect(ctx.state.parsedCommand).toEqual({ name: "status", args: "" });
     expect(ctx.state.text).toBe("/status");
     expect(ctx.state.sessionKey).toBe("agent:mozi:telegram:dm:chat-1");
+  });
+
+  it("remembers last route from resolved canonical route", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const canonicalRoute = {
+      channelId: "telegram",
+      peerId: "peer-99",
+      peerType: "group" as const,
+      accountId: "acct-9",
+      threadId: "777",
+      replyToId: "r-10",
+    };
+
+    const resolvedContext: ReturnType<OrchestratorDeps["resolveSessionContext"]> = {
+      sessionKey: "agent:mozi:telegram:group:peer-99",
+      agentId: "mozi",
+      peerId: "peer-99",
+      dmScope: "main",
+      route: canonicalRoute,
+    };
+    deps.resolveSessionContext = vi.fn(() => resolvedContext);
+
+    await runInboundFlow(ctx, deps);
+
+    expect(deps.rememberLastRoute).toHaveBeenCalledWith("mozi", canonicalRoute);
   });
 });

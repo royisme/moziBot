@@ -7,6 +7,7 @@ import { logger } from "../../logger";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { AgentManager } from "../agent-manager";
 import type { MessageHandler } from "./message-handler";
+import { normalizeRouteContext } from "./routing/route-context";
 
 const DEFAULT_HEARTBEAT_EVERY = "30m";
 const DEFAULT_HEARTBEAT_PROMPT =
@@ -141,19 +142,20 @@ export class HeartbeatRunner {
         continue;
       }
 
+      const route = normalizeRouteContext(lastRoute);
       // Build a temporary base message to resolve the session context
       const baseMessage: InboundMessage = {
         id: `wake-${Date.now()}`,
-        channel: lastRoute.channelId,
-        peerId: lastRoute.peerId,
-        peerType: lastRoute.peerType,
-        accountId: lastRoute.accountId,
-        threadId: lastRoute.threadId,
+        channel: route.channelId,
+        peerId: route.peerId,
+        peerType: route.peerType,
+        accountId: route.accountId,
+        threadId: route.threadId,
         senderId: "heartbeat-wake",
         senderName: "HeartbeatWake",
         text: "",
         timestamp: new Date(),
-        raw: { source: "heartbeat-wake", reason },
+        raw: { source: "heartbeat-wake", reason, route },
       };
 
       const context = this.handler.resolveSessionContext(baseMessage);
@@ -236,18 +238,19 @@ export class HeartbeatRunner {
     }
     const effectivePrompt = directives.prompt?.trim() || state.prompt;
 
+    const route = normalizeRouteContext(lastRoute);
     const baseMessage: InboundMessage = {
       id: `heartbeat-${Date.now()}`,
-      channel: lastRoute.channelId,
-      peerId: lastRoute.peerId,
-      peerType: lastRoute.peerType,
-      accountId: lastRoute.accountId,
-      threadId: lastRoute.threadId,
+      channel: route.channelId,
+      peerId: route.peerId,
+      peerType: route.peerType,
+      accountId: route.accountId,
+      threadId: route.threadId,
       senderId: "heartbeat",
       senderName: "Heartbeat",
       text: "",
       timestamp: new Date(),
-      raw: { source: "heartbeat" },
+      raw: { source: "heartbeat", route },
     };
 
     const context = this.handler.resolveSessionContext(baseMessage);
@@ -417,7 +420,7 @@ function parseHeartbeatDirectives(content: string): HeartbeatDirectives {
 }
 
 function buildHeartbeatContext(
-  timestamps: { createdAt: number; updatedAt?: number } | null,
+  timestamps: { createdAt?: number; updatedAt?: number } | null,
 ): string[] {
   const lastActivityMs = timestamps?.updatedAt ?? timestamps?.createdAt;
   const lines = ["HEARTBEAT_CONTEXT_BEGIN"];
