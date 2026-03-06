@@ -6,6 +6,7 @@ import type { ChannelRegistry } from "../adapters/channels/registry";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { MessageHandler } from "../host/message-handler";
 import type { SessionManager } from "../host/sessions/manager";
+import type { AgentJobRegistry, AgentJobRunner } from "../jobs";
 import { QueueMode, PeerType, SessionStatus } from "./constants";
 import type {
   RuntimeEgress,
@@ -38,6 +39,8 @@ type RuntimeKernelOptions = {
   errorPolicy?: RuntimeErrorPolicy;
   pollIntervalMs?: number;
   queueConfig?: RuntimeQueueConfig;
+  agentJobRunner?: AgentJobRunner;
+  agentJobRegistry?: AgentJobRegistry;
 };
 
 const DEFAULT_QUEUE_MODE: RuntimeQueueMode = QueueMode.STEER_BACKLOG;
@@ -49,6 +52,8 @@ export class RuntimeKernel implements RuntimeIngress {
   private readonly egress: RuntimeEgress;
   private readonly errorPolicy: RuntimeErrorPolicy;
   private readonly pollIntervalMs: number;
+  private readonly agentJobRunner?: AgentJobRunner;
+  private readonly agentJobRegistry?: AgentJobRegistry;
   private readonly pumpState: PumpRunnerState = {
     activeSessions: new Set<string>(),
     pumpScheduled: false,
@@ -68,6 +73,8 @@ export class RuntimeKernel implements RuntimeIngress {
     this.egress = options.egress ?? new ChannelRuntimeEgress(options.channelRegistry);
     this.errorPolicy = options.errorPolicy ?? new DefaultRuntimeErrorPolicy();
     this.pollIntervalMs = options.pollIntervalMs ?? 250;
+    this.agentJobRunner = options.agentJobRunner;
+    this.agentJobRegistry = options.agentJobRegistry;
     this.updateQueueConfig(options.queueConfig);
   }
 
@@ -366,6 +373,8 @@ export class RuntimeKernel implements RuntimeIngress {
       buildRuntimeChannel: (params) => this.buildRuntimeChannel(params),
       schedulePump: () => this.schedulePump(),
       releaseSession,
+      agentJobRunner: this.agentJobRunner,
+      agentJobRegistry: this.agentJobRegistry,
     });
   }
 }

@@ -61,6 +61,33 @@ describe("scheduleContinuation tool", () => {
     const pending = continuationRegistry.consume("test-session-2");
     expect(pending).toHaveLength(1);
     expect(pending[0].delayMs).toBe(5000);
+    expect(pending[0].context).toEqual({ escalationTarget: "job" });
+  });
+
+  it("marks long delayed continuation for job escalation", async () => {
+    const ctx: SessionToolsContext = {
+      sessionManager: mockSessionManager,
+      subAgentRegistry: mockSubAgentRegistry,
+      currentSessionKey: "test-session-2b",
+      config: {
+        runtime: {
+          agentJobs: {
+            longTaskThresholdMs: 1000,
+          },
+        },
+      } as SessionToolsContext["config"],
+    };
+
+    const result = await scheduleContinuation(ctx, {
+      prompt: "Check back later",
+      delayMs: 5000,
+    });
+
+    expect(result.scheduled).toBe(true);
+
+    const pending = continuationRegistry.consume("test-session-2b");
+    expect(pending).toHaveLength(1);
+    expect(pending[0].context).toEqual({ escalationTarget: "job" });
   });
 
   it("schedules a continuation with context", async () => {
@@ -79,7 +106,11 @@ describe("scheduleContinuation tool", () => {
 
     const pending = continuationRegistry.consume("test-session-3");
     expect(pending).toHaveLength(1);
-    expect(pending[0].context).toEqual({ itemIndex: 5, total: 10 });
+    expect(pending[0].context).toEqual({
+      itemIndex: 5,
+      total: 10,
+      escalationTarget: "job",
+    });
   });
 
   it("schedules multiple continuations in sequence", async () => {

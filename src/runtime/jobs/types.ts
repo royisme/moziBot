@@ -24,6 +24,7 @@ export interface AgentJob {
   readonly source: AgentJobSource;
   readonly kind: AgentJobKind;
   readonly prompt: string;
+  readonly metadata?: Record<string, unknown>;
   status: AgentJobStatus;
   readonly createdAt: number;
   startedAt?: number;
@@ -43,6 +44,7 @@ export interface CreateAgentJobInput {
   readonly source: AgentJobSource;
   readonly kind: AgentJobKind;
   readonly prompt: string;
+  readonly metadata?: Record<string, unknown>;
   readonly createdAt?: number;
   readonly parentJobId?: string;
   readonly traceId?: string;

@@ -4,19 +4,21 @@ import { createAgentJobExecutionContext, type AgentJobExecutionContext } from ".
 import type { AgentJob, AgentJobRegistry, AgentJobSnapshot } from "./types";
 
 export type AgentJobRunnerStreamEvent =
-  | { readonly type: "text_delta"; readonly delta?: string }
+  | { readonly type: "text_delta"; readonly runId?: string; readonly delta?: string }
   | {
       readonly type: "tool_start";
+      readonly runId?: string;
       readonly toolName?: string;
       readonly toolCallId?: string;
     }
   | {
       readonly type: "tool_end";
+      readonly runId?: string;
       readonly toolName?: string;
       readonly toolCallId?: string;
       readonly isError?: boolean;
     }
-  | { readonly type: "agent_end"; readonly fullText?: string };
+  | { readonly type: "agent_end"; readonly runId?: string; readonly fullText?: string };
 
 export interface AgentJobPromptExecutor {
   (params: {
@@ -64,6 +66,7 @@ export class AgentJobRunner {
 
     let finalText = "";
     let terminalText: string | undefined;
+    let runId = job.traceId;
 
     try {
       await this.deps.executePrompt({
@@ -73,12 +76,16 @@ export class AgentJobRunner {
         traceId: job.traceId,
         abortSignal,
         onStream: async (event) => {
+          if (event.runId) {
+            runId = event.runId;
+          }
+
           if (event.type === "text_delta" && event.delta) {
             finalText += event.delta;
             this.deps.registry.appendEvent(
               createAgentJobEvent({
                 jobId: job.id,
-                runId: job.traceId,
+                runId,
                 type: "job_progress",
                 at: this.now(),
                 payload: { delta: event.delta },
@@ -91,7 +98,7 @@ export class AgentJobRunner {
             this.deps.registry.appendEvent(
               createAgentJobEvent({
                 jobId: job.id,
-                runId: job.traceId,
+                runId,
                 type: "job_tool_start",
                 at: this.now(),
                 payload: {
@@ -107,7 +114,7 @@ export class AgentJobRunner {
             this.deps.registry.appendEvent(
               createAgentJobEvent({
                 jobId: job.id,
-                runId: job.traceId,
+                runId,
                 type: "job_tool_end",
                 at: this.now(),
                 payload: {
@@ -144,6 +151,7 @@ export class AgentJobRunner {
           job,
           snapshot,
           text: resultText,
+          runId,
         });
       }
 

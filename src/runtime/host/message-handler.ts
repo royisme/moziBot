@@ -66,6 +66,7 @@ import { createSessionTools } from "./tools/sessions";
  */
 export type StreamingCallback = (event: {
   type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
+  runId?: string;
   delta?: string;
   toolName?: string;
   toolCallId?: string;

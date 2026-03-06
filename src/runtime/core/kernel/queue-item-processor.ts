@@ -6,6 +6,7 @@ import type { InboundMessage } from "../../adapters/channels/types";
 import type { MessageHandler } from "../../host/message-handler";
 import { startDetachedRun as startDetachedRunService } from "../../host/message-handler/services/run-dispatch";
 import type { SessionManager } from "../../host/sessions/manager";
+import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
 import { SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
 import type { RuntimeErrorPolicy } from "../contracts";
@@ -22,6 +23,8 @@ export async function processQueueItem(params: {
   }) => ChannelPlugin;
   schedulePump: () => void;
   releaseSession: () => void;
+  agentJobRunner?: AgentJobRunner;
+  agentJobRegistry?: AgentJobRegistry;
 }): Promise<void> {
   let sessionReleased = false;
   const releaseSessionOnce = () => {
@@ -40,6 +43,57 @@ export async function processQueueItem(params: {
       envelopeId: params.queueItem.id,
     });
     const startedAt = Date.now();
+
+    if (
+      inbound.raw &&
+      typeof inbound.raw === "object" &&
+      (inbound.raw as { source?: unknown }).source === "continuation" &&
+      params.agentJobRunner &&
+      params.agentJobRegistry
+    ) {
+      const continuationRaw = inbound.raw as {
+        reason?: unknown;
+        context?: unknown;
+        parentMessageId?: unknown;
+        parentQueueItemId?: unknown;
+      };
+      const job = params.agentJobRegistry.create({
+        id: params.queueItem.id,
+        sessionKey: params.queueItem.session_key,
+        agentId: inbound.channel ? params.messageHandler.resolveSessionContext(inbound).agentId : "mozi",
+        channelId: params.queueItem.channel_id,
+        peerId: params.queueItem.peer_id,
+        source: "tool",
+        kind: "followup",
+        prompt: inbound.text ?? "",
+        metadata: {
+          continuation: {
+            reason: continuationRaw.reason,
+            context: continuationRaw.context,
+            parentMessageId: continuationRaw.parentMessageId,
+            parentQueueItemId: continuationRaw.parentQueueItemId,
+          },
+        },
+        parentJobId:
+          typeof continuationRaw.parentQueueItemId === "string"
+            ? continuationRaw.parentQueueItemId
+            : undefined,
+        traceId: `turn:${inbound.id}`,
+        createdAt: startedAt,
+      });
+
+      await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RUNNING);
+      const result = await params.agentJobRunner.run(job);
+      await handleDetachedTerminal({
+        ...params,
+        inbound,
+        startedAt,
+        terminal: result.snapshot.status === "completed" ? "completed" : "failed",
+        reason: result.snapshot.error,
+      });
+      releaseSessionOnce();
+      return;
+    }
 
     await params.sessionManager.setStatus(params.queueItem.session_key, SessionStatus.RUNNING);
     logger.info(
@@ -243,6 +297,7 @@ async function handleDetachedTerminal(params: {
       peerId: params.queueItem.peer_id,
       peerType: params.queueItem.peer_type,
       originalInbound: params.inbound,
+      parentQueueItemId: params.queueItem.id,
       sessionManager: params.sessionManager,
       schedulePump: params.schedulePump,
     });
@@ -332,6 +387,7 @@ async function processPendingContinuations(params: {
   peerId: string;
   peerType: string;
   originalInbound: InboundMessage;
+  parentQueueItemId: string;
   sessionManager: SessionManager;
   schedulePump: () => void;
 }): Promise<void> {
@@ -354,6 +410,7 @@ async function enqueueContinuation(params: {
   peerId: string;
   peerType: string;
   originalInbound: InboundMessage;
+  parentQueueItemId: string;
   continuation: {
     prompt: string;
     reason?: string;
@@ -382,6 +439,7 @@ async function enqueueContinuation(params: {
       reason: params.continuation.reason,
       context: params.continuation.context,
       parentMessageId: params.originalInbound.id,
+      parentQueueItemId: params.parentQueueItemId,
     },
   };
 

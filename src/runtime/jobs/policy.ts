@@ -17,6 +17,9 @@ export function resolveAgentJobEscalationTarget(
   if (input.source === "reminder") {
     return "job";
   }
+  if (input.source === "continuation") {
+    return "job";
+  }
   if (input.explicitDetached) {
     return "job";
   }

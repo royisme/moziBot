@@ -43,6 +43,8 @@ export class RuntimeHost {
   private cronScheduler: CronScheduler | null = null;
   private heartbeatRunner: HeartbeatRunner | null = null;
   private reminderRunner: ReminderRunner | null = null;
+  private agentJobRegistry: InMemoryAgentJobRegistry | null = null;
+  private agentJobRunner: AgentJobRunner | null = null;
   private pendingMessageHandlerReload: MoziConfig | null = null;
   private reloadDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -168,49 +170,9 @@ export class RuntimeHost {
     await this.reloadMessageHandler(config);
     if (this.runtimeKernel) {
       await this.runtimeKernel.start();
-      if (!this.reminderRunner) {
-        const jobRegistry = new InMemoryAgentJobRegistry({
-          snapshotTtlMs: config.runtime?.agentJobs?.snapshotTtlMs,
-        });
-        const jobDelivery = new AgentJobDelivery({
-          registry: jobRegistry,
-          retries: config.runtime?.agentJobs?.deliveryRetries ?? 0,
-          dispatch: {
-            send: async ({ peerId, channelId, replyText, traceId }) => {
-              const channel = this.channelRegistry.get(channelId);
-              if (!channel) {
-                throw new Error(`Channel not found: ${channelId}`);
-              }
-              return channel.send(peerId, { text: replyText ?? "", traceId });
-            },
-          },
-        });
-        const jobRunner = new AgentJobRunner({
-          registry: jobRegistry,
-          delivery: jobDelivery,
-          executePrompt: async ({ sessionKey, agentId, text, traceId, abortSignal, onStream }) => {
-            if (!this.messageHandler) {
-              throw new Error("MessageHandler not initialized");
-            }
-            await this.messageHandler.runAgentJobPrompt({
-              sessionKey,
-              agentId,
-              text,
-              traceId,
-              abortSignal,
-              onStream,
-            });
-          },
-        });
-        this.reminderRunner = new ReminderRunner(this.runtimeKernel, 1000, 32, {
-          reminderMode: config.runtime?.agentJobs?.enabled
-            ? (config.runtime?.agentJobs?.reminderMode ?? "inbound")
-            : "inbound",
-          jobRunner,
-          jobRegistry,
-        });
+      if (this.reminderRunner) {
+        this.reminderRunner.start();
       }
-      this.reminderRunner.start();
     }
     await this.runSandboxProbe("startup");
 
@@ -272,21 +234,69 @@ export class RuntimeHost {
       injectMessageHandler(this.messageHandler);
       await this.messageHandler.initExtensions();
       logger.info("MessageHandler initialized");
-      this.runtimeKernel = new RuntimeKernel({
-        messageHandler: this.messageHandler,
-        sessionManager: this.sessionManager,
-        channelRegistry: this.channelRegistry,
-        queueConfig: config.runtime?.queue,
+    }
+
+    const messageHandler = this.messageHandler;
+    if (!messageHandler) {
+      throw new Error("MessageHandler not initialized");
+    }
+
+    if (!this.agentJobRegistry) {
+      this.agentJobRegistry = new InMemoryAgentJobRegistry({
+        snapshotTtlMs: config.runtime?.agentJobs?.snapshotTtlMs,
       });
     }
-    if (this.runtimeKernel) {
-      this.runtimeKernel.updateQueueConfig(config.runtime?.queue);
+
+    if (!this.agentJobRunner) {
+      const jobDelivery = new AgentJobDelivery({
+        registry: this.agentJobRegistry,
+        retries: config.runtime?.agentJobs?.deliveryRetries ?? 0,
+        dispatch: {
+          send: async ({ peerId, channelId, replyText, traceId }) => {
+            const channel = this.channelRegistry.get(channelId);
+            if (!channel) {
+              throw new Error(`Channel not found: ${channelId}`);
+            }
+            return channel.send(peerId, { text: replyText ?? "", traceId });
+          },
+        },
+      });
+      this.agentJobRunner = new AgentJobRunner({
+        registry: this.agentJobRegistry,
+        delivery: jobDelivery,
+        executePrompt: async ({ sessionKey, agentId, text, traceId, abortSignal, onStream }) => {
+          await messageHandler.runAgentJobPrompt({
+            sessionKey,
+            agentId,
+            text,
+            traceId,
+            abortSignal,
+            onStream,
+          });
+        },
+      });
+    }
+
+    this.runtimeKernel = new RuntimeKernel({
+      messageHandler,
+      sessionManager: this.sessionManager,
+      channelRegistry: this.channelRegistry,
+      queueConfig: config.runtime?.queue,
+      agentJobRunner: this.agentJobRunner,
+      agentJobRegistry: this.agentJobRegistry,
+    });
+
+    if (!this.reminderRunner) {
+      this.reminderRunner = new ReminderRunner(this.runtimeKernel, 1000, 32, {
+        jobRunner: this.agentJobRunner,
+        jobRegistry: this.agentJobRegistry,
+      });
     }
 
     if (!this.heartbeatRunner) {
       this.heartbeatRunner = new HeartbeatRunner(
-        this.messageHandler,
-        this.messageHandler.getAgentManager(),
+        messageHandler,
+        messageHandler.getAgentManager(),
         async (msg: InboundMessage) => {
           await this.enqueueInboundMessage(msg);
         },

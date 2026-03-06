@@ -264,6 +264,37 @@ jobEvents: Map<string, AgentJobEvent[]>
 - 可在不接任何外部 runtime 的情况下，独立对 registry 做单元测试
 - `waitForJob` 可作为后续 runner/delivery 的公共基础
 
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/gateway/server-methods/agent-job.ts`
+  - 参考 `runId -> terminal snapshot cache -> wait` 这条主线
+  - 借鉴 in-memory cache、TTL 清理、terminal snapshot waiter 语义
+- `../openclaw_source_github/src/gateway/server-methods/agent-wait-dedupe.ts`
+  - 参考 terminal 状态判定与 wait 语义边界
+  - 借鉴“只有 terminal snapshot 才能解除等待”的约束
+
+#### Mozi Landing Points
+
+- `src/runtime/jobs/types.ts`
+- `src/runtime/jobs/events.ts`
+- `src/runtime/jobs/registry.ts`
+- `src/runtime/jobs/index.ts`
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- terminal snapshot 缓存
+- TTL 清理
+- `waitForJob` 以终态为准的等待语义
+- `runId/jobId` 作为外部可等待对象的唯一键
+
+Don't Borrow:
+- gateway dedupe 全套实现
+- OpenClaw 的 gateway request/response 结构
+- 复杂的 run 复用仲裁逻辑（第一阶段可不做）
+
 ---
 
 ## T3. 接入 JobRunner
@@ -358,6 +389,37 @@ async function runAgentJob(job: AgentJob): Promise<RunAgentJobResult>
 - 一个最小 job 可以独立跑完整 prompt 执行
 - 执行终态与 snapshot 一致
 
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/gateway/server-methods/agent.ts`
+  - 参考 accepted/start/terminal progression 与 `runId` 语义
+  - 借鉴 run 作为外部可观察执行单元，而不是 turn 内部细节
+- `../openclaw_source_github/src/gateway/server-methods/agent-job.ts`
+  - 参考 lifecycle event -> snapshot 的收敛方式
+- `../openclaw_source_github/src/infra/agent-events.ts`
+  - 参考 lifecycle 事件流与 run 观测模型
+
+#### Mozi Landing Points
+
+- `src/runtime/jobs/runner.ts`
+- `src/runtime/jobs/job-context.ts`
+- `src/runtime/host/message-handler.ts`
+- `src/runtime/host/message-handler/flow/execution-flow.ts`
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- `runId/jobId` 驱动 lifecycle
+- stream/tool/lifecycle 事件汇聚到统一 run/job 观测模型
+- terminal snapshot 与执行终态绑定
+
+Don't Borrow:
+- OpenClaw gateway API 形式
+- accepted 响应协议本身
+- 完整的 dedupe / gateway wait 双通道机制（第一阶段可简化）
+
 ---
 
 ## T4. 实现 Delivery
@@ -413,6 +475,38 @@ delivery 只依赖 runner 产出的：
 - 执行成功与投递成功语义分离
 - `completed` 后即使 delivery 失败，job 仍保持 completed
 
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/cron/isolated-agent/delivery-dispatch.ts`
+  - 参考 run 完成后主动 dispatch delivery
+  - 借鉴 execution state 与 delivery state 分离
+- `../openclaw_source_github/src/infra/outbound/deliver.ts`
+  - 参考 channel-agnostic outbound delivery 层
+  - 借鉴按 channel / recipient 统一发送，而不是在 entry 层重写发送逻辑
+- `../openclaw_source_github/src/cron/isolated-agent/run.ts`
+  - 参考“执行完成 -> delivery”作为正常编排，不是偶发补丁
+
+#### Mozi Landing Points
+
+- `src/runtime/jobs/delivery.ts`
+- `src/runtime/host/index.ts`
+- `src/runtime/index.ts`
+- channel send / dispatchReply 适配层
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- proactive delivery after completion
+- 执行成功与投递成功拆开记录
+- outbound send 走统一 channel 抽象
+
+Don't Borrow:
+- OpenClaw 全量 outbound payload schema
+- announce flow / bestEffort 复杂策略的全部细节
+- 各 channel 的高级 threading / routing 逻辑（第一阶段可不做）
+
 ---
 
 ## T5. 接入 Reminder Entry
@@ -429,20 +523,13 @@ delivery 只依赖 runner 产出的：
 
 ### 行为设计
 
-新增配置：
-
-```ts
-agentJobs?: {
-  enabled?: boolean;
-  reminderMode?: "inbound" | "job";
-}
-```
+runtime 默认具备 AgentJob 基础设施。
 
 触发逻辑：
 
-- `enabled !== true` -> 保持旧行为
-- `reminderMode === "inbound"` -> 保持旧行为
-- `reminderMode === "job"` -> 创建 `source = "reminder"`, `kind = "scheduled"` 的 AgentJob
+- reminder 到期后默认创建 `source = "reminder"`, `kind = "scheduled"` 的 AgentJob
+- reminder 不再长期维护 `inbound` 与 `job` 两套等价执行语义
+- 旧 inbound reminder 路径只可作为短期迁移历史，不再作为目标态设计
 
 ### 任务内容
 
@@ -462,46 +549,94 @@ agentJobs?: {
 - reminders 成为首个可验证的 job source
 - 普通即时消息链路完全不受影响
 
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/cron/isolated-agent/run.ts`
+  - 参考非聊天入口直接驱动 run，而不是先伪造 inbound
+- `../openclaw_source_github/src/cron/service/timer.ts`
+  - 参考调度入口只负责触发 run 与记录结果，不发明另一套执行模型
+- `../openclaw_source_github/src/cron/isolated-agent/delivery-dispatch.ts`
+  - 参考 reminder/cron 完成后直接进入 delivery
+
+#### Mozi Landing Points
+
+- `src/runtime/host/reminders/runner.ts`
+- `src/runtime/host/index.ts`
+- `src/config/schema/runtime.ts`
+- `src/config/schema/runtime.test.ts`
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- reminder/cron 作为 run/job entry source
+- 非聊天入口直接驱动 job
+- 完成后主动 delivery，而不是退回 inbound 伪装一条消息
+
+Don't Borrow:
+- OpenClaw cron job payload schema
+- isolated-agent 全量运行栈
+- 复杂 delivery target resolution 细节（第一阶段 reminder 可简化）
+
 ---
 
 ## T6. 定义 Continuation / Tool Follow-up 边界
 
 ### 目标
 
-明确哪些场景继续用 continuation，哪些场景升级为 AgentJob。
+明确 continuation 在 runtime 中的最终边界：**所有已入队的队列项必然升级为 AgentJob**；只有当前 turn 内短延迟的轻量续跑（不形成队列项）保留在原有 execution-flow 语义中。
 
-### 规则建议
+### 已落地规则
 
-#### continuation 继续处理的场景
+- continuation 队列项在进入 kernel 执行时，**必然**创建 `source = "tool"`、`kind = "followup"` 的 AgentJob
+- 不存在“可配置是否升级”的分支路径
+- 已入队的 continuation queue item = AgentJob，二者等价
 
-- 同 session 内的短续跑
-- 仍绑定当前 turn 体验
-- 不需要主动通知用户
-- 延迟短于 `longTaskThresholdMs`
+### 边界表（已冻结）
 
-#### 升级为 AgentJob 的场景
-
-- 明确脱离当前 turn
-- 外部等待较长
-- 需要完成后主动通知
-- tool 返回“稍后继续”或“后台等待外部结果”
-
-### 产出物
-
-至少冻结一份边界表：
-
-| 场景 | continuation | AgentJob |
+| 场景 | 队列状态 | AgentJob |
 | --- | --- | --- |
-| session 内轻量续跑 | 是 | 否 |
-| reminder 到期触发 | 否 | 是 |
-| tool 触发异步 follow-up | 否 | 是 |
-| 当前消息内立即继续几步 | 是 | 否 |
-| 用户明确要求“处理完再告诉我” | 否 | 是 |
+| 当前消息内短延迟轻量续跑（不形成队列项） | 不入队 | 否 |
+| reminder 到期触发 | N/A | 是 |
+| tool 触发异步 follow-up | 入队 | 是 |
+| 已入队的 continuation queue item | 入队 | 是 |
+| 用户明确要求“处理完再告诉我” | 入队 | 是 |
 
 ### 验收标准
 
-- 后续不会出现同一入口同时触发 continuation 与 AgentJob
-- 有单一路径选择逻辑，避免重复回复
+- 所有已入队的 continuation queue item 必然进入 AgentJob 路径
+- 不存在“入队但不升级”的分支路径
+- 当前 turn 内轻量续跑（不入队）不进入 AgentJob
+- 单一路径选择逻辑，避免重复回复
+
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/gateway/server-methods/agent.ts`
+  - 参考统一 run 观测模型，不让入口自己发明半套异步机制
+- `../openclaw_source_github/src/agents/tools/agent-step.ts`
+- `../openclaw_source_github/src/agents/tools/subagents-tool.ts`
+  - 参考 tool/subagent 场景如何落入统一 agent run 语义
+
+#### Mozi Landing Points
+
+- `src/runtime/jobs/policy.ts`
+- `src/runtime/host/message-handler/flow/execution-flow.ts`
+- continuation / tool follow-up 相关入口文件
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- 统一 run/job 语义优先于入口特化
+- 避免同一入口既走当前 turn reply 又走后续 delivery
+- tool follow-up 应升级为统一 runtime 能力，而不是各自发明状态机
+
+Don't Borrow:
+- OpenClaw 现有 tool API 表面形态
+- subagent/tool 的完整平台实现细节
+- 与 mozi 无关的 gateway/client 协议层
 
 ---
 
@@ -518,12 +653,10 @@ agentJobs?: {
 
 ```ts
 agentJobs?: {
-  enabled?: boolean;
   maxConcurrent?: number;
   snapshotTtlMs?: number;
   deliveryRetries?: number;
   longTaskThresholdMs?: number;
-  reminderMode?: "inbound" | "job";
 }
 ```
 
@@ -531,12 +664,10 @@ agentJobs?: {
 
 ```ts
 {
-  enabled: false,
   maxConcurrent: 2,
   snapshotTtlMs: 10 * 60_000,
   deliveryRetries: 1,
   longTaskThresholdMs: 15_000,
-  reminderMode: "inbound",
 }
 ```
 
@@ -561,15 +692,50 @@ agentJobs?: {
 #### 回归测试
 
 - 普通 message 仍走原 `execution-flow`
-- `agentJobs.enabled = false` 时与当前行为一致
+- reminder 默认进入 AgentJob 路径
 - streaming 不回归
 - Telegram/Discord 发送路径可复用
 
 ### 验收标准
 
-- 开关关闭时零行为变化
 - 至少一条真实入口链路打通
 - 核心状态机、等待、投递、回归测试齐备
+- AgentJob 被验证为默认 runtime 基础设施，而非 feature-gated 分支
+
+### OpenClaw 参考文件
+
+#### Reference Semantics (OpenClaw)
+
+- `../openclaw_source_github/src/gateway/server-methods/agent-job.ts`
+  - 参考 wait / terminal snapshot / cache TTL 语义
+- `../openclaw_source_github/src/gateway/server-methods/agent.ts`
+  - 参考 run 作为默认可观察对象
+- `../openclaw_source_github/src/cron/isolated-agent/run.ts`
+  - 参考 async entry -> run -> delivery 闭环
+- `../openclaw_source_github/src/cron/isolated-agent/delivery-dispatch.ts`
+  - 参考 execution state 与 delivery state 分离
+- `../openclaw_source_github/src/infra/outbound/deliver.ts`
+  - 参考统一 outbound delivery 层
+
+#### Mozi Landing Points
+
+- `src/config/schema/runtime.ts`
+- `src/config/schema/runtime.test.ts`
+- `src/runtime/jobs/*.test.ts`
+- `src/runtime/host/reminders/runner.test.ts`
+- `src/runtime/host/message-handler/flow/execution-flow.ts`
+
+#### Borrow / Don't Borrow
+
+Borrow:
+- wait / snapshot / delivery / async entry 的成体系测试思路
+- 执行与投递分离的验收口径
+- run/job 逐步成为统一 runtime 基础设施的演进方向
+
+Don't Borrow:
+- 直接把 OpenClaw 全量 gateway/cron 测试照搬
+- 用 OpenClaw 特有协议字段来定义 mozi 验收
+- 把阶段一 reminder 闭环误写成最终态验收
 
 ---
 

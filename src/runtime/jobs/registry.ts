@@ -1,3 +1,4 @@
+import { logger } from "../../logger";
 import { createAgentJobEvent } from "./events";
 import type {
   AgentJob,
@@ -36,6 +37,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
   private readonly snapshotExpiresAt = new Map<string, number>();
   private readonly jobWaiters = new Map<string, Set<Waiter>>();
   private readonly jobEvents = new Map<string, AgentJobEvent[]>();
+  private readonly jobLogContext = new Map<string, Record<string, unknown>>();
   private readonly snapshotTtlMs: number;
   private readonly eventBufferSize: number;
   private readonly now: () => number;
@@ -60,6 +62,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
       source: job.source,
       kind: job.kind,
       prompt: job.prompt,
+      metadata: job.metadata,
       status: "queued",
       createdAt: job.createdAt ?? this.now(),
       parentJobId: job.parentJobId,
@@ -67,6 +70,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
     };
 
     this.activeJobs.set(entry.id, entry);
+    this.jobLogContext.set(entry.id, buildJobLogContext(entry));
     this.appendEvent(createAgentJobEvent({ jobId: entry.id, type: "job_queued", at: entry.createdAt }));
     return entry;
   }
@@ -80,6 +84,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
   }
 
   appendEvent(event: AgentJobEvent): void {
+    this.logEvent(event);
     const events = this.jobEvents.get(event.jobId) ?? [];
     events.push(event);
     if (events.length > this.eventBufferSize) {
@@ -118,6 +123,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
     };
 
     this.activeJobs.set(jobId, updated);
+    this.jobLogContext.set(jobId, buildJobLogContext(updated));
     this.appendEvent(
       createAgentJobEvent({
         jobId,
@@ -219,6 +225,7 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
       this.snapshotExpiresAt.delete(jobId);
       this.completedSnapshots.delete(jobId);
       this.jobEvents.delete(jobId);
+      this.jobLogContext.delete(jobId);
     }
   }
 
@@ -243,6 +250,70 @@ export class InMemoryAgentJobRegistry implements AgentJobRegistry {
       waiter(snapshot);
     }
   }
+
+  private logEvent(event: AgentJobEvent): void {
+    const base = {
+      ...this.jobLogContext.get(event.jobId),
+      jobId: event.jobId,
+      runId: event.runId,
+      lineage: buildLineagePayload({
+        ...this.jobLogContext.get(event.jobId),
+        runId: event.runId,
+      }),
+      eventType: event.type,
+      eventAt: event.at,
+      payload: buildLogPayload(event),
+    };
+
+    switch (event.type) {
+      case "job_failed":
+      case "job_delivery_failed":
+        logger.error(base, "AgentJob event");
+        return;
+      case "job_cancelled":
+      case "job_waiting":
+        logger.warn(base, "AgentJob event");
+        return;
+      case "job_tool_start":
+      case "job_tool_end":
+      case "job_progress":
+      case "job_delivery_requested":
+      case "job_delivery_succeeded":
+        logger.debug(base, "AgentJob event");
+        return;
+      case "job_queued":
+      case "job_started":
+      case "job_completed":
+        logger.info(base, "AgentJob event");
+        return;
+    }
+  }
+}
+
+function buildJobLogContext(job: AgentJob): Record<string, unknown> {
+  return {
+    sessionKey: job.sessionKey,
+    agentId: job.agentId,
+    source: job.source,
+    kind: job.kind,
+    traceId: job.traceId,
+    parentJobId: job.parentJobId,
+    channelId: job.channelId,
+    peerId: job.peerId,
+    metadata: job.metadata,
+  };
+}
+
+function buildLineagePayload(input: {
+  traceId?: unknown;
+  runId?: unknown;
+  parentJobId?: unknown;
+}): Record<string, unknown> {
+  return {
+    traceId: input.traceId,
+    runId: input.runId,
+    parentJobId: input.parentJobId,
+  };
 }
 
 function mapStatusToEvent(status: AgentJobStatus): AgentJobEvent["type"] {
@@ -269,5 +340,142 @@ function buildStatusPayload(job: AgentJob): Record<string, unknown> {
     finishedAt: job.finishedAt,
     resultSummary: job.resultSummary,
     error: job.error,
+    metadata: job.metadata,
+    parentJobId: job.parentJobId,
+    traceId: job.traceId,
   };
+}
+
+function buildLogPayload(event: AgentJobEvent): Record<string, unknown> {
+  return {
+    lifecycle: buildLifecyclePayload(event),
+    tool: buildToolPayload(event),
+    delivery: buildDeliveryPayload(event),
+    progress: buildProgressPayload(event),
+    raw: event.payload,
+  };
+}
+
+function buildLifecyclePayload(event: AgentJobEvent): Record<string, unknown> | undefined {
+  if (
+    event.type !== "job_queued" &&
+    event.type !== "job_started" &&
+    event.type !== "job_waiting" &&
+    event.type !== "job_completed" &&
+    event.type !== "job_failed" &&
+    event.type !== "job_cancelled"
+  ) {
+    return undefined;
+  }
+
+  return {
+    phase: event.type,
+    phaseCategory: resolvePhaseCategory(event.type),
+    outcome: resolveOutcome(event.type),
+    status: event.payload?.status,
+    startedAt: event.payload?.startedAt,
+    finishedAt: event.payload?.finishedAt,
+    resultSummary: event.payload?.resultSummary,
+    error: event.payload?.error,
+    metadata: event.payload?.metadata,
+    parentJobId: event.payload?.parentJobId,
+    traceId: event.payload?.traceId,
+  };
+}
+
+function buildToolPayload(event: AgentJobEvent): Record<string, unknown> | undefined {
+  if (event.type !== "job_tool_start" && event.type !== "job_tool_end") {
+    return undefined;
+  }
+
+  return {
+    phase: event.type,
+    phaseCategory: "active",
+    outcome: event.type === "job_tool_end" ? (event.payload?.isError ? "failed" : "completed") : "started",
+    toolName: event.payload?.toolName,
+    toolCallId: event.payload?.toolCallId,
+    isError: event.payload?.isError,
+  };
+}
+
+function buildDeliveryPayload(event: AgentJobEvent): Record<string, unknown> | undefined {
+  if (
+    event.type !== "job_delivery_requested" &&
+    event.type !== "job_delivery_succeeded" &&
+    event.type !== "job_delivery_failed"
+  ) {
+    return undefined;
+  }
+
+  return {
+    phase: event.type,
+    phaseCategory: "delivery",
+    outcome:
+      event.type === "job_delivery_requested"
+        ? "requested"
+        : event.type === "job_delivery_succeeded"
+          ? "completed"
+          : "failed",
+    status: event.payload?.status,
+    attempts: event.payload?.attempts,
+    outboundId: event.payload?.outboundId,
+    error: event.payload?.error,
+  };
+}
+
+function buildProgressPayload(event: AgentJobEvent): Record<string, unknown> | undefined {
+  if (event.type !== "job_progress") {
+    return undefined;
+  }
+
+  return {
+    phase: event.type,
+    phaseCategory: "active",
+    outcome: "streaming",
+    delta: event.payload?.delta,
+  };
+}
+
+function resolvePhaseCategory(
+  eventType: AgentJobEvent["type"],
+): "queued" | "active" | "blocked" | "terminal" | "delivery" {
+  switch (eventType) {
+    case "job_queued":
+      return "queued";
+    case "job_started":
+      return "active";
+    case "job_waiting":
+      return "blocked";
+    case "job_completed":
+    case "job_failed":
+    case "job_cancelled":
+      return "terminal";
+    case "job_delivery_requested":
+    case "job_delivery_succeeded":
+    case "job_delivery_failed":
+      return "delivery";
+    case "job_progress":
+    case "job_tool_start":
+    case "job_tool_end":
+      return "active";
+  }
+}
+
+function resolveOutcome(eventType: AgentJobEvent["type"]): string | undefined {
+  switch (eventType) {
+    case "job_queued":
+      return "accepted";
+    case "job_started":
+      return "started";
+    case "job_waiting":
+      return "waiting";
+    case "job_completed":
+      return "completed";
+    case "job_failed":
+      return "failed";
+    case "job_cancelled":
+      return "cancelled";
+    default:
+      return undefined;
+  }
 }

@@ -34,6 +34,7 @@ describe("AgentJobDelivery", () => {
         ts: 1_000,
       },
       text: "done",
+      runId: "run:job-1",
     });
 
     expect(result).toEqual({ delivered: true, attempts: 1, outboundId: "out-1" });
@@ -41,6 +42,10 @@ describe("AgentJobDelivery", () => {
       "job_queued",
       "job_delivery_requested",
       "job_delivery_succeeded",
+    ]);
+    expect(registry.listEvents(job.id).slice(1).map((event) => event.runId)).toEqual([
+      "run:job-1",
+      "run:job-1",
     ]);
   });
 
@@ -66,6 +71,7 @@ describe("AgentJobDelivery", () => {
         ts: 1_000,
       },
       text: "done",
+      runId: "run:job-1",
     });
 
     expect(result).toEqual({ delivered: false, attempts: 2, error: "send failed" });
@@ -73,6 +79,10 @@ describe("AgentJobDelivery", () => {
       "job_queued",
       "job_delivery_requested",
       "job_delivery_failed",
+    ]);
+    expect(registry.listEvents(job.id).slice(1).map((event) => event.runId)).toEqual([
+      "run:job-1",
+      "run:job-1",
     ]);
   });
 });

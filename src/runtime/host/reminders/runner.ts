@@ -16,7 +16,6 @@ export class ReminderRunner {
     private readonly pollMs: number = 1000,
     private readonly batchSize: number = 32,
     private readonly options: {
-      reminderMode?: "inbound" | "job";
       jobRunner?: AgentJobRunner;
       jobRegistry?: AgentJobRegistry;
     } = {},
@@ -85,7 +84,7 @@ export class ReminderRunner {
           };
 
           const dedupKey = `reminder:${reminder.id}:${fireAt.toISOString()}`;
-          if (this.options.reminderMode === "job" && this.options.jobRunner && this.options.jobRegistry) {
+          if (this.options.jobRunner && this.options.jobRegistry) {
             const job = this.options.jobRegistry.create({
               id: queueItemId,
               sessionKey: reminder.session_key,

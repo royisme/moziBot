@@ -365,9 +365,15 @@ export async function runPromptWithFallback(params: {
                 },
               });
             }
-            void handleAgentStreamEvent(mapped, onStream, (delta) => {
-              accumulatedText += delta;
-            });
+            void handleAgentStreamEvent(
+              mapped,
+              async (event) => {
+                await onStream({ ...event, runId });
+              },
+              (delta) => {
+                accumulatedText += delta;
+              },
+            );
           });
         }
 
@@ -447,7 +453,7 @@ export async function runPromptWithFallback(params: {
           );
 
           if (onStream) {
-            await onStream({ type: "agent_end", fullText: accumulatedText });
+            await onStream({ type: "agent_end", runId, fullText: accumulatedText });
           }
           if (hasLlmOutputHooks) {
             await hookRunner.runLlmOutput(

@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { resolveAgentJobEscalationTarget } from "./policy";
 
 describe("resolveAgentJobEscalationTarget", () => {
-  it("keeps short session-local work on continuation", () => {
+  it("escalates queued continuation work to job", () => {
     expect(
       resolveAgentJobEscalationTarget({
         source: "continuation",
         expectedDelayMs: 5_000,
         longTaskThresholdMs: 15_000,
       }),
-    ).toBe("continuation");
+    ).toBe("job");
   });
 
   it("escalates reminders to job", () => {

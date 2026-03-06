@@ -35,13 +35,14 @@ export class AgentJobDelivery {
     job: AgentJob;
     snapshot: AgentJobSnapshot;
     text: string;
+    runId?: string;
   }): Promise<AgentJobDeliveryResult> {
-    const { job, snapshot, text } = params;
+    const { job, snapshot, text, runId } = params;
 
     this.deps.registry.appendEvent(
       createAgentJobEvent({
         jobId: job.id,
-        runId: job.traceId,
+        runId: runId ?? job.traceId,
         type: "job_delivery_requested",
         payload: { status: snapshot.status },
       }),
@@ -63,7 +64,7 @@ export class AgentJobDelivery {
         this.deps.registry.appendEvent(
           createAgentJobEvent({
             jobId: job.id,
-            runId: job.traceId,
+            runId: runId ?? job.traceId,
             type: "job_delivery_succeeded",
             payload: { attempts: attempt, outboundId },
           }),
@@ -82,7 +83,7 @@ export class AgentJobDelivery {
     this.deps.registry.appendEvent(
       createAgentJobEvent({
         jobId: job.id,
-        runId: job.traceId,
+        runId: runId ?? job.traceId,
         type: "job_delivery_failed",
         payload: { attempts: attempt, error: lastError },
       }),

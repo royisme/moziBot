@@ -1,5 +1,6 @@
 export interface StreamEvent {
   readonly type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
+  readonly runId?: string;
   readonly delta?: string;
   readonly toolName?: string;
   readonly toolCallId?: string;

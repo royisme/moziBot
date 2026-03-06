@@ -77,12 +77,10 @@ const RuntimeHooksConfigSchema = z
 
 const AgentJobsConfigSchema = z
   .object({
-    enabled: z.boolean().optional(),
     maxConcurrent: z.number().int().positive().optional(),
     snapshotTtlMs: z.number().int().positive().optional(),
     deliveryRetries: z.number().int().nonnegative().optional(),
     longTaskThresholdMs: z.number().int().nonnegative().optional(),
-    reminderMode: z.enum(["inbound", "job"]).optional(),
   })
   .strict();
 

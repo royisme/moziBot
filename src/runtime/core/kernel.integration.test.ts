@@ -1,8 +1,10 @@
 import { existsSync, unlinkSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, initDb, runtimeQueue } from "../../storage/db";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage, OutboundMessage } from "../adapters/channels/types";
+import { continuationRegistry } from "./continuation";
+import { InMemoryAgentJobRegistry } from "../jobs";
 import { RuntimeKernel } from "./kernel";
 
 const TEST_DB = "data/test-runtime-kernel.db";
@@ -82,6 +84,7 @@ describe("RuntimeKernel", () => {
   });
 
   afterEach(() => {
+    continuationRegistry.clearAll();
     closeDb();
     cleanupTestDb();
   });
@@ -739,4 +742,174 @@ describe("RuntimeKernel", () => {
     expect(result.accepted).toBe(true);
     expect(runtimeQueue.getById("queued-cont-1")?.status).toBe("interrupted");
   });
+
+  it("runs continuation queue items through agent job runner when available", async () => {
+    const sessionManager = new FakeSessionManager();
+    const handled: string[] = [];
+    const run = vi.fn(async (job) => ({
+      context: {
+        jobId: job.id,
+        sessionKey: job.sessionKey,
+        agentId: job.agentId,
+        source: job.source,
+        kind: job.kind,
+      },
+      snapshot: {
+        id: job.id,
+        status: "completed",
+        resultSummary: "done",
+        ts: Date.now(),
+      },
+      finalText: "done",
+    }));
+    const registry = new InMemoryAgentJobRegistry({ now: vi.fn(() => 1_000) });
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      handle: async (message: InboundMessage) => {
+        handled.push(message.id);
+      },
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-continuation-job",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "followup",
+      },
+      pollIntervalMs: 10,
+      agentJobRunner: { run } as never,
+      agentJobRegistry: registry,
+    });
+    await kernel.start();
+
+    const inbound: InboundMessage = {
+      ...buildInbound("cont-job-1", "peer-cont-job"),
+      text: "follow up prompt",
+      raw: { source: "continuation" },
+    };
+
+    const result = await kernel.enqueueInbound({
+      id: "cont-job-e1",
+      inbound,
+      receivedAt: new Date(),
+    });
+
+    const ok = await waitFor(() => runtimeQueue.getById("cont-job-e1")?.status === "completed");
+    await kernel.stop();
+
+    expect(result.accepted).toBe(true);
+    expect(ok).toBe(true);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "cont-job-e1",
+        sessionKey: "agent:mozi:telegram:dm:peer-cont-job",
+        agentId: "mozi",
+        channelId: "telegram",
+        peerId: "peer-cont-job",
+        source: "tool",
+        kind: "followup",
+        prompt: "follow up prompt",
+        traceId: "turn:cont-job-1",
+        metadata: {
+          continuation: {
+            reason: undefined,
+            context: undefined,
+            parentMessageId: undefined,
+            parentQueueItemId: undefined,
+          },
+        },
+      }),
+    );
+    expect(handled).toEqual([]);
+    expect(sessionManager.getStatus("agent:mozi:telegram:dm:peer-cont-job")).toBe("completed");
+  });
+
+  it("propagates parent queue item id into followup agent job", async () => {
+    const sessionManager = new FakeSessionManager();
+    const run = vi.fn(async (job) => ({
+      context: {
+        jobId: job.id,
+        sessionKey: job.sessionKey,
+        agentId: job.agentId,
+        source: job.source,
+        kind: job.kind,
+      },
+      snapshot: {
+        id: job.id,
+        status: "completed",
+        resultSummary: "done",
+        ts: Date.now(),
+      },
+      finalText: "done",
+    }));
+    const registry = new InMemoryAgentJobRegistry({ now: vi.fn(() => 1_000) });
+    const handler = {
+      resolveSessionContext: (message: InboundMessage) => ({
+        agentId: "mozi",
+        sessionKey: `agent:mozi:telegram:dm:${message.peerId}`,
+      }),
+      handle: async (_message: InboundMessage) => {
+        continuationRegistry.schedule("agent:mozi:telegram:dm:peer-parent", {
+          prompt: "child followup",
+          reason: "test-parent-link",
+        });
+      },
+    };
+    const channelRegistry = {
+      get: () =>
+        ({
+          send: async () => "out-parent-job",
+        }) as unknown as ChannelPlugin,
+    };
+    const kernel = new RuntimeKernel({
+      messageHandler: handler as never,
+      sessionManager: sessionManager as never,
+      channelRegistry: channelRegistry as never,
+      queueConfig: {
+        mode: "followup",
+      },
+      pollIntervalMs: 10,
+      agentJobRunner: { run } as never,
+      agentJobRegistry: registry,
+    });
+    await kernel.start();
+
+    const parentInbound = buildInbound("parent-m1", "peer-parent");
+    const result = await kernel.enqueueInbound({
+      id: "parent-q1",
+      inbound: parentInbound,
+      receivedAt: new Date(),
+    });
+
+    const ok = await waitFor(() => run.mock.calls.length >= 1);
+    await kernel.stop();
+
+    expect(result.accepted).toBe(true);
+    expect(ok).toBe(true);
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "child followup",
+        parentJobId: "parent-q1",
+        metadata: {
+          continuation: {
+            reason: "test-parent-link",
+            context: undefined,
+            parentMessageId: "parent-m1",
+            parentQueueItemId: "parent-q1",
+          },
+        },
+      }),
+    );
+  });
+
 });

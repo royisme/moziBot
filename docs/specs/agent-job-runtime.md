@@ -428,7 +428,7 @@ runAgentJob(job) {
 第一阶段建议保留原路径：
 
 - 普通消息仍直接走 `execution-flow`
-- 新增配置开关使某些场景改走 `AgentJobRunner`
+- 但 AgentJob 基础设施默认存在，入口按运行语义决定是否进入 `AgentJobRunner`
 
 优先场景：
 
@@ -510,16 +510,18 @@ runAgentJob(job) {
 
 ### 接入点 C：Continuation 升级
 
-不是删除 `ContinuationRegistry`，而是重新划边界：
+不是删除 `ContinuationRegistry`，而是把它收敛为 AgentJob 的上游触发器之一。
 
-- session 内短续跑：继续用 continuation
-- 明确异步任务：升级为 agent job
+**已落地的确定性规则**：
 
-判断标准可配置：
+- 所有进入独立 continuation 队列的队列项，在进入 kernel 执行时，**必然**升级为 `source = "tool"`、`kind = "followup"` 的 AgentJob
+- continuation 不再只是“session 内续跑实现细节”，而是 follow-up job 的标准入口
+- 不存在“队列项但不走 AgentJob”的分支路径
 
-- 是否延迟超过阈值
-- 是否需要脱离当前 turn
-- 是否需要完成后主动通知
+**仍保留在 execution-flow 语义中的边界**：
+
+- 当前 turn 内短延迟轻量续跑，不形成独立队列项，直接在当前 flow 内完成
+- 这类场景不进入 AgentJob 体系，因为它们本质上仍是当前 turn 的一部分
 
 ### 接入点 D：未来 API / ACP / 管理命令
 
@@ -540,8 +542,8 @@ runAgentJob(job) {
 | `prompt-runner.ts` | 单次 prompt 执行与 fallback | 作为 JobRunner 的底层执行引擎 |
 | `streaming.ts` | 文本流式输出 | 仍作为 job 内 streaming 能力 |
 | `execution-flow.ts` | 当前 turn 主执行链 | 保留，用于普通即时对话 |
-| `continuation.ts` | session 后续 prompt 队列 | 保留，部分场景升级为 AgentJob |
-| `reminders/runner.ts` | 定时触发 inbound | 第一批 Job Entry |
+| `continuation.ts` | session 后续 prompt 队列 | 保留，已作为 follow-up AgentJob 的默认上游入口 |
+| `reminders/runner.ts` | 定时触发 inbound | 第一批 Job Entry，已默认进入 AgentJob runtime |
 | `storage/repos/tasks.ts` | 通用任务存储草案 | 不参与 AgentJob Runtime 设计 |
 
 ---
@@ -615,25 +617,21 @@ runAgentJob(job) {
 
 ```ts
 agentJobs?: {
-  enabled?: boolean;
   maxConcurrent?: number;
   snapshotTtlMs?: number;
   deliveryRetries?: number;
   longTaskThresholdMs?: number;
-  reminderMode?: "inbound" | "job";
 }
 ```
 
 ### 默认策略建议
 
-- `enabled: false`（先灰度）
 - `maxConcurrent: 2`
 - `snapshotTtlMs: 10 * 60_000`
 - `deliveryRetries: 1`
 - `longTaskThresholdMs: 15000`
-- `reminderMode: "inbound"`
 
-这样不会破坏现有默认行为。
+这些字段都是 runtime tuning，不用于决定 AgentJob 基础设施是否存在，也不用于把 reminder 在 `inbound` 与 `job` 两套长期语义之间分流。
 
 ---
 
@@ -740,7 +738,7 @@ agentJobs?: {
 ### 回归测试
 
 1. 普通即时消息仍走原 `execution-flow`
-2. 关闭 `agentJobs.enabled` 后行为与当前一致
+2. reminders 默认落入 AgentJob 路径且不回退到伪造 inbound
 3. streaming 现有链路不回归
 4. Telegram / Discord 发送接口可直接复用
 

@@ -44,8 +44,18 @@ describe("AgentJobRunner", () => {
     const runner = new AgentJobRunner({
       registry,
       executePrompt: async ({ onStream }) => {
-        await onStream?.({ type: "tool_start", toolName: "search", toolCallId: "tc-1" });
-        await onStream?.({ type: "tool_end", toolName: "search", toolCallId: "tc-1" });
+        await onStream?.({
+          type: "tool_start",
+          runId: "run:job-1",
+          toolName: "search",
+          toolCallId: "tc-1",
+        });
+        await onStream?.({
+          type: "tool_end",
+          runId: "run:job-1",
+          toolName: "search",
+          toolCallId: "tc-1",
+        });
       },
       now: vi.fn(() => 1_100),
     });
@@ -58,6 +68,10 @@ describe("AgentJobRunner", () => {
       "job_tool_start",
       "job_tool_end",
       "job_completed",
+    ]);
+    expect(registry.listEvents(job.id).slice(2, 4).map((event) => event.runId)).toEqual([
+      "run:job-1",
+      "run:job-1",
     ]);
   });
 

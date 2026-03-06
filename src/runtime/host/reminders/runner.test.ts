@@ -58,7 +58,7 @@ describe("ReminderRunner", () => {
     );
   });
 
-  it("runs reminder as agent job when job mode is enabled", async () => {
+  it("runs reminder as agent job when job runtime is available", async () => {
     const enqueueInbound = vi.fn();
     const run = vi.fn(async () => ({
       context: {
@@ -80,7 +80,6 @@ describe("ReminderRunner", () => {
       1000,
       10,
       {
-        reminderMode: "job",
         jobRunner: { run } as never,
         jobRegistry: { create } as never,
       },
