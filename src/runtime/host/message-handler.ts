@@ -632,6 +632,17 @@ export class MessageHandler {
     }
   }
 
+  async runAgentJobPrompt(params: {
+    sessionKey: string;
+    agentId: string;
+    text: string;
+    traceId?: string;
+    abortSignal?: AbortSignal;
+    onStream?: StreamingCallback;
+  }): Promise<void> {
+    await this.runPromptWithFallback(params);
+  }
+
   async handleInternalMessage(params: {
     sessionKey: string;
     content: string;

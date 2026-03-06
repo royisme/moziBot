@@ -23,6 +23,7 @@ import { HeartbeatRunner } from "./heartbeat";
 import { Lifecycle } from "./lifecycle";
 import { resolveLocalDesktopDecision } from "./local-desktop-mode";
 import { MessageHandler } from "./message-handler";
+import { AgentJobDelivery, AgentJobRunner, InMemoryAgentJobRegistry } from "../jobs";
 import { ReminderRunner } from "./reminders/runner";
 import { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
@@ -168,7 +169,46 @@ export class RuntimeHost {
     if (this.runtimeKernel) {
       await this.runtimeKernel.start();
       if (!this.reminderRunner) {
-        this.reminderRunner = new ReminderRunner(this.runtimeKernel);
+        const jobRegistry = new InMemoryAgentJobRegistry({
+          snapshotTtlMs: config.runtime?.agentJobs?.snapshotTtlMs,
+        });
+        const jobDelivery = new AgentJobDelivery({
+          registry: jobRegistry,
+          retries: config.runtime?.agentJobs?.deliveryRetries ?? 0,
+          dispatch: {
+            send: async ({ peerId, channelId, replyText, traceId }) => {
+              const channel = this.channelRegistry.get(channelId);
+              if (!channel) {
+                throw new Error(`Channel not found: ${channelId}`);
+              }
+              return channel.send(peerId, { text: replyText ?? "", traceId });
+            },
+          },
+        });
+        const jobRunner = new AgentJobRunner({
+          registry: jobRegistry,
+          delivery: jobDelivery,
+          executePrompt: async ({ sessionKey, agentId, text, traceId, abortSignal, onStream }) => {
+            if (!this.messageHandler) {
+              throw new Error("MessageHandler not initialized");
+            }
+            await this.messageHandler.runAgentJobPrompt({
+              sessionKey,
+              agentId,
+              text,
+              traceId,
+              abortSignal,
+              onStream,
+            });
+          },
+        });
+        this.reminderRunner = new ReminderRunner(this.runtimeKernel, 1000, 32, {
+          reminderMode: config.runtime?.agentJobs?.enabled
+            ? (config.runtime?.agentJobs?.reminderMode ?? "inbound")
+            : "inbound",
+          jobRunner,
+          jobRegistry,
+        });
       }
       this.reminderRunner.start();
     }

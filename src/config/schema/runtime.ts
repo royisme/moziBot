@@ -75,6 +75,17 @@ const RuntimeHooksConfigSchema = z
   })
   .strict();
 
+const AgentJobsConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    maxConcurrent: z.number().int().positive().optional(),
+    snapshotTtlMs: z.number().int().positive().optional(),
+    deliveryRetries: z.number().int().nonnegative().optional(),
+    longTaskThresholdMs: z.number().int().nonnegative().optional(),
+    reminderMode: z.enum(["inbound", "job"]).optional(),
+  })
+  .strict();
+
 export const RuntimeConfigSchema = z
   .object({
     sanitizeToolSchema: z.boolean().optional(),
@@ -82,6 +93,7 @@ export const RuntimeConfigSchema = z
     cron: RuntimeCronConfigSchema.optional(),
     auth: RuntimeAuthConfigSchema.optional(),
     hooks: RuntimeHooksConfigSchema.optional(),
+    agentJobs: AgentJobsConfigSchema.optional(),
   })
   .strict();
 

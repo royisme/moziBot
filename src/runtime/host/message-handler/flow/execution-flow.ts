@@ -157,7 +157,16 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     agentsConfig: deps.getConfigAgents(),
     agentId,
   });
-  const shouldShowThinking = channel.id === "localDesktop" && reasoningLevel === "stream";
+
+  // Check if channel supports streaming reasoning display
+  // localDesktop always supports, Telegram supports when streamMode === "full"
+  let channelSupportsThinkingStream = channel.id === "localDesktop";
+  if (channel.id === "telegram") {
+    const telegramConfig = (channel as { config?: { streamMode?: string } }).config;
+    channelSupportsThinkingStream = telegramConfig?.streamMode === "full";
+  }
+
+  const shouldShowThinking = channelSupportsThinkingStream && reasoningLevel === "stream";
   const streamingReasoningFilter = shouldShowThinking ? null : new StreamingReasoningFilter();
 
   let streamingBuffer: StreamingBuffer | undefined;

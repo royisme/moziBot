@@ -3,6 +3,7 @@ import { logger } from "../../../logger";
 import { reminders } from "../../../storage/db";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { RuntimeKernel } from "../../core/kernel";
+import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
 import type { Schedule } from "../cron/types";
 import { computeNextRun } from "./schedule";
 
@@ -14,6 +15,11 @@ export class ReminderRunner {
     private readonly runtimeKernel: RuntimeKernel,
     private readonly pollMs: number = 1000,
     private readonly batchSize: number = 32,
+    private readonly options: {
+      reminderMode?: "inbound" | "job";
+      jobRunner?: AgentJobRunner;
+      jobRegistry?: AgentJobRegistry;
+    } = {},
   ) {}
 
   start(): void {
@@ -79,23 +85,49 @@ export class ReminderRunner {
           };
 
           const dedupKey = `reminder:${reminder.id}:${fireAt.toISOString()}`;
-          await this.runtimeKernel.enqueueInbound({
-            id: queueItemId,
-            dedupKey,
-            inbound,
-            receivedAt: now,
-          });
-
-          logger.info(
-            {
-              reminderId: reminder.id,
-              queueItemId,
+          if (this.options.reminderMode === "job" && this.options.jobRunner && this.options.jobRegistry) {
+            const job = this.options.jobRegistry.create({
+              id: queueItemId,
               sessionKey: reminder.session_key,
-              scheduledAt: fireAt.toISOString(),
-              nextRunAt: next,
-            },
-            "Reminder enqueued",
-          );
+              agentId: reminder.session_key.split(":")[1] || "mozi",
+              channelId: reminder.channel_id,
+              peerId: reminder.peer_id,
+              source: "reminder",
+              kind: "scheduled",
+              prompt: reminder.message,
+              traceId: dedupKey,
+              createdAt: now.getTime(),
+            });
+            await this.options.jobRunner.run(job);
+            logger.info(
+              {
+                reminderId: reminder.id,
+                queueItemId,
+                sessionKey: reminder.session_key,
+                scheduledAt: fireAt.toISOString(),
+                nextRunAt: next,
+              },
+              "Reminder job executed",
+            );
+          } else {
+            await this.runtimeKernel.enqueueInbound({
+              id: queueItemId,
+              dedupKey,
+              inbound,
+              receivedAt: now,
+            });
+
+            logger.info(
+              {
+                reminderId: reminder.id,
+                queueItemId,
+                sessionKey: reminder.session_key,
+                scheduledAt: fireAt.toISOString(),
+                nextRunAt: next,
+              },
+              "Reminder enqueued",
+            );
+          }
         } catch (error) {
           logger.error(
             {

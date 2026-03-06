@@ -117,4 +117,31 @@ describe("Runtime schema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("accepts agent job runtime config", () => {
+    const result = MoziConfigSchema.safeParse({
+      runtime: {
+        agentJobs: {
+          enabled: true,
+          maxConcurrent: 2,
+          snapshotTtlMs: 600000,
+          deliveryRetries: 1,
+          longTaskThresholdMs: 15000,
+          reminderMode: "job",
+        },
+      },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid agent job reminder mode", () => {
+    const result = MoziConfigSchema.safeParse({
+      runtime: {
+        agentJobs: {
+          reminderMode: "invalid",
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
 });
