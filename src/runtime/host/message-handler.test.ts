@@ -1059,6 +1059,7 @@ describe("MessageHandler commands", () => {
           toModel: string;
           attempt: number;
           error: string;
+          reason: "timeout" | "error";
         }) => Promise<void> | void;
       }) => {
         await params.onFallback?.({
@@ -1066,6 +1067,7 @@ describe("MessageHandler commands", () => {
           toModel: "quotio/local/minimax-m2.1",
           attempt: 1,
           error: "400 model failure",
+          reason: "error",
         });
       },
     );
@@ -1075,6 +1077,35 @@ describe("MessageHandler commands", () => {
     const notice = send.mock.calls
       .map((call) => (call[1] as { text?: string }).text || "")
       .find((line) => line.includes("Primary model failed this turn"));
+    expect(notice).toContain("quotio/local/minimax-m2.1");
+  });
+
+  it("sends timeout-specific fallback notice when primary model times out", async () => {
+    runPromptWithFallback.mockImplementation(
+      async (params: {
+        onFallback?: (info: {
+          fromModel: string;
+          toModel: string;
+          attempt: number;
+          error: string;
+          reason: "timeout" | "error";
+        }) => Promise<void> | void;
+      }) => {
+        await params.onFallback?.({
+          fromModel: "quotio/gemini-3-flash-preview",
+          toModel: "quotio/local/minimax-m2.1",
+          attempt: 1,
+          error: "Agent prompt timed out",
+          reason: "timeout",
+        });
+      },
+    );
+
+    await handler.handle(createMessage("hello"), channel);
+
+    const notice = send.mock.calls
+      .map((call) => (call[1] as { text?: string }).text || "")
+      .find((line) => line.includes("Primary model timed out this turn"));
     expect(notice).toContain("quotio/local/minimax-m2.1");
   });
 
@@ -1100,6 +1131,7 @@ describe("MessageHandler commands", () => {
           toModel: string;
           attempt: number;
           error: string;
+          reason: "timeout" | "error";
         }) => Promise<void> | void;
         onStream?: (event: { type: "text_delta"; delta?: string }) => Promise<void> | void;
       }) => Promise<void>;
@@ -1111,6 +1143,7 @@ describe("MessageHandler commands", () => {
         toModel: "quotio/local/minimax-m2.1",
         attempt: 1,
         error: "400 model failure",
+        reason: "error",
       });
       await params.onStream?.({ type: "text_delta", delta: "draft response" });
       await params.onStream?.({ type: "agent_end", fullText: "final response" } as never);

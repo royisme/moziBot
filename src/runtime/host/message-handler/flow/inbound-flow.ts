@@ -16,7 +16,8 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
   const normalizeControl = (t: string) => deps.normalizeImplicitControlCommand(t);
   const parseCommand = (t: string) => deps.parseCommand(t);
   const resolveContext = (p: unknown) => deps.resolveSessionContext(p);
-  const rememberRoute = (agentId: string, route: RouteContext) => deps.rememberLastRoute(agentId, route);
+  const rememberRoute = (agentId: string, route: RouteContext) =>
+    deps.rememberLastRoute(agentId, route);
   const sendDirect = (peerId: string, text: string) => deps.sendDirect(peerId, text);
   const getChannel = (p: unknown) => deps.getChannel(p);
   const parseInlineOverrides = (parsed: { name: string; args: string } | null) =>

@@ -7,6 +7,7 @@ import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
 import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
 import { parseInlineOverrides } from "../../commands/reasoning";
+import type { LastRouteContext } from "../../routing/types";
 import type { OrchestratorDeps } from "../contract";
 import {
   checkInputCapability as checkInputCapabilityService,
@@ -26,6 +27,7 @@ import {
   type InteractionPhase,
   type PhasePayload,
 } from "./interaction-lifecycle";
+import { rememberLastRoute as rememberLastRouteService } from "./message-router";
 import { resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator-session";
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
 import { dispatchReply } from "./reply-dispatcher";
@@ -35,8 +37,6 @@ import {
   type ChannelWithStatusReaction,
 } from "./status-reaction";
 import { StreamingBuffer } from "./streaming";
-import { rememberLastRoute as rememberLastRouteService } from "./message-router";
-import type { LastRouteContext } from "../../routing/types";
 
 export interface BuilderLogger {
   info(obj: Record<string, unknown>, msg: string): void;
@@ -140,7 +140,6 @@ type ReplyDeps = Pick<
   "shouldSuppressSilentReply" | "shouldSuppressHeartbeatReply" | "dispatchReply"
 >;
 
-
 type ErrorDeps = Pick<
   OrchestratorDeps,
   | "toError"
@@ -235,11 +234,19 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
   } = params;
 
   const mapInboundMediaToCapabilityMedia = (message: InboundMessage): MediaItem[] => {
-    const supportedMediaTypes: readonly MediaType[] = ["photo", "video", "audio", "document", "voice"];
+    const supportedMediaTypes: readonly MediaType[] = [
+      "photo",
+      "video",
+      "audio",
+      "document",
+      "voice",
+    ];
     const typeSet = new Set<MediaType>(supportedMediaTypes);
 
     return (message.media || [])
-      .filter((item): item is typeof item & { type: MediaType } => typeSet.has(item.type as MediaType))
+      .filter((item): item is typeof item & { type: MediaType } =>
+        typeSet.has(item.type as MediaType),
+      )
       .map((item, index) => ({
         type: item.type,
         mediaId: `media-${index + 1}`,

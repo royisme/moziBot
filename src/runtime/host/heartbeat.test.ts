@@ -143,7 +143,9 @@ describe("HeartbeatRunner", () => {
       },
     } as never);
 
-    const wake = runner as unknown as { handleWake: (reason: string, sessionKey?: string) => Promise<string> };
+    const wake = runner as unknown as {
+      handleWake: (reason: string, sessionKey?: string) => Promise<string>;
+    };
     await wake.handleWake("manual", "agent:mozi:discord:group:thread-3");
 
     expect(handler.resolveSessionContext).toHaveBeenCalledWith(

@@ -2,6 +2,11 @@ import type { ImageContent } from "@mariozechner/pi-ai";
 import { agentEvents } from "../../../../infra/agent-events";
 import { getRuntimeHookRunner } from "../../../hooks";
 import {
+  classifyPromptFailoverReason,
+  PromptTimeoutError,
+  type PromptFailoverReason,
+} from "./failover-reasons";
+import {
   handleAgentStreamEvent,
   type AgentSessionEvent,
   type StreamingCallback,
@@ -42,6 +47,7 @@ export interface FallbackInfo {
   readonly toModel: string;
   readonly attempt: number;
   readonly error: string;
+  readonly reason: PromptFailoverReason;
 }
 
 export interface PromptRunnerDeps {
@@ -421,7 +427,7 @@ export async function runPromptWithFallback(params: {
         };
 
         const timeoutHandle = setTimeout(() => {
-          abortRun(new Error("Agent prompt timeout"));
+          abortRun(new PromptTimeoutError(promptExecutionTimeoutMs));
         }, promptExecutionTimeoutMs);
 
         try {
@@ -476,6 +482,8 @@ export async function runPromptWithFallback(params: {
           clearTimeout(timeoutHandle);
         }
       } catch (err) {
+        // Classify the failover reason BEFORE converting to Error
+        const failoverReason = classifyPromptFailoverReason(err);
         const error = deps.errorClassifiers.toError(err);
 
         if (hasLlmOutputHooks) {
@@ -524,6 +532,7 @@ export async function runPromptWithFallback(params: {
               toModel: nextModel,
               attempt: tried.size,
               error: error.message,
+              reason: failoverReason,
             });
           }
           continue;

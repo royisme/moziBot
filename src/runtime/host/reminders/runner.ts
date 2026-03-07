@@ -4,8 +4,8 @@ import { reminders } from "../../../storage/db";
 import type { InboundMessage } from "../../adapters/channels/types";
 import type { RuntimeKernel } from "../../core/kernel";
 import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
-import { normalizeRouteContext } from "../routing/route-context";
 import type { Schedule } from "../cron/types";
+import { normalizeRouteContext } from "../routing/route-context";
 import { computeNextRun } from "./schedule";
 
 export class ReminderRunner {

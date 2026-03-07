@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { agentEvents } from "../../../../infra/agent-events";
+import {
+  PromptTimeoutError,
+  classifyPromptFailoverReason,
+  isPromptTimeoutError,
+} from "./failover-reasons";
 import { runPromptWithFallback, type PromptAgent, type PromptRunnerDeps } from "./prompt-runner";
 
 const hookMocks = vi.hoisted(() => ({
@@ -26,7 +31,7 @@ function buildDeps(agent: PromptAgent): PromptRunnerDeps {
       getAgentFallbacks: vi.fn(() => []),
       setSessionModel: vi.fn(async () => {}),
       clearRuntimeModelOverride: vi.fn(() => {}),
-      resolvePromptTimeoutMs: vi.fn(() => 1_000),
+      resolvePromptTimeoutMs: vi.fn(() => 600_000),
     },
     errorClassifiers: {
       isAgentBusyError: vi.fn(() => false),
@@ -454,9 +459,71 @@ describe("runPromptWithFallback agent events", () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(
-      deps.logger.warn.mock.calls.some(
-        (call) => call[1] === "Agent busy, retrying prompt with backoff",
+      (deps.logger.warn as ReturnType<typeof vi.fn>).mock.calls.some(
+        (call: unknown[]) => call[1] === "Agent busy, retrying prompt with backoff",
       ),
     ).toBe(false);
+  });
+
+  it("classifies prompt timeout errors separately from generic failures", () => {
+    const timeoutError = new PromptTimeoutError(600_000);
+
+    expect(isPromptTimeoutError(timeoutError)).toBe(true);
+    expect(classifyPromptFailoverReason(timeoutError)).toBe("timeout");
+    expect(classifyPromptFailoverReason(new Error("boom"))).toBe("error");
+  });
+
+  it("keeps prompt timeout distinct from manual abort errors", () => {
+    const timeoutError = new PromptTimeoutError(600_000);
+    const abortError = new Error("This operation was aborted");
+    abortError.name = "AbortError";
+
+    expect(isPromptTimeoutError(timeoutError)).toBe(true);
+    expect(isPromptTimeoutError(abortError)).toBe(false);
+  });
+
+  it("reports timeout reason in fallback metadata", async () => {
+    vi.useFakeTimers();
+
+    const prompt = vi.fn(
+      () =>
+        new Promise<void>((_resolve) => {
+          // leave pending so timeout fires
+        }),
+    );
+    const fallbackAgent: PromptAgent = { prompt: vi.fn(async () => {}) };
+    const agent: PromptAgent = { prompt, abort: vi.fn(async () => {}) };
+    const deps = buildDeps(agent);
+    deps.agentManager.getAgent = vi
+      .fn()
+      .mockResolvedValueOnce({ agent, modelRef: "quotio/gemini-3-flash-preview" })
+      .mockResolvedValueOnce({ agent: fallbackAgent, modelRef: "quotio/local/minimax-m2.1" });
+    deps.agentManager.getAgentFallbacks = vi.fn(() => ["quotio/local/minimax-m2.1"]);
+    deps.agentManager.resolvePromptTimeoutMs = vi.fn(() => 50);
+
+    const onFallback = vi.fn(async () => {});
+    const run = runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-timeout-fallback",
+      agentId: "mozi",
+      text: "hello",
+      traceId: "turn:timeout-fallback",
+      deps,
+      onFallback,
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    await vi.advanceTimersByTimeAsync(60);
+    await run;
+
+    expect(onFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        reason: "timeout",
+      }),
+    );
+
+    vi.useRealTimers();
   });
 });

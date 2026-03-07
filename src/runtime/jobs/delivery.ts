@@ -3,10 +3,7 @@ import { createAgentJobEvent } from "./events";
 import type { AgentJob, AgentJobRegistry, AgentJobSnapshot } from "./types";
 
 export interface AgentJobDeliveryDispatcher {
-  send(params: {
-    delivery: DeliveryContext;
-    replyText?: string;
-  }): Promise<string>;
+  send(params: { delivery: DeliveryContext; replyText?: string }): Promise<string>;
 }
 
 export interface AgentJobDeliveryDeps {

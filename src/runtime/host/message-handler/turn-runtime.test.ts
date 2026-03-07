@@ -80,14 +80,15 @@ function createDeps(): OrchestratorDeps {
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
     emitStatusSafely: vi.fn(async () => {}),
-    createStreamingBuffer: vi.fn(() =>
-      new StreamingBuffer(
-        {
-          send: async () => "out",
-          editMessage: async () => {},
-        },
-        "peer-1",
-      ),
+    createStreamingBuffer: vi.fn(
+      () =>
+        new StreamingBuffer(
+          {
+            send: async () => "out",
+            editMessage: async () => {},
+          },
+          "peer-1",
+        ),
     ),
     runPromptWithFallback: vi.fn(async () => {}),
     maybePreFlushBeforePrompt: vi.fn(async () => {}),

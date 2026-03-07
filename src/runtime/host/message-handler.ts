@@ -55,8 +55,8 @@ import { emitStatusReactionSafely as _unusedEmitStatusReactionSafelyService } fr
 import { StreamingBuffer as _unusedTurnStreamingBuffer } from "./message-handler/services/streaming";
 import { extractAssistantText } from "./reply-utils";
 import { RuntimeRouter } from "./router";
-import type { SessionManager } from "./sessions/manager";
 import type { RouteContext } from "./routing/types";
+import type { SessionManager } from "./sessions/manager";
 import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
 import { createBrowserTools } from "./tools/browser";
 import { createSessionTools } from "./tools/sessions";

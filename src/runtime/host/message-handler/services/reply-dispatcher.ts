@@ -1,9 +1,9 @@
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
 import type { OutboundMessage } from "../../../adapters/channels/types";
+import { renderAssistantReply } from "../../reply-utils";
 import { routeContextToOutboundMessage } from "../../routing/route-context";
 import type { DeliveryContext } from "../../routing/types";
-import { renderAssistantReply } from "../../reply-utils";
 
 /**
  * Reply Dispatcher and Outbound Delivery Service

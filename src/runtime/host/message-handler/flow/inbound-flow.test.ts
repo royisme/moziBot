@@ -199,8 +199,10 @@ describe("runInboundFlow", () => {
     };
     deps.resolveSessionContext = vi.fn(() => resolvedContext);
 
+    const rememberLastRoute = vi.spyOn(deps, "rememberLastRoute");
+
     await runInboundFlow(ctx, deps);
 
-    expect(deps.rememberLastRoute).toHaveBeenCalledWith("mozi", canonicalRoute);
+    expect(rememberLastRoute).toHaveBeenCalledWith("mozi", canonicalRoute);
   });
 });

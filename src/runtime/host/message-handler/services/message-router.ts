@@ -1,7 +1,7 @@
 import type { InboundMessage } from "../../../adapters/channels/types";
+import type { RuntimeRouter } from "../../router";
 import { routeContextFromInbound } from "../../routing/route-context";
 import type { LastRouteContext, ResolvedTurnContext } from "../../routing/types";
-import type { RuntimeRouter } from "../../router";
 import { buildSessionKey } from "../../session-key";
 
 export type LastRoute = LastRouteContext;

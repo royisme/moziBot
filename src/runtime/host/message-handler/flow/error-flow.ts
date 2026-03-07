@@ -20,7 +20,7 @@ export const runErrorFlow: ErrorFlow = async (ctx, deps, rawError) => {
   const isAbortError = (err: Error) => deps.isAbortError(err);
   const isAgentBusyError = (err: Error) => deps.isAgentBusyError(err);
   const createErrorReplyText = (err: Error) => deps.createErrorReplyText(err);
-  const getChannel = (payload: unknown) => deps.getChannel(payload);
+  const getChannel = (channelPayload: unknown) => deps.getChannel(channelPayload);
   const dispatchReply = (params: {
     delivery: DeliveryContext;
     replyText?: string;

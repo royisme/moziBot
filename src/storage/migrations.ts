@@ -263,9 +263,7 @@ export function runMigrations(conn: DatabaseType): void {
 }
 
 function ensureColumn(conn: DatabaseType, table: string, column: string, definition: string): void {
-  const columns = conn
-    .prepare(`PRAGMA table_info(${table})`)
-    .all() as Array<{ name: string }>;
+  const columns = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   const exists = columns.some((entry) => entry.name === column);
   if (exists) {
     return;

@@ -6,8 +6,8 @@ import type {
   StatusReaction,
   StatusReactionPayload,
 } from "../../adapters/channels/types";
-import type { SessionTimestamps } from "./lifecycle/temporal";
 import type { LastRouteContext, ResolvedTurnContext, DeliveryContext } from "../routing/types";
+import type { SessionTimestamps } from "./lifecycle/temporal";
 import type { CommandHandlerMap } from "./services/command-handlers";
 import type { InteractionPhase, PhasePayload } from "./services/interaction-lifecycle";
 import type { FallbackInfo } from "./services/prompt-runner";

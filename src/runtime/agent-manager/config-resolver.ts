@@ -179,5 +179,5 @@ export function resolvePromptTimeoutMs(config: MoziConfig, entry?: AgentEntry): 
   const perAgent = entry?.timeoutSeconds;
   const defaults = (config.agents?.defaults as { timeoutSeconds?: number } | undefined)
     ?.timeoutSeconds;
-  return (perAgent ?? defaults ?? 300) * 1000;
+  return (perAgent ?? defaults ?? 600) * 1000;
 }

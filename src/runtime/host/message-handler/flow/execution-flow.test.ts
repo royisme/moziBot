@@ -133,6 +133,90 @@ function createBundle(): PreparedPromptBundle {
 }
 
 describe("runExecutionFlow", () => {
+  it("uses timeout-specific fallback copy for streaming flows", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => ({
+      id: "telegram",
+      send: vi.fn(async () => "out"),
+      editMessage: vi.fn(async () => {}),
+    }));
+    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
+      await onFallback?.({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        attempt: 1,
+        error: "Agent prompt timed out",
+        reason: "timeout",
+      });
+      await onStream?.({ type: "agent_end", fullText: "hi" });
+    });
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText:
+          "⚠️ Primary model timed out this turn; using fallback model quotio/local/minimax-m2.1 (from quotio/gemini-3-flash-preview). You can /switch if you want to keep using it.",
+      }),
+    );
+  });
+
+  it("uses timeout-specific fallback copy for non-streaming flows", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") }));
+    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
+      await onFallback?.({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        attempt: 1,
+        error: "Agent prompt timed out",
+        reason: "timeout",
+      });
+      await onStream?.({ type: "agent_end", fullText: "hi" });
+    });
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText:
+          "⚠️ Primary model timed out this turn; using fallback model quotio/local/minimax-m2.1 (from quotio/gemini-3-flash-preview).",
+      }),
+    );
+  });
+
+  it("keeps generic fallback copy for non-timeout failures", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") }));
+    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
+      await onFallback?.({
+        fromModel: "quotio/gemini-3-flash-preview",
+        toModel: "quotio/local/minimax-m2.1",
+        attempt: 1,
+        error: "400 model failure",
+        reason: "error",
+      });
+      await onStream?.({ type: "agent_end", fullText: "hi" });
+    });
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText:
+          "⚠️ Primary model failed this turn; using fallback model quotio/local/minimax-m2.1 (from quotio/gemini-3-flash-preview).",
+      }),
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     hookMocks.runner.hasHooks.mockReturnValue(false);
