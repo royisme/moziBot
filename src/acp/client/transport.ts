@@ -18,7 +18,7 @@ export type AcpTransportOptions = {
   verbose?: boolean;
 };
 
-type AcpTransportConnection = {
+export type AcpTransportConnection = {
   connection: acp.ClientSideConnection;
   close: () => Promise<void>;
 };
@@ -61,6 +61,10 @@ export async function createAcpTransport(
     log(`subprocess exited with code ${code}`);
   });
 
+  if (!subprocess.stdin || !subprocess.stdout) {
+    throw new Error("Failed to get stdin/stdout from subprocess");
+  }
+
   const input = Writable.toWeb(subprocess.stdin);
   const output = Readable.toWeb(subprocess.stdout) as ReadableStream<Uint8Array>;
   const stream = acp.ndJsonStream(input, output);
@@ -95,20 +99,20 @@ export async function createAcpTransport(
           log(`tool update: ${update.toolCallId} -> ${update.status}`);
           break;
         case "current_mode_update":
-          log(`mode update: ${update.mode}`);
+          log(`mode update: ${update.currentModeId}`);
           break;
       }
     },
 
     async readTextFile(params: acp.ReadTextFileRequest): Promise<acp.ReadTextFileResponse> {
       const fs = await import("node:fs/promises");
-      const content = await fs.readFile(params.uri, "utf-8");
+      const content = await fs.readFile(params.path, "utf-8");
       return { content };
     },
 
     async writeTextFile(params: acp.WriteTextFileRequest): Promise<acp.WriteTextFileResponse> {
       const fs = await import("node:fs/promises");
-      await fs.writeFile(params.uri, params.content);
+      await fs.writeFile(params.path, params.content);
       return {};
     },
   };

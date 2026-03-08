@@ -1,6 +1,7 @@
 import type { MoziConfig } from "../../config/schema";
 import { requireAcpRuntimeBackend } from "../runtime/registry";
 import { readAcpSessionEntry, upsertAcpSessionMeta } from "../runtime/session-meta";
+import type { AcpRuntimeSessionMode } from "../runtime/types";
 import type { AcpBridgeRuntimeAdapter } from "./runtime-adapter";
 
 export type AcpBridgeRuntimeAdapterOptions = {
@@ -190,6 +191,7 @@ async function ensureRuntimeHandle(params: {
     backend: string;
     agent: string;
     runtimeSessionName: string;
+    mode?: AcpRuntimeSessionMode;
     cwd?: string;
     identity?: { acpxSessionId?: string; agentSessionId?: string; acpxRecordId?: string };
   };

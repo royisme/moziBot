@@ -60,7 +60,7 @@ function convertAnyOfConstToEnum(schema: SchemaObject): SchemaObject | null {
   return {
     type: "string",
     enum: constValues,
-    ...(schema.description && { description: schema.description }),
+    ...(schema.description ? { description: schema.description } : {}),
   };
 }
 

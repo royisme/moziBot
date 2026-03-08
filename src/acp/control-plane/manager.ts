@@ -57,6 +57,9 @@ export class AcpSessionManager {
   private readonly errorsByCode = new Map<string, number>();
   private completedTurnsTotal = 0;
   private failedTurnsTotal = 0;
+  private evictedTotal = 0;
+  private lastEvictedAt?: number;
+  private evictionTimer?: ReturnType<typeof setInterval>;
 
   constructor(deps: AcpSessionManagerDeps = DEFAULT_DEPS) {
     this.runtimeCache = new RuntimeCache();
@@ -466,6 +469,7 @@ export class AcpSessionManager {
                 ...current,
                 state: "idle" as const,
                 lastActivityAt: now,
+                conversationKeys: [],
               };
             },
           });
@@ -632,15 +636,16 @@ export class AcpSessionManager {
   /**
    * Get observability snapshot for monitoring.
    */
-  getObservabilitySnapshot(): AcpManagerObservabilitySnapshot {
-    const idleTtlMs = 0; // Would come from config
+  getObservabilitySnapshot(cfg?: MoziConfig): AcpManagerObservabilitySnapshot {
+    const idleTtlMs = cfg ? resolveRuntimeIdleTtlMs(cfg) : 0;
     const cacheSnapshot = this.runtimeCache.snapshot();
 
     return {
       runtimeCache: {
         activeSessions: cacheSnapshot.length,
         idleTtlMs,
-        evictedTotal: 0,
+        evictedTotal: this.evictedTotal,
+        lastEvictedAt: this.lastEvictedAt,
       },
       turns: {
         active: this.activeTurns.size,
@@ -657,7 +662,7 @@ export class AcpSessionManager {
   /**
    * Evict idle runtime instances based on TTL.
    */
-  evictIdleRuntimes(cfg: MoziConfig): number {
+  async evictIdleRuntimes(cfg: MoziConfig): Promise<number> {
     const idleTtlMs = resolveRuntimeIdleTtlMs(cfg);
     if (idleTtlMs <= 0) {
       return 0;
@@ -676,15 +681,59 @@ export class AcpSessionManager {
         continue;
       }
 
+      try {
+        await candidate.state.runtime.close({
+          handle: candidate.state.handle,
+          reason: "idle-eviction",
+        });
+      } catch (err) {
+        console.debug(
+          `acp-manager: idle eviction close failed for ${candidate.actorKey}: ${String(err)}`,
+        );
+      }
+
       this.runtimeCache.clear(candidate.actorKey);
       evicted++;
+    }
+
+    if (evicted > 0) {
+      this.evictedTotal += evicted;
+      this.lastEvictedAt = Date.now();
     }
 
     return evicted;
   }
 
   /**
-   * Update runtime options for a session.
+   * Start periodic idle eviction timer.
+   */
+  startEvictionTimer(cfg: MoziConfig): void {
+    const idleTtlMs = resolveRuntimeIdleTtlMs(cfg);
+    if (idleTtlMs <= 0) {
+      return;
+    }
+
+    this.evictionTimer = setInterval(
+      () => {
+        this.evictIdleRuntimes(cfg).catch((err) => {
+          console.debug(`acp-manager: eviction timer error: ${String(err)}`);
+        });
+      },
+      Math.max(idleTtlMs / 2, 30_000),
+    );
+  }
+
+  /**
+   * Stop periodic idle eviction timer.
+   */
+  stopEvictionTimer(): void {
+    if (this.evictionTimer !== undefined) {
+      clearInterval(this.evictionTimer);
+      this.evictionTimer = undefined;
+    }
+  }
+
+  /**
    */
   async updateRuntimeOptions(
     sessionKey: string,

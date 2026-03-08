@@ -1,7 +1,4 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { logger } from "../logger";
 import type { ResolvedMemoryPersistenceConfig } from "./backend-config";
 
 export interface FlushMetadata {
@@ -10,37 +7,26 @@ export interface FlushMetadata {
   lastStatus: "success" | "failure";
 }
 
-export class FlushManager {
-  constructor(private homeDir: string) {}
+export interface FlushResult {
+  ready: boolean;
+  summary: string | null;
+}
 
+export class FlushManager {
   async flush(params: {
     messages: AgentMessage[];
     config: ResolvedMemoryPersistenceConfig;
-    sessionKey: string;
-  }): Promise<boolean> {
+  }): Promise<FlushResult> {
     const { messages, config } = params;
     if (!config.enabled) {
-      return false;
+      return { ready: false, summary: null };
     }
 
-    try {
-      const memoryDir = path.join(this.homeDir, "memory");
-      await fs.mkdir(memoryDir, { recursive: true });
-
-      const date = new Date().toISOString().split("T")[0];
-      const targetFile = path.join(memoryDir, `${date}.md`);
-
-      const entry = this.buildMarkdownEntry(messages, config);
-      if (!entry) {
-        return false;
-      }
-
-      await fs.appendFile(targetFile, entry, "utf-8");
-      return true;
-    } catch (err) {
-      logger.warn({ err, sessionKey: params.sessionKey }, "Memory flush failed (best-effort)");
-      return false;
-    }
+    const summary = this.buildMarkdownEntry(messages, config);
+    return {
+      ready: summary !== null,
+      summary,
+    };
   }
 
   private renderContent(content: unknown): string {

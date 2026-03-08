@@ -123,9 +123,9 @@ export function applyConfigDefaults(raw: unknown): unknown {
 
   if (isRecord(obj.extensions) && isRecord(obj.extensions.load)) {
     const extensions = { ...obj.extensions };
-    const load = { ...extensions.load };
+    const load = { ...obj.extensions.load };
     if (Array.isArray(load.paths)) {
-      load.paths = load.paths.map((value) =>
+      load.paths = load.paths.map((value: unknown) =>
         typeof value === "string" ? expandHomePath(value) : value,
       );
     }

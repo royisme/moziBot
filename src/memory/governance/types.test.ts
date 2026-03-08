@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { resolveGovernanceConfig, DEFAULT_GOVERNANCE_CONFIG } from "./config";
 import {
   normalizeSummary,
   generateDedupeKey,
@@ -14,7 +15,6 @@ import {
   DAILY_ALLOWED_CATEGORIES,
   LONGTERM_SECTION_MAP,
 } from "./types";
-import { resolveGovernanceConfig, DEFAULT_GOVERNANCE_CONFIG } from "./config";
 
 // ---------------------------------------------------------------------------
 // normalizeSummary
@@ -22,21 +22,13 @@ import { resolveGovernanceConfig, DEFAULT_GOVERNANCE_CONFIG } from "./config";
 
 describe("normalizeSummary", () => {
   it("lowercases the input", () => {
-    expect(normalizeSummary("Always Use TypeScript")).toBe(
-      "always use typescript"
-    );
+    expect(normalizeSummary("Always Use TypeScript")).toBe("always use typescript");
   });
 
   it("strips discourse prefixes", () => {
-    expect(normalizeSummary("User said: prefer dark mode")).toBe(
-      "prefer dark mode"
-    );
-    expect(normalizeSummary("Assistant noted: keep tests short")).toBe(
-      "keep tests short"
-    );
-    expect(normalizeSummary("Note: deploy on Fridays")).toBe(
-      "deploy on fridays"
-    );
+    expect(normalizeSummary("User said: prefer dark mode")).toBe("prefer dark mode");
+    expect(normalizeSummary("Assistant noted: keep tests short")).toBe("keep tests short");
+    expect(normalizeSummary("Note: deploy on Fridays")).toBe("deploy on fridays");
     expect(normalizeSummary("Summary: use pnpm")).toBe("use pnpm");
     expect(normalizeSummary("FYI: repo uses bun")).toBe("repo uses bun");
   });
@@ -69,7 +61,12 @@ describe("normalizeSummary", () => {
 
 describe("generateDedupeKey", () => {
   it("returns a 16-char hex string", () => {
-    const key = generateDedupeKey("preference", "prefer dark mode", "agent1", "long_term_candidate");
+    const key = generateDedupeKey(
+      "preference",
+      "prefer dark mode",
+      "agent1",
+      "long_term_candidate",
+    );
     expect(key).toHaveLength(16);
     expect(/^[0-9a-f]+$/.test(key)).toBe(true);
   });
@@ -155,21 +152,15 @@ describe("generateCandidateId", () => {
 
 describe("isTranscriptLike", () => {
   it("detects repeated User: labels", () => {
-    expect(
-      isTranscriptLike("User: hello\nUser: how are you?")
-    ).toBe(true);
+    expect(isTranscriptLike("User: hello\nUser: how are you?")).toBe(true);
   });
 
   it("detects repeated Assistant: labels", () => {
-    expect(
-      isTranscriptLike("Assistant: Hi there\nAssistant: Sure!")
-    ).toBe(true);
+    expect(isTranscriptLike("Assistant: Hi there\nAssistant: Sure!")).toBe(true);
   });
 
   it("detects User: + Assistant: combo", () => {
-    expect(
-      isTranscriptLike("User: do X\nAssistant: I did X")
-    ).toBe(true);
+    expect(isTranscriptLike("User: do X\nAssistant: I did X")).toBe(true);
   });
 
   it("returns false for a clean fact", () => {
@@ -177,9 +168,7 @@ describe("isTranscriptLike", () => {
   });
 
   it("returns false for a preference statement", () => {
-    expect(isTranscriptLike("User prefers dark mode in all editors")).toBe(
-      false
-    );
+    expect(isTranscriptLike("User prefers dark mode in all editors")).toBe(false);
   });
 });
 
@@ -198,9 +187,7 @@ describe("isUrlDump", () => {
 
   it("returns false when URL has meaningful context", () => {
     expect(
-      isUrlDump(
-        "The project dashboard is at https://example.com/dashboard and tracks all issues"
-      )
+      isUrlDump("The project dashboard is at https://example.com/dashboard and tracks all issues"),
     ).toBe(false);
   });
 
@@ -327,9 +314,7 @@ describe("resolveGovernanceConfig", () => {
     expect(cfg.minConfidence).toBe(0.8);
     expect(cfg.enabled).toBe(false);
     // Unspecified fields remain at defaults
-    expect(cfg.promotionScoreThreshold).toBe(
-      DEFAULT_GOVERNANCE_CONFIG.promotionScoreThreshold
-    );
+    expect(cfg.promotionScoreThreshold).toBe(DEFAULT_GOVERNANCE_CONFIG.promotionScoreThreshold);
   });
 
   it("does not mutate DEFAULT_GOVERNANCE_CONFIG", () => {

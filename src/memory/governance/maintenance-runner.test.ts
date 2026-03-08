@@ -24,7 +24,8 @@ function makeCandidate(params: {
     evidence: params.evidence ?? ["system_observed"],
     confidence: 0.9,
     stability: "high",
-    scopeHint: params.scopeHint ?? (params.category === "preference" ? "long_term_candidate" : "daily"),
+    scopeHint:
+      params.scopeHint ?? (params.category === "preference" ? "long_term_candidate" : "daily"),
     promoteCandidate: params.promoteCandidate ?? params.category === "preference",
     status: "pending",
   });

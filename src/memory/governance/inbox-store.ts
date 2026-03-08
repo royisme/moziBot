@@ -16,12 +16,8 @@
  */
 
 import { join } from "node:path";
+import { readJsonlFile, rewriteJsonlFile, ensureDir } from "./file-store-utils";
 import type { MemoryCandidate, CandidateStatus } from "./types";
-import {
-  readJsonlFile,
-  rewriteJsonlFile,
-  ensureDir,
-} from "./file-store-utils";
 
 // ---------------------------------------------------------------------------
 // Date helpers (UTC, keeps shards deterministic across timezones)
@@ -39,11 +35,14 @@ export function toUtcDateString(ts: Date | string): string {
 /** Enumerate every "YYYY-MM-DD" string in [fromDate, toDate] (inclusive, UTC). */
 export function dateRange(fromDate: string, toDate: string): string[] {
   const dates: string[] = [];
-  const cur = new Date(`${fromDate}T00:00:00Z`);
+  const start = new Date(`${fromDate}T00:00:00Z`);
   const end = new Date(`${toDate}T00:00:00Z`);
-  while (cur <= end) {
-    dates.push(toUtcDateString(cur));
-    cur.setUTCDate(cur.getUTCDate() + 1);
+  const dayCount = Math.floor((end.getTime() - start.getTime()) / 86_400_000);
+
+  for (let offset = 0; offset <= dayCount; offset += 1) {
+    const current = new Date(start);
+    current.setUTCDate(start.getUTCDate() + offset);
+    dates.push(toUtcDateString(current));
   }
   return dates;
 }
@@ -132,7 +131,9 @@ export class MemoryInboxStore {
 
       const toAdd: MemoryCandidate[] = [];
       for (const c of group) {
-        if (existingIds.has(c.id)) continue; // idempotent – skip duplicate
+        if (existingIds.has(c.id)) {
+          continue;
+        } // idempotent – skip duplicate
         existingIds.add(c.id); // guard against duplicates within the batch
         toAdd.push({ ...c, status: c.status ?? "pending" });
       }
@@ -159,7 +160,7 @@ export class MemoryInboxStore {
     candidateId: string,
     candidateTs: string,
     status: CandidateStatus,
-    rejectionReason?: string
+    rejectionReason?: string,
   ): Promise<boolean> {
     const dateStr = toUtcDateString(candidateTs);
     const filePath = shardPath(this.baseDir, dateStr);
@@ -168,7 +169,9 @@ export class MemoryInboxStore {
     let found = false;
 
     const updated = records.map((c) => {
-      if (c.id !== candidateId) return c;
+      if (c.id !== candidateId) {
+        return c;
+      }
       found = true;
       return {
         ...c,
@@ -177,7 +180,9 @@ export class MemoryInboxStore {
       };
     });
 
-    if (!found) return false;
+    if (!found) {
+      return false;
+    }
 
     await rewriteJsonlFile(filePath, updated);
     return true;

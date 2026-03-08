@@ -75,9 +75,9 @@ export const DEFAULT_GOVERNANCE_CONFIG: GovernanceConfig = {
 /**
  * Merge a partial user config over the safe defaults.
  */
-export function resolveGovernanceConfig(
-  partial?: Partial<GovernanceConfig>
-): GovernanceConfig {
-  if (!partial) return { ...DEFAULT_GOVERNANCE_CONFIG };
+export function resolveGovernanceConfig(partial?: Partial<GovernanceConfig>): GovernanceConfig {
+  if (!partial) {
+    return { ...DEFAULT_GOVERNANCE_CONFIG };
+  }
   return { ...DEFAULT_GOVERNANCE_CONFIG, ...partial };
 }

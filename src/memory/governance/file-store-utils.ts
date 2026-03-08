@@ -7,15 +7,9 @@
  * - Uses node:fs/promises so the module works under both Bun and Vitest/Node.
  */
 
-import {
-  mkdir,
-  rename,
-  unlink,
-  readFile,
-  writeFile,
-} from "node:fs/promises";
-import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
+import { mkdir, rename, unlink, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Directory helpers
@@ -39,10 +33,7 @@ export async function ensureDir(dir: string): Promise<void> {
  * Writes to a sibling temp file first, then renames into place.
  * If any step fails the original file is left intact.
  */
-export async function atomicWrite(
-  targetPath: string,
-  content: string
-): Promise<void> {
+export async function atomicWrite(targetPath: string, content: string): Promise<void> {
   const dir = dirname(targetPath);
   await ensureDir(dir);
 
@@ -77,14 +68,18 @@ export async function readJsonlFile<T>(filePath: string): Promise<T[]> {
   try {
     text = await readFile(filePath, "utf8");
   } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
     throw err;
   }
 
   const results: T[] = [];
   for (const raw of text.split("\n")) {
     const line = raw.trim();
-    if (!line) continue;
+    if (!line) {
+      continue;
+    }
     results.push(JSON.parse(line) as T);
   }
   return results;
@@ -94,10 +89,7 @@ export async function readJsonlFile<T>(filePath: string): Promise<T[]> {
  * Rewrite an entire JSONL file from an in-memory array.
  * Uses `atomicWrite` so the file is never left in a partial state.
  */
-export async function rewriteJsonlFile<T>(
-  filePath: string,
-  records: T[]
-): Promise<void> {
+export async function rewriteJsonlFile<T>(filePath: string, records: T[]): Promise<void> {
   const content = records.map((r) => JSON.stringify(r)).join("\n");
   await atomicWrite(filePath, content ? content + "\n" : "");
 }

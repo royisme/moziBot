@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { MemoryInboxStore, toUtcDateString, dateRange } from "./inbox-store";
 import { buildCandidate } from "./normalization";
 import type { MemoryCandidate } from "./types";
@@ -10,9 +10,7 @@ import type { MemoryCandidate } from "./types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCandidate(
-  overrides: Partial<MemoryCandidate> = {}
-): MemoryCandidate {
+function makeCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
   return buildCandidate({
     ts: "2024-03-15T10:00:00Z",
     agentId: "agent1",
@@ -42,9 +40,7 @@ describe("toUtcDateString", () => {
   });
 
   it("accepts a Date object", () => {
-    expect(toUtcDateString(new Date("2024-06-01T12:00:00Z"))).toBe(
-      "2024-06-01"
-    );
+    expect(toUtcDateString(new Date("2024-06-01T12:00:00Z"))).toBe("2024-06-01");
   });
 });
 
@@ -237,11 +233,7 @@ describe("MemoryInboxStore", () => {
     });
 
     it("returns false when the candidate ID is not found", async () => {
-      const ok = await store.updateStatus(
-        "nonexistent-id",
-        "2024-03-15T10:00:00Z",
-        "rejected"
-      );
+      const ok = await store.updateStatus("nonexistent-id", "2024-03-15T10:00:00Z", "rejected");
       expect(ok).toBe(false);
     });
 
@@ -359,7 +351,7 @@ describe("MemoryInboxStore", () => {
     it("shard is fully readable after an updateStatus rewrite", async () => {
       // Write 5 candidates then update one – verifies the atomic rewrite path
       const candidates = Array.from({ length: 5 }, (_, i) =>
-        makeCandidate({ summary: `fact ${i}` })
+        makeCandidate({ summary: `fact ${i}` }),
       );
       await store.appendMany(candidates);
 

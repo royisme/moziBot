@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   extractFromTurn,
   extractFromMessages,
@@ -60,7 +60,12 @@ describe("renderMessageText", () => {
   });
 
   it("joins text content blocks", () => {
-    expect(renderMessageText([{ type: "text", text: "hello" }, { type: "text", text: " world" }])).toBe("hello world");
+    expect(
+      renderMessageText([
+        { type: "text", text: "hello" },
+        { type: "text", text: " world" },
+      ]),
+    ).toBe("hello world");
   });
 
   it("returns empty string for non-array non-string", () => {
@@ -95,8 +100,8 @@ describe("extractFromTurn", () => {
       agentId: "mozi",
     });
     expect(result).toHaveLength(1);
-    expect(result[0]!.summary).toContain("User: what is pnpm");
-    expect(result[0]!.summary).toContain("Assistant: pnpm is a fast package manager");
+    expect(result[0].summary).toContain("User: what is pnpm");
+    expect(result[0].summary).toContain("Assistant: pnpm is a fast package manager");
   });
 
   it("omits a field if it contains a secret", () => {
@@ -107,8 +112,8 @@ describe("extractFromTurn", () => {
     });
     // Secret in userText → only assistant line survives
     expect(result).toHaveLength(1);
-    expect(result[0]!.summary).not.toContain("sk-");
-    expect(result[0]!.summary).toContain("Assistant: noted");
+    expect(result[0].summary).not.toContain("sk-");
+    expect(result[0].summary).toContain("Assistant: noted");
   });
 
   it("returns empty array when only a command is present", () => {
@@ -119,37 +124,37 @@ describe("extractFromTurn", () => {
   it("clips long text to MAX_LINE_CHARS", () => {
     const long = "x".repeat(300);
     const result = extractFromTurn({ userText: long, agentId: "mozi" });
-    expect(result[0]!.summary).toContain("...");
+    expect(result[0].summary).toContain("...");
     // Total length of the clipped value is 240 chars + "..."
-    expect(result[0]!.summary.length).toBeLessThan(320);
+    expect(result[0].summary.length).toBeLessThan(320);
   });
 
   it("sets source to turn_completed", () => {
     const result = extractFromTurn({ userText: "hello", agentId: "mozi" });
-    expect(result[0]!.source).toBe("turn_completed");
+    expect(result[0].source).toBe("turn_completed");
   });
 
   it("sets agentId correctly", () => {
     const result = extractFromTurn({ userText: "hello", agentId: "my-agent" });
-    expect(result[0]!.agentId).toBe("my-agent");
+    expect(result[0].agentId).toBe("my-agent");
   });
 
   it("sets status to pending", () => {
     const result = extractFromTurn({ userText: "hello", agentId: "mozi" });
-    expect(result[0]!.status).toBe("pending");
+    expect(result[0].status).toBe("pending");
   });
 
   it("has valid id and dedupeKey", () => {
     const result = extractFromTurn({ userText: "hello", agentId: "mozi" });
-    expect(result[0]!.id).toBeTruthy();
-    expect(result[0]!.dedupeKey).toBeTruthy();
+    expect(result[0].id).toBeTruthy();
+    expect(result[0].dedupeKey).toBeTruthy();
   });
 
   it("same content on same day produces same id (idempotent)", () => {
     const ts = "2024-06-01T10:00:00Z";
     const r1 = extractFromTurn({ userText: "hello", agentId: "mozi", ts });
     const r2 = extractFromTurn({ userText: "hello", agentId: "mozi", ts });
-    expect(r1[0]!.id).toBe(r2[0]!.id);
+    expect(r1[0].id).toBe(r2[0].id);
   });
 });
 
@@ -184,8 +189,8 @@ describe("extractFromMessages", () => {
       agentId: "mozi",
     });
     expect(result).toHaveLength(1);
-    expect(result[0]!.summary).toContain("User: ship feature A");
-    expect(result[0]!.summary).toContain("Assistant: decision captured");
+    expect(result[0].summary).toContain("User: ship feature A");
+    expect(result[0].summary).toContain("Assistant: decision captured");
   });
 
   it("handles unpaired final user message", () => {
@@ -200,7 +205,7 @@ describe("extractFromMessages", () => {
       agentId: "mozi",
     });
     expect(result).toHaveLength(2);
-    expect(result[1]!.summary).toContain("User: question two");
+    expect(result[1].summary).toContain("User: question two");
   });
 
   it("filters out command messages (starting with /)", () => {
@@ -212,7 +217,7 @@ describe("extractFromMessages", () => {
     });
     // /reset line filtered → only assistant line remains as unpaired candidate
     expect(result).toHaveLength(1);
-    expect(result[0]!.summary).toContain("Assistant: session reset");
+    expect(result[0].summary).toContain("Assistant: session reset");
   });
 
   it("filters out secret-containing messages", () => {
@@ -226,7 +231,7 @@ describe("extractFromMessages", () => {
       agentId: "mozi",
     });
     expect(result).toHaveLength(1);
-    expect(result[0]!.summary).not.toContain("sk-");
+    expect(result[0].summary).not.toContain("sk-");
   });
 
   it("respects maxMessages limit", () => {
@@ -249,7 +254,7 @@ describe("extractFromMessages", () => {
       source: "before_reset",
       agentId: "mozi",
     });
-    expect(result[0]!.source).toBe("before_reset");
+    expect(result[0].source).toBe("before_reset");
   });
 
   it("handles content-block arrays in AgentMessage", () => {
@@ -262,7 +267,7 @@ describe("extractFromMessages", () => {
       source: "before_reset",
       agentId: "mozi",
     });
-    expect(result[0]!.summary).toContain("use pnpm not npm");
+    expect(result[0].summary).toContain("use pnpm not npm");
   });
 });
 
@@ -300,7 +305,7 @@ describe("MemoryExtractionService", () => {
 
       const shard = await store.readShard("2024-06-01");
       expect(shard).toHaveLength(1);
-      expect(shard[0]!.summary).toContain("User: prefer dark mode");
+      expect(shard[0].summary).toContain("User: prefer dark mode");
     });
 
     it("returns written=0 and empty candidates for empty turn", async () => {
@@ -336,7 +341,7 @@ describe("MemoryExtractionService", () => {
       });
 
       const shard = await store.readShard("2024-06-01");
-      expect(shard[0]!.status).toBe("pending");
+      expect(shard[0].status).toBe("pending");
     });
   });
 
@@ -358,7 +363,7 @@ describe("MemoryExtractionService", () => {
 
       const shard = await store.readShard("2024-06-01");
       expect(shard).toHaveLength(1);
-      expect(shard[0]!.source).toBe("before_reset");
+      expect(shard[0].source).toBe("before_reset");
     });
 
     it("returns written=0 for empty messages", async () => {

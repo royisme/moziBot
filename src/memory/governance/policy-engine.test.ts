@@ -1,15 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { buildCandidate } from "./normalization";
 import { MemoryPolicyEngine } from "./policy-engine";
 import type { MemoryCandidate } from "./types";
-import { buildCandidate } from "./normalization";
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-function makeCandidate(
-  overrides: Partial<MemoryCandidate> = {}
-): MemoryCandidate {
+function makeCandidate(overrides: Partial<MemoryCandidate> = {}): MemoryCandidate {
   return buildCandidate({
     ts: "2024-03-15T10:00:00Z",
     agentId: "agent1",
@@ -313,7 +311,11 @@ describe("MemoryPolicyEngine – evaluateBatch", () => {
   it("returns results in same order as input", () => {
     const engine = new MemoryPolicyEngine();
     const c1 = makeCandidate({ category: "preference", evidence: ["user_explicit"] });
-    const c2 = makeCandidate({ category: "todo", scopeHint: "daily", evidence: ["system_observed"] });
+    const c2 = makeCandidate({
+      category: "todo",
+      scopeHint: "daily",
+      evidence: ["system_observed"],
+    });
     const c3 = makeCandidate({ confidence: 0.1 });
 
     const results = engine.evaluateBatch([c1, c2, c3]);

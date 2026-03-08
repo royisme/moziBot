@@ -17,7 +17,7 @@ export class ProviderRegistry {
       const models: ModelDefinition[] = (entry.models ?? []).map((m) => ({
         id: m.id,
         name: m.name,
-        api: m.api,
+        api: m.api as ModelDefinition["api"],
         reasoning: m.reasoning,
         input: m.input,
         contextWindow: m.contextWindow,
@@ -26,7 +26,7 @@ export class ProviderRegistry {
       }));
       this.providers.set(id, {
         id,
-        api: entry.api,
+        api: entry.api as ProviderConfig["api"],
         baseUrl: entry.baseUrl,
         apiKey: entry.apiKey,
         headers: entry.headers,

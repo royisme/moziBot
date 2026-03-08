@@ -40,11 +40,17 @@ export interface DailyCompilationResult {
 
 function compareCandidates(a: MemoryCandidate, b: MemoryCandidate): number {
   const ts = a.ts.localeCompare(b.ts);
-  if (ts !== 0) return ts;
+  if (ts !== 0) {
+    return ts;
+  }
   const category = a.category.localeCompare(b.category);
-  if (category !== 0) return category;
+  if (category !== 0) {
+    return category;
+  }
   const summary = a.summary.localeCompare(b.summary);
-  if (summary !== 0) return summary;
+  if (summary !== 0) {
+    return summary;
+  }
   return a.id.localeCompare(b.id);
 }
 
@@ -106,7 +112,9 @@ export class DailyMemoryCompiler {
       )
       .join("\n\n");
 
-    const markdown = body ? `# Daily Memory ${params.date}\n\n${body}\n` : `# Daily Memory ${params.date}\n`;
+    const markdown = body
+      ? `# Daily Memory ${params.date}\n\n${body}\n`
+      : `# Daily Memory ${params.date}\n`;
 
     return {
       date: params.date,

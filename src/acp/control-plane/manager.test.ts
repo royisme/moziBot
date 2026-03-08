@@ -786,13 +786,13 @@ describe("AcpSessionManager", () => {
   });
 
   describe("evictIdleRuntimes", () => {
-    it("should not evict when TTL is 0", () => {
+    it("should not evict when TTL is 0", async () => {
       const manager = new AcpSessionManager(createMockDeps());
-      const evicted = manager.evictIdleRuntimes({} as MoziConfig);
+      const evicted = await manager.evictIdleRuntimes({} as MoziConfig);
       expect(evicted).toBe(0);
     });
 
-    it("should evict stale runtime but keep active turn runtime", () => {
+    it("should evict stale runtime but keep active turn runtime", async () => {
       const manager = new AcpSessionManager(createMockDeps());
       const internal = manager as unknown as {
         runtimeCache: {
@@ -843,7 +843,7 @@ describe("AcpSessionManager", () => {
         abortController: new AbortController(),
       });
 
-      const evicted = manager.evictIdleRuntimes({
+      const evicted = await manager.evictIdleRuntimes({
         acp: {
           runtime: {
             ttlMinutes: 1,

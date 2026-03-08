@@ -213,7 +213,7 @@ export class LocalDesktopRuntimeClient {
     }
 
     if (!payload.type && eventName) {
-      payload = { type: eventName, ...payload };
+      payload = { ...payload, type: eventName } as LocalDesktopRuntimeEvent;
     }
 
     if (payload.type === "ready") {

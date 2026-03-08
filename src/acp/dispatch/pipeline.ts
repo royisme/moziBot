@@ -2,7 +2,11 @@ import type { MoziConfig } from "../../config/schema";
 import type { InboundMessage } from "../../runtime/adapters/channels/types";
 import type { AcpBridgeEvent, AcpBridgeRuntimeAdapter } from "../bridge/runtime-adapter";
 import { resolveAcpDispatchPolicyError } from "../policy";
-import { readAcpSessionEntry, upsertAcpSessionMeta } from "../runtime/session-meta";
+import {
+  listAcpSessionEntries,
+  readAcpSessionEntry,
+  upsertAcpSessionMeta,
+} from "../runtime/session-meta";
 import { isAcpSessionKey, resolveSessionKey } from "../session-key-utils";
 import type { SessionAcpMeta } from "../types";
 import {
@@ -39,9 +43,11 @@ export type AcpMessageBinding = {
   channelId: string;
   peerId: string;
   threadId?: string | number;
+  boundAt: number; // timestamp when this binding was created
 };
 
 const MAX_BINDINGS = 2_000;
+const DEFAULT_BINDING_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
 function resolveConversationKey(params: {
   channelId: string;
@@ -102,29 +108,45 @@ export class AcpDispatchPipeline {
   private readonly adapter: AcpBridgeRuntimeAdapter;
   private readonly messageToSession = new Map<string, AcpMessageBinding>();
   private readonly conversationToSession = new Map<string, string>();
+  private readonly conversationBoundAt = new Map<string, number>();
 
   constructor(params: { config: MoziConfig; adapter: AcpBridgeRuntimeAdapter }) {
     this.config = params.config;
     this.adapter = params.adapter;
+    this.hydrateConversationBindings();
+  }
+
+  private hydrateConversationBindings(): void {
+    // Use a timestamp slightly before startup so hydrated bindings age correctly
+    // and can be TTL-evicted if they are stale (from before the restart).
+    const hydratedAt = Date.now() - DEFAULT_BINDING_TTL_MS / 2;
+    for (const entry of listAcpSessionEntries()) {
+      for (const key of entry.acp?.conversationKeys ?? []) {
+        this.conversationToSession.set(key, entry.sessionKey);
+        this.conversationBoundAt.set(key, hydratedAt);
+      }
+    }
   }
 
   /**
    * Register/bind a message id to an ACP session for later replyTo-based resolution.
    */
-  bindMessageToSession(params: AcpMessageBinding): void {
+  bindMessageToSession(params: Omit<AcpMessageBinding, "boundAt">): void {
     const messageId = params.messageId.trim();
     const sessionKey = params.sessionKey.trim();
     if (!messageId || !sessionKey) {
       return;
     }
 
+    const boundAt = Date.now();
+
     this.messageToSession.set(messageId, {
-      ...params,
       messageId,
       sessionKey,
       channelId: params.channelId.trim().toLowerCase(),
       peerId: params.peerId.trim(),
       threadId: params.threadId,
+      boundAt,
     });
 
     const conversationKey = resolveConversationKey({
@@ -134,6 +156,20 @@ export class AcpDispatchPipeline {
     });
     if (conversationKey !== "::") {
       this.conversationToSession.set(conversationKey, sessionKey);
+      this.conversationBoundAt.set(conversationKey, boundAt);
+      upsertAcpSessionMeta({
+        sessionKey,
+        mutate: (current) => {
+          if (!current) {
+            return null;
+          }
+          const existing = current.conversationKeys ?? [];
+          if (existing.includes(conversationKey)) {
+            return current;
+          }
+          return { ...current, conversationKeys: [...existing, conversationKey] };
+        },
+      });
     }
 
     this.pruneBindings();
@@ -353,6 +389,16 @@ export class AcpDispatchPipeline {
   }
 
   private pruneBindings(): void {
+    const ttlMs = this.config.acp?.dispatch?.messageBindingTtlMs ?? DEFAULT_BINDING_TTL_MS;
+    const cutoff = Date.now() - ttlMs;
+
+    // TTL eviction for messageToSession
+    for (const [key, binding] of this.messageToSession) {
+      if (binding.boundAt < cutoff) {
+        this.messageToSession.delete(key);
+      }
+    }
+    // FIFO safety net
     while (this.messageToSession.size > MAX_BINDINGS) {
       const firstKey = this.messageToSession.keys().next().value;
       if (!firstKey) {
@@ -360,12 +406,22 @@ export class AcpDispatchPipeline {
       }
       this.messageToSession.delete(firstKey);
     }
+
+    // TTL eviction for conversationToSession
+    for (const [key, boundAt] of this.conversationBoundAt) {
+      if (boundAt < cutoff) {
+        this.conversationToSession.delete(key);
+        this.conversationBoundAt.delete(key);
+      }
+    }
+    // FIFO safety net
     while (this.conversationToSession.size > MAX_BINDINGS) {
       const firstKey = this.conversationToSession.keys().next().value;
       if (!firstKey) {
         break;
       }
       this.conversationToSession.delete(firstKey);
+      this.conversationBoundAt.delete(firstKey);
     }
   }
 }

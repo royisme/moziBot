@@ -4,13 +4,13 @@ import path from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MoziConfig } from "../../../config";
+import { MemoryInboxStore } from "../../../memory/governance/inbox-store";
+import type { MemoryCandidate } from "../../../memory/governance/types";
 import { clearRuntimeHooks, getRuntimeHookRunner } from "../index";
 import {
   configureMemoryMaintainerHooks,
   resetMemoryMaintainerHooksForTests,
 } from "./memory-maintainer";
-import { MemoryInboxStore } from "../../../memory/governance/inbox-store";
-import type { MemoryCandidate } from "../../../memory/governance/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -252,7 +252,10 @@ describe("memory maintainer bundled hooks (governed pipeline)", () => {
 
     const date = new Date().toISOString().split("T")[0];
     const records: MemoryCandidate[] = await makeInboxStore(homeDir).readShard(date);
-    const dailyText = await fs.readFile(path.join(homeDir, "memory", "daily", `${date}.md`), "utf8");
+    const dailyText = await fs.readFile(
+      path.join(homeDir, "memory", "daily", `${date}.md`),
+      "utf8",
+    );
 
     expect(records[0]?.status).toBe("accepted_daily");
     expect(dailyText).toContain(`# Daily Memory ${date}`);
@@ -278,7 +281,10 @@ describe("memory maintainer bundled hooks (governed pipeline)", () => {
     const dailyPath = path.join(homeDir, "memory", "daily", `${date}.md`);
 
     const recordsBefore: MemoryCandidate[] = await makeInboxStore(homeDir).readShard(date);
-    const dailyExistsBefore = await fs.access(dailyPath).then(() => true).catch(() => false);
+    const dailyExistsBefore = await fs
+      .access(dailyPath)
+      .then(() => true)
+      .catch(() => false);
 
     expect(recordsBefore.length).toBeGreaterThan(0);
     expect(recordsBefore[0]?.status).toBe("pending");
@@ -332,7 +338,10 @@ describe("memory maintainer bundled hooks (governed pipeline)", () => {
 
     const messages: AgentMessage[] = [
       { role: "user", content: "We decided to ship feature A" } as AgentMessage,
-      { role: "assistant", content: "Captured the decision for release notes" } as unknown as AgentMessage,
+      {
+        role: "assistant",
+        content: "Captured the decision for release notes",
+      } as unknown as AgentMessage,
     ];
 
     await runner.runBeforeReset(

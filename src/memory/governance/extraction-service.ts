@@ -15,10 +15,10 @@
  */
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { MemoryCandidate, MemoryCandidateSource } from "./types";
-import { buildCandidate } from "./normalization";
-import type { MemoryInboxStore } from "./inbox-store";
 import { logger } from "../../logger";
+import type { MemoryInboxStore } from "./inbox-store";
+import { buildCandidate } from "./normalization";
+import type { MemoryCandidate, MemoryCandidateSource } from "./types";
 
 // ---------------------------------------------------------------------------
 // Secret filtering (kept in sync with memory-maintainer constants)
@@ -68,11 +68,19 @@ function detectExplicitPreference(text: string): string | null {
  * (starts with "/").
  */
 function extractLineFromText(text: string | undefined): string | null {
-  if (!text) return null;
+  if (!text) {
+    return null;
+  }
   const normalized = normalizeText(text);
-  if (!normalized) return null;
-  if (normalized.startsWith("/")) return null;
-  if (containsSecret(normalized)) return null;
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.startsWith("/")) {
+    return null;
+  }
+  if (containsSecret(normalized)) {
+    return null;
+  }
   return normalized.length > MAX_LINE_CHARS
     ? `${normalized.slice(0, MAX_LINE_CHARS)}...`
     : normalized;
@@ -83,8 +91,12 @@ function extractLineFromText(text: string | undefined): string | null {
  * Mirrors the renderMessageText helper in the legacy memory-maintainer.
  */
 export function renderMessageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
   return content
     .map((part) => {
       if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
@@ -120,12 +132,18 @@ export function extractFromTurn(params: {
   const userLine = extractLineFromText(params.userText);
   const replyLine = extractLineFromText(params.replyText);
 
-  if (!userLine && !replyLine) return candidates;
+  if (!userLine && !replyLine) {
+    return candidates;
+  }
 
   // Build a combined summary from the available lines
   const parts: string[] = [];
-  if (userLine) parts.push(`User: ${userLine}`);
-  if (replyLine) parts.push(`Assistant: ${replyLine}`);
+  if (userLine) {
+    parts.push(`User: ${userLine}`);
+  }
+  if (replyLine) {
+    parts.push(`Assistant: ${replyLine}`);
+  }
   const summary = parts.join(" | ");
 
   candidates.push(
@@ -171,7 +189,9 @@ export function extractFromMessages(params: {
   const ts = params.ts ?? new Date().toISOString();
   const maxMessages = params.maxMessages ?? TURNS_TO_KEEP;
 
-  if (!messages || messages.length === 0) return [];
+  if (!messages || messages.length === 0) {
+    return [];
+  }
 
   const filtered = messages
     .filter((msg) => msg.role === "user" || msg.role === "assistant")
@@ -180,16 +200,24 @@ export function extractFromMessages(params: {
   const lines: Array<{ role: "user" | "assistant"; text: string }> = [];
   for (const msg of filtered) {
     const raw = renderMessageText(msg.content).trim();
-    if (!raw || raw.startsWith("/")) continue;
-    if (containsSecret(raw)) continue;
+    if (!raw || raw.startsWith("/")) {
+      continue;
+    }
+    if (containsSecret(raw)) {
+      continue;
+    }
     const clipped = raw.length > MAX_LINE_CHARS ? `${raw.slice(0, MAX_LINE_CHARS)}...` : raw;
-    lines.push({ role: msg.role as "user" | "assistant", text: clipped });
+    lines.push({ role: msg.role, text: clipped });
   }
 
-  if (lines.length === 0) return [];
+  if (lines.length === 0) {
+    return [];
+  }
 
   const explicitPreference = lines.find((line) => line.role === "user")?.text;
-  const detectedPreference = explicitPreference ? detectExplicitPreference(explicitPreference) : null;
+  const detectedPreference = explicitPreference
+    ? detectExplicitPreference(explicitPreference)
+    : null;
   if (detectedPreference) {
     return [
       buildCandidate({
@@ -213,7 +241,7 @@ export function extractFromMessages(params: {
   const candidates: MemoryCandidate[] = [];
   let i = 0;
   while (i < lines.length) {
-    const current = lines[i]!;
+    const current = lines[i];
     const next = lines[i + 1];
 
     let summary: string;

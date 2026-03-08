@@ -49,7 +49,12 @@ export class GovernanceMaintenanceRunner {
     for (const candidate of pending) {
       const result = this.policy.evaluate(candidate);
       if (result.verdict === "reject") {
-        await this.inbox.updateStatus(candidate.id, candidate.ts, "rejected", result.rejectionReason);
+        await this.inbox.updateStatus(
+          candidate.id,
+          candidate.ts,
+          "rejected",
+          result.rejectionReason,
+        );
         rejected += 1;
         continue;
       }

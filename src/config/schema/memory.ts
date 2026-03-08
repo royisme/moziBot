@@ -216,10 +216,21 @@ const MemoryGovernanceSchema = z
     extractOnPreCompact: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.extractOnPreCompact),
     minConfidence: z.number().min(0).max(1).default(DEFAULT_GOVERNANCE_CONFIG.minConfidence),
     promotionScoreThreshold: z.number().default(DEFAULT_GOVERNANCE_CONFIG.promotionScoreThreshold),
-    autoPromoteOnUserExplicit: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.autoPromoteOnUserExplicit),
-    recurrenceWindowDays: z.number().positive().default(DEFAULT_GOVERNANCE_CONFIG.recurrenceWindowDays),
-    recurrenceCountThreshold: z.number().positive().default(DEFAULT_GOVERNANCE_CONFIG.recurrenceCountThreshold),
-    dailyCompilerDebounceMs: z.number().min(0).default(DEFAULT_GOVERNANCE_CONFIG.dailyCompilerDebounceMs),
+    autoPromoteOnUserExplicit: z
+      .boolean()
+      .default(DEFAULT_GOVERNANCE_CONFIG.autoPromoteOnUserExplicit),
+    recurrenceWindowDays: z
+      .number()
+      .positive()
+      .default(DEFAULT_GOVERNANCE_CONFIG.recurrenceWindowDays),
+    recurrenceCountThreshold: z
+      .number()
+      .positive()
+      .default(DEFAULT_GOVERNANCE_CONFIG.recurrenceCountThreshold),
+    dailyCompilerDebounceMs: z
+      .number()
+      .min(0)
+      .default(DEFAULT_GOVERNANCE_CONFIG.dailyCompilerDebounceMs),
     maintenanceAutoRun: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.maintenanceAutoRun),
   })
   .strict();

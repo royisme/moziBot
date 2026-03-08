@@ -1,7 +1,7 @@
 import { join } from "node:path";
+import { readJsonlFile, rewriteJsonlFile } from "./file-store-utils";
 import type { MemoryCandidate } from "./types";
 import { DAILY_ONLY_CATEGORIES } from "./types";
-import { readJsonlFile, rewriteJsonlFile } from "./file-store-utils";
 
 export interface LongTermFact {
   id: string;
@@ -21,9 +21,13 @@ function factPath(baseDir: string): string {
 
 function compareFacts(a: LongTermFact, b: LongTermFact): number {
   const category = a.category.localeCompare(b.category);
-  if (category !== 0) return category;
+  if (category !== 0) {
+    return category;
+  }
   const summary = a.summary.localeCompare(b.summary);
-  if (summary !== 0) return summary;
+  if (summary !== 0) {
+    return summary;
+  }
   return a.id.localeCompare(b.id);
 }
 
@@ -36,7 +40,9 @@ export class LongTermStore {
 
   async appendFromCandidate(candidate: MemoryCandidate): Promise<boolean> {
     if (DAILY_ONLY_CATEGORIES.has(candidate.category)) {
-      throw new Error(`Daily-only category cannot be promoted to long-term storage: ${candidate.category}`);
+      throw new Error(
+        `Daily-only category cannot be promoted to long-term storage: ${candidate.category}`,
+      );
     }
 
     const facts = await this.readAll();

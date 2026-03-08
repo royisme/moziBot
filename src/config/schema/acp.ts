@@ -4,6 +4,8 @@ const AcpDispatchConfigSchema = z
   .object({
     /** Master switch for ACP turn dispatch in the reply pipeline. */
     enabled: z.boolean().default(false),
+    /** TTL in milliseconds for message and conversation bindings. Default 24h. */
+    messageBindingTtlMs: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -65,6 +67,6 @@ export const AcpConfigSchema = z
     const dispatchEnabled = acp.dispatch?.enabled ?? legacyDispatchEnabled ?? false;
     return {
       ...acp,
-      dispatch: { enabled: dispatchEnabled },
+      dispatch: { ...acp.dispatch, enabled: dispatchEnabled },
     };
   });

@@ -7,7 +7,7 @@ import {
   createReadTool,
   createWriteTool,
 } from "@mariozechner/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type, type Static } from "@sinclair/typebox";
 import {
   memoryGet,
   memoryGetSchema,
@@ -20,21 +20,23 @@ import { createProcessTool } from "../process";
 import { SubagentRegistry } from "./subagent-registry";
 import { createZodTool } from "./tool-utils";
 
+const subagentSchema = Type.Object({
+  prompt: Type.String({ minLength: 1 }),
+  agentId: Type.Optional(Type.String()),
+  model: Type.Optional(Type.String()),
+});
+
 export function createSubagentTool(params: {
   subagents: SubagentRegistry;
   parentSessionKey: string;
   parentAgentId: string;
-}): AgentTool {
+}): AgentTool<typeof subagentSchema> {
   return {
     name: "subagent_run",
     label: "Subagent Run",
     description: "Run a subagent with a prompt",
-    parameters: Type.Object({
-      prompt: Type.String({ minLength: 1 }),
-      agentId: Type.Optional(Type.String()),
-      model: Type.Optional(Type.String()),
-    }),
-    execute: async (_toolCallId, args) => {
+    parameters: subagentSchema,
+    execute: async (_toolCallId, args: Static<typeof subagentSchema>) => {
       const result = await params.subagents.run({
         parentSessionKey: params.parentSessionKey,
         parentAgentId: params.parentAgentId,
@@ -97,7 +99,7 @@ export function createPiCodingTools(workspaceDir: string): AgentTool[] {
     createGrepTool(workspaceDir),
     createFindTool(workspaceDir),
     createLsTool(workspaceDir),
-  ];
+  ] as unknown as AgentTool[];
 }
 
 export function createProcessTools(params: { sessionKey: string; agentId: string }): AgentTool[] {

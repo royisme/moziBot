@@ -1,42 +1,20 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { MoziConfig } from "../../../../config";
-import { getMemoryLifecycleOrchestrator } from "../../../../memory";
-import {
-  resolveHomeDir,
-  type ResolvedMemoryPersistenceConfig,
-} from "../../../../memory/backend-config";
-import { FlushManager } from "../../../../memory/flush-manager";
-
-interface MemoryFlushLogger {
-  warn(obj: Record<string, unknown>, msg: string): void;
-}
+import type { ResolvedMemoryPersistenceConfig } from "../../../../memory/backend-config";
+import { runFlushWithTimeout } from "../../../../memory/flush-with-timeout";
 
 export async function flushMemoryWithLifecycle(params: {
-  config: MoziConfig;
+  config: MoziConfig; // kept for API compat, unused
   sessionKey: string;
-  agentId: string;
+  agentId: string; // kept for API compat, unused
   messages: AgentMessage[];
   persistence: ResolvedMemoryPersistenceConfig;
-  logger: MemoryFlushLogger;
+  logger: { warn(obj: Record<string, unknown>, msg: string): void };
 }): Promise<boolean> {
-  const { config, sessionKey, agentId, messages, persistence, logger } = params;
-  const flushManager = new FlushManager(resolveHomeDir(config, agentId));
-  try {
-    const timeout = persistence.timeoutMs || 1500;
-    const result = await Promise.race([
-      flushManager.flush({ messages, config: persistence, sessionKey }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("Flush timeout")), timeout)),
-    ]);
-    const success = result === true;
-    if (success) {
-      const lifecycle = await getMemoryLifecycleOrchestrator(config, agentId);
-      void lifecycle.handle({ type: "flush_completed", sessionKey }).catch((err) => {
-        logger.warn({ err, sessionKey }, "Memory lifecycle flush hook failed");
-      });
-    }
-    return success;
-  } catch (err) {
-    logger.warn({ err, sessionKey }, "Memory flush failed or timed out");
-    return false;
-  }
+  return runFlushWithTimeout({
+    sessionKey: params.sessionKey,
+    messages: params.messages,
+    config: params.persistence,
+    logger: params.logger,
+  });
 }

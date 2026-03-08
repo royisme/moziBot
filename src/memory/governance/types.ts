@@ -78,28 +78,36 @@ export interface MemoryCandidate {
 // ---------------------------------------------------------------------------
 
 /** Categories that may only appear in daily memory, never in MEMORY.md. */
-export const DAILY_ONLY_CATEGORIES: ReadonlySet<MemoryCandidateCategory> =
-  new Set(["todo", "blocker", "active_work"]);
+export const DAILY_ONLY_CATEGORIES: ReadonlySet<MemoryCandidateCategory> = new Set([
+  "todo",
+  "blocker",
+  "active_work",
+]);
 
 /** Categories that start in daily memory and may later be promoted. */
-export const DAILY_AND_PROMOTABLE_CATEGORIES: ReadonlySet<MemoryCandidateCategory> =
-  new Set(["decision", "lesson"]);
+export const DAILY_AND_PROMOTABLE_CATEGORIES: ReadonlySet<MemoryCandidateCategory> = new Set([
+  "decision",
+  "lesson",
+]);
 
 /** Categories eligible to enter the promotion queue immediately. */
-export const LONG_TERM_CANDIDATE_CATEGORIES: ReadonlySet<MemoryCandidateCategory> =
-  new Set(["preference", "stable_rule", "tooling_fact", "long_term_project"]);
+export const LONG_TERM_CANDIDATE_CATEGORIES: ReadonlySet<MemoryCandidateCategory> = new Set([
+  "preference",
+  "stable_rule",
+  "tooling_fact",
+  "long_term_project",
+]);
 
 /** All categories allowed to appear in daily memory output. */
-export const DAILY_ALLOWED_CATEGORIES: ReadonlySet<MemoryCandidateCategory> =
-  new Set([
-    "decision",
-    "lesson",
-    "todo",
-    "blocker",
-    "active_work",
-    "preference",
-    "tooling_fact",
-  ]);
+export const DAILY_ALLOWED_CATEGORIES: ReadonlySet<MemoryCandidateCategory> = new Set([
+  "decision",
+  "lesson",
+  "todo",
+  "blocker",
+  "active_work",
+  "preference",
+  "tooling_fact",
+]);
 
 /** All valid categories. */
 export const ALL_CATEGORIES: ReadonlyArray<MemoryCandidateCategory> = [
@@ -122,9 +130,7 @@ export const ALL_CATEGORIES: ReadonlyArray<MemoryCandidateCategory> = [
  * Maps promotable categories to their MEMORY.md section heading.
  * Categories absent from this map (daily-only) must never appear in MEMORY.md.
  */
-export const LONGTERM_SECTION_MAP: Readonly<
-  Partial<Record<MemoryCandidateCategory, string>>
-> = {
+export const LONGTERM_SECTION_MAP: Readonly<Partial<Record<MemoryCandidateCategory, string>>> = {
   preference: "User Preferences",
   stable_rule: "Stable Rules",
   decision: "Stable Rules",

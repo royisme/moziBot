@@ -5,15 +5,15 @@
  * The full daily-compiler and promotion-queue integration (t5) builds on this.
  */
 
+import type { GovernanceConfig } from "./config";
+import { resolveGovernanceConfig } from "./config";
+import { isTranscriptLike, isUrlDump } from "./normalization";
 import type { MemoryCandidate, PolicyResult } from "./types";
 import {
   DAILY_ONLY_CATEGORIES,
   LONG_TERM_CANDIDATE_CATEGORIES,
   DAILY_ALLOWED_CATEGORIES,
 } from "./types";
-import { isTranscriptLike, isUrlDump } from "./normalization";
-import type { GovernanceConfig } from "./config";
-import { resolveGovernanceConfig } from "./config";
 
 // ---------------------------------------------------------------------------
 // Scoring constants (matches spec example scoring model)
@@ -73,21 +73,31 @@ function analyzeCandidate(candidate: MemoryCandidate): ScoredCandidate {
   let score = 0;
 
   // Evidence bonuses
-  if (candidate.evidence.includes("user_explicit"))
+  if (candidate.evidence.includes("user_explicit")) {
     score += SCORES.evidence_user_explicit;
-  if (candidate.evidence.includes("repeated_pattern"))
+  }
+  if (candidate.evidence.includes("repeated_pattern")) {
     score += SCORES.evidence_repeated_pattern;
+  }
 
   // Category bonuses / penalties
   const catKey = `category_${candidate.category}`;
-  if (catKey in SCORES) score += SCORES[catKey];
+  if (catKey in SCORES) {
+    score += SCORES[catKey];
+  }
 
   // Stability bonus
-  if (candidate.stability === "high") score += SCORES.stability_high;
+  if (candidate.stability === "high") {
+    score += SCORES.stability_high;
+  }
 
   // Penalties
-  if (transcriptLike) score += SCORES.transcript_like;
-  if (ephemeral) score += SCORES.ephemeral_state;
+  if (transcriptLike) {
+    score += SCORES.transcript_like;
+  }
+  if (ephemeral) {
+    score += SCORES.ephemeral_state;
+  }
 
   return { score, transcriptLike, ephemeral, urlDump };
 }
@@ -128,8 +138,7 @@ export class MemoryPolicyEngine {
     // -----------------------------------------------------------------------
     // Single-pass analysis (score + content flags)
     // -----------------------------------------------------------------------
-    const { score, transcriptLike, ephemeral, urlDump } =
-      analyzeCandidate(candidate);
+    const { score, transcriptLike, ephemeral, urlDump } = analyzeCandidate(candidate);
 
     // -----------------------------------------------------------------------
     // Hard rejections
@@ -144,7 +153,11 @@ export class MemoryPolicyEngine {
     }
 
     if (ephemeral) {
-      return { verdict: "reject", score, rejectionReason: "ephemeral/temporary state content detected" };
+      return {
+        verdict: "reject",
+        score,
+        rejectionReason: "ephemeral/temporary state content detected",
+      };
     }
 
     // Hard rejection: forbidden categories in long-term write path
@@ -181,7 +194,7 @@ export class MemoryPolicyEngine {
    * Batch evaluate, returning results in the same order as the input array.
    */
   evaluateBatch(
-    candidates: MemoryCandidate[]
+    candidates: MemoryCandidate[],
   ): Array<{ candidate: MemoryCandidate; result: PolicyResult }> {
     return candidates.map((c) => ({ candidate: c, result: this.evaluate(c) }));
   }
@@ -192,15 +205,14 @@ export class MemoryPolicyEngine {
 
   isPromotable(candidate: MemoryCandidate, score?: number): boolean {
     // Daily-only categories can never be promoted regardless of evidence
-    if (DAILY_ONLY_CATEGORIES.has(candidate.category)) return false;
+    if (DAILY_ONLY_CATEGORIES.has(candidate.category)) {
+      return false;
+    }
 
     const s = score ?? computeScore(candidate);
 
     // Auto-promote on explicit user intent regardless of score
-    if (
-      this.cfg.autoPromoteOnUserExplicit &&
-      candidate.evidence.includes("user_explicit")
-    ) {
+    if (this.cfg.autoPromoteOnUserExplicit && candidate.evidence.includes("user_explicit")) {
       return true;
     }
 

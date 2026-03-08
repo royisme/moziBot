@@ -1,6 +1,8 @@
 export type AcpDispatchConfig = {
   /** Master switch for ACP turn dispatch in the reply pipeline. */
   enabled?: boolean;
+  /** TTL in milliseconds for message and conversation bindings. Default 24h. */
+  messageBindingTtlMs?: number;
 };
 
 export type AcpStreamConfig = {

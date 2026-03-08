@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { atomicWrite } from "./file-store-utils";
+import type { LongTermFact } from "./longterm-store";
 import type { MemoryCandidateCategory } from "./types";
 import { LONGTERM_SECTION_MAP } from "./types";
-import type { LongTermFact } from "./longterm-store";
 
 const SECTION_ORDER = [
   "User Preferences",
@@ -21,12 +21,16 @@ function getSection(category: MemoryCandidateCategory): string {
 }
 
 function compareFacts(a: LongTermFact, b: LongTermFact): number {
-  const sectionA = getSection(a.category as MemoryCandidateCategory);
-  const sectionB = getSection(b.category as MemoryCandidateCategory);
+  const sectionA = getSection(a.category);
+  const sectionB = getSection(b.category);
   const sectionCmp = sectionA.localeCompare(sectionB);
-  if (sectionCmp !== 0) return sectionCmp;
+  if (sectionCmp !== 0) {
+    return sectionCmp;
+  }
   const summaryCmp = a.summary.localeCompare(b.summary);
-  if (summaryCmp !== 0) return summaryCmp;
+  if (summaryCmp !== 0) {
+    return summaryCmp;
+  }
   return a.id.localeCompare(b.id);
 }
 
@@ -38,7 +42,7 @@ export class LongTermMemoryWriter {
     const grouped = new Map<string, LongTermFact[]>();
 
     for (const fact of activeFacts.toSorted(compareFacts)) {
-      const section = getSection(fact.category as MemoryCandidateCategory);
+      const section = getSection(fact.category);
       const existing = grouped.get(section);
       if (existing) {
         existing.push(fact);
@@ -48,7 +52,13 @@ export class LongTermMemoryWriter {
     }
 
     const sections = SECTION_ORDER.filter((section) => (grouped.get(section)?.length ?? 0) > 0)
-      .map((section) => `## ${section}\n\n${grouped.get(section)!.map((fact) => `- ${fact.summary}`).join("\n")}`)
+      .map(
+        (section) =>
+          `## ${section}\n\n${grouped
+            .get(section)!
+            .map((fact) => `- ${fact.summary}`)
+            .join("\n")}`,
+      )
       .join("\n\n");
 
     return sections ? `# Memory\n\n${sections}\n` : "# Memory\n";

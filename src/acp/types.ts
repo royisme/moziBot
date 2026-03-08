@@ -73,4 +73,6 @@ export type SessionAcpMeta = {
   lastError?: string;
   /** Structured error details when state is "error" */
   lastErrorDetails?: SessionAcpError;
+  /** Conversation keys bound to this session, persisted for restart hydration */
+  conversationKeys?: string[];
 };

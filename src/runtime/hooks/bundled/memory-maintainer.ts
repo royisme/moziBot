@@ -5,6 +5,14 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../../config";
 import { logger } from "../../../logger";
 import { resolveHomeDir } from "../../../memory/backend-config";
+import { resolveGovernanceConfig, type GovernanceConfig } from "../../../memory/governance/config";
+import {
+  MemoryExtractionService,
+  containsSecret,
+  renderMessageText,
+} from "../../../memory/governance/extraction-service";
+import { MemoryInboxStore } from "../../../memory/governance/inbox-store";
+import { GovernanceMaintenanceRunner } from "../../../memory/governance/maintenance-runner";
 import type { AgentEntry } from "../../agent-manager/config-resolver";
 import { resolveWorkspaceDir } from "../../agent-manager/config-resolver";
 import { getAgentFastModelCandidates } from "../../agent-manager/model-routing-service";
@@ -19,17 +27,6 @@ import type {
   TurnCompletedContext,
   TurnCompletedEvent,
 } from "../types";
-import { MemoryInboxStore } from "../../../memory/governance/inbox-store";
-import {
-  MemoryExtractionService,
-  containsSecret,
-  renderMessageText,
-} from "../../../memory/governance/extraction-service";
-import { GovernanceMaintenanceRunner } from "../../../memory/governance/maintenance-runner";
-import {
-  resolveGovernanceConfig,
-  type GovernanceConfig,
-} from "../../../memory/governance/config";
 
 const MIN_TURNS_BEFORE_FLUSH = 3;
 const FLUSH_DEBOUNCE_MS = 120_000;
@@ -222,9 +219,13 @@ function getOrCreateBuffer(key: string): SessionBuffer {
 }
 
 function makeExtractionService(agentId: string): MemoryExtractionService | null {
-  if (!runtimeConfig) return null;
+  if (!runtimeConfig) {
+    return null;
+  }
   const cached = extractionServices.get(agentId);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const homeDir = resolveHomeDir(runtimeConfig, agentId);
   const inboxBaseDir = path.join(homeDir, "memory");
   const inbox = new MemoryInboxStore(inboxBaseDir);
@@ -234,16 +235,23 @@ function makeExtractionService(agentId: string): MemoryExtractionService | null 
 }
 
 function makeMaintenanceRunner(agentId: string): GovernanceMaintenanceRunner | null {
-  if (!runtimeConfig) return null;
+  if (!runtimeConfig) {
+    return null;
+  }
   const cached = maintenanceRunners.get(agentId);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   const homeDir = resolveHomeDir(runtimeConfig, agentId);
   const runner = new GovernanceMaintenanceRunner(homeDir);
   maintenanceRunners.set(agentId, runner);
   return runner;
 }
 
-async function scheduleMaintenance(agentId: string, candidates: Array<{ ts: string }>): Promise<void> {
+async function scheduleMaintenance(
+  agentId: string,
+  candidates: Array<{ ts: string }>,
+): Promise<void> {
   if (!runtimeConfig || !governanceConfig || candidates.length === 0) {
     return;
   }
@@ -406,7 +414,9 @@ async function handleTurnCompleted(
   }
 
   const service = makeExtractionService(ctx.agentId);
-  if (!service) return;
+  if (!service) {
+    return;
+  }
 
   try {
     const result = await service.extractFromTurnAndSubmit({
@@ -437,7 +447,6 @@ async function handleTurnCompleted(
       "Memory maintainer: turn_completed extraction failed",
     );
   }
-
 }
 
 async function handleBeforeReset(event: BeforeResetEvent, ctx: BeforeResetContext): Promise<void> {

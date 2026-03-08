@@ -5,8 +5,6 @@
  * classification helpers for host prompt execution.
  */
 
-import { toError } from "./error-utils";
-
 /**
  * The set of possible failover reasons for prompt execution.
  */
@@ -53,9 +51,7 @@ export function isPromptTimeoutError(error: unknown): error is PromptTimeoutErro
  * was due to timeout vs a generic error.
  */
 export function classifyPromptFailoverReason(error: unknown): PromptFailoverReason {
-  const err = toError(error);
-
-  if (isPromptTimeoutError(err)) {
+  if (isPromptTimeoutError(error)) {
     return "timeout";
   }
 

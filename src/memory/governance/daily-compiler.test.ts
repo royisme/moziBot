@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildCandidate } from "./normalization";
 import { DailyMemoryCompiler } from "./daily-compiler";
+import { buildCandidate } from "./normalization";
 import type { CandidateStatus, MemoryCandidate, MemoryCandidateCategory } from "./types";
 
 function makeCandidate(params: {
@@ -118,7 +118,11 @@ describe("DailyMemoryCompiler", () => {
       candidates: [
         makeCandidate({ category: "lesson", summary: "z lesson", ts: "2024-03-15T11:00:00Z" }),
         makeCandidate({ category: "lesson", summary: "a lesson", ts: "2024-03-15T09:00:00Z" }),
-        makeCandidate({ category: "decision", summary: "middle decision", ts: "2024-03-15T10:00:00Z" }),
+        makeCandidate({
+          category: "decision",
+          summary: "middle decision",
+          ts: "2024-03-15T10:00:00Z",
+        }),
       ],
     });
 
@@ -148,8 +152,16 @@ describe("DailyMemoryCompiler", () => {
     const result = compiler.compile({
       date: "2024-03-15",
       candidates: [
-        makeCandidate({ category: "stable_rule", summary: "always write tests", status: "promoted" }),
-        makeCandidate({ category: "long_term_project", summary: "ship governance system", status: "promoted" }),
+        makeCandidate({
+          category: "stable_rule",
+          summary: "always write tests",
+          status: "promoted",
+        }),
+        makeCandidate({
+          category: "long_term_project",
+          summary: "ship governance system",
+          status: "promoted",
+        }),
       ],
     });
 
@@ -162,7 +174,11 @@ describe("DailyMemoryCompiler", () => {
     const result = compiler.compile({
       date: "2024-03-15",
       candidates: [
-        makeCandidate({ category: "stable_rule", summary: "always write tests", status: "accepted_daily" }),
+        makeCandidate({
+          category: "stable_rule",
+          summary: "always write tests",
+          status: "accepted_daily",
+        }),
         makeCandidate({ category: "decision", summary: "rejected decision", status: "rejected" }),
       ],
     });

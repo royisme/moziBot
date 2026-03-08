@@ -37,7 +37,7 @@ export interface PreparedPromptBundle {
 
 export interface CleanupBundle {
   readonly correlationId: string;
-  readonly finalStatus: string;
+  readonly finalStatus: "success" | "interrupted";
 }
 
 /**

@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildCandidate } from "./normalization";
 import { LongTermStore } from "./longterm-store";
 import { LongTermMemoryWriter } from "./longterm-writer";
+import { buildCandidate } from "./normalization";
 import type { MemoryCandidate, MemoryCandidateCategory } from "./types";
 
 function makeCandidate(params: {
@@ -75,9 +75,15 @@ describe("Long-term governance writer path", () => {
 
   it("rebuilds MEMORY.md from active facts only with deterministic sections", async () => {
     const store = new LongTermStore(memoryDir);
-    await store.appendFromCandidate(makeCandidate({ category: "tooling_fact", summary: "repo uses pnpm" }));
-    await store.appendFromCandidate(makeCandidate({ category: "preference", summary: "prefer dark mode" }));
-    await store.appendFromCandidate(makeCandidate({ category: "lesson", summary: "repeat lessons become durable" }));
+    await store.appendFromCandidate(
+      makeCandidate({ category: "tooling_fact", summary: "repo uses pnpm" }),
+    );
+    await store.appendFromCandidate(
+      makeCandidate({ category: "preference", summary: "prefer dark mode" }),
+    );
+    await store.appendFromCandidate(
+      makeCandidate({ category: "lesson", summary: "repeat lessons become durable" }),
+    );
 
     const writer = new LongTermMemoryWriter(tempDir);
     const outputPath = await writer.rebuild(await store.readAll());
@@ -94,7 +100,10 @@ describe("Long-term governance writer path", () => {
 
   it("excludes invalidated facts from rebuilt MEMORY.md", async () => {
     const store = new LongTermStore(memoryDir);
-    const candidate = makeCandidate({ category: "long_term_project", summary: "ship governance pipeline" });
+    const candidate = makeCandidate({
+      category: "long_term_project",
+      summary: "ship governance pipeline",
+    });
     await store.appendFromCandidate(candidate);
     await store.invalidateByDedupeKey(candidate.dedupeKey);
 

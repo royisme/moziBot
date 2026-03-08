@@ -57,7 +57,7 @@ export class SessionManager extends EventEmitter {
       }
       logger.info(`Loaded ${this.sessions.size} sessions from database`);
     } catch (error) {
-      logger.error("Failed to load sessions from database:", error);
+      logger.error({ err: error }, "Failed to load sessions from database");
     }
   }
 

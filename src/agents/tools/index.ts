@@ -32,25 +32,25 @@ export const sessionTools: AgentTool[] = [
     name: "sessions_list",
     description: "List active sessions with optional filters",
     parameters: sessionsListSchema,
-    execute: sessionsList,
+    execute: sessionsList as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
   {
     name: "sessions_history",
     description: "Get message history for a session",
     parameters: sessionsHistorySchema,
-    execute: sessionsHistory,
+    execute: sessionsHistory as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
   {
     name: "sessions_send",
     description: "Send a message to another session",
     parameters: sessionsSendSchema,
-    execute: sessionsSend,
+    execute: sessionsSend as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
   {
     name: "sessions_spawn",
     description: "Spawn a sub-agent to handle a sub-task",
     parameters: sessionsSpawnSchema,
-    execute: sessionsSpawn,
+    execute: sessionsSpawn as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
 ];
 
@@ -60,14 +60,14 @@ export const memoryTools: AgentTool[] = [
     description: `Semantic search MEMORY.md and memory/*.md files.
 Must be called before answering questions about previous work, decisions, dates, people, preferences, or todos.`,
     parameters: memorySearchSchema,
-    execute: memorySearch,
+    execute: memorySearch as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
   {
     name: "memory_get",
     description: `Read specified line range from MEMORY.md or memory/*.md.
 Usually called after memory_search.`,
     parameters: memoryGetSchema,
-    execute: memoryGet,
+    execute: memoryGet as (ctx: unknown, params: unknown) => Promise<unknown>,
   },
 ];
 

@@ -53,7 +53,7 @@ export function createBrowserTools(ctx: BrowserToolContext): AgentTool[] {
       description:
         "Query browser status/tabs or run basic CDP actions (navigate/evaluate/click/type/screenshot) via local CDP or extension relay.",
       parameters: BrowserToolParameters,
-      execute: async (_toolCallId, args) => {
+      execute: async (_toolCallId, args, _signal, _onUpdate) => {
         const parsed = browserToolSchema.safeParse(args);
         if (!parsed.success) {
           return {

@@ -28,8 +28,7 @@ const DISCOURSE_PREFIXES = [
 ];
 
 // Date / timestamp fragments that are volatile and should be stripped
-const DATE_FRAGMENT_RE =
-  /\b\d{4}[-/]\d{2}[-/]\d{2}(T\d{2}:\d{2}(:\d{2})?Z?)?\b/g;
+const DATE_FRAGMENT_RE = /\b\d{4}[-/]\d{2}[-/]\d{2}(T\d{2}:\d{2}(:\d{2})?Z?)?\b/g;
 
 // Standalone numbers that are likely ephemeral (e.g. line counts, session IDs)
 const VOLATILE_NUMBER_RE = /\b\d{5,}\b/g;
@@ -88,7 +87,7 @@ export function generateDedupeKey(
   category: MemoryCandidateCategory,
   summary: string,
   agentId: string,
-  scopeHint: string
+  scopeHint: string,
 ): string {
   const normalized = normalizeSummary(summary);
   const raw = `${category}::${normalized}::${agentId}::${scopeHint}`;
@@ -111,10 +110,7 @@ export function generateDedupeKey(
  * (turn_completed, before_reset, pre_compact). This is the cross-path idempotency
  * guarantee required by the spec.
  */
-export function generateCandidateId(
-  dedupeKey: string,
-  ts: string
-): string {
+export function generateCandidateId(dedupeKey: string, ts: string): string {
   // Truncate to day precision so same-day duplicates collide
   const day = ts.slice(0, 10);
   const raw = `${dedupeKey}::${day}`;
@@ -135,11 +131,17 @@ export function isTranscriptLike(text: string): boolean {
   // Strong signal: repeated speaker labels
   const userMatches = (lower.match(/\buser\s*:/g) ?? []).length;
   const assistantMatches = (lower.match(/\bassistant\s*:/g) ?? []).length;
-  if (userMatches >= 2 || assistantMatches >= 2) return true;
-  if (userMatches >= 1 && assistantMatches >= 1) return true;
+  if (userMatches >= 2 || assistantMatches >= 2) {
+    return true;
+  }
+  if (userMatches >= 1 && assistantMatches >= 1) {
+    return true;
+  }
 
   // Alternating Q&A patterns
-  if (/\bq\s*:\s*.+\ba\s*:/i.test(text)) return true;
+  if (/\bq\s*:\s*.+\ba\s*:/i.test(text)) {
+    return true;
+  }
 
   return false;
 }
@@ -172,13 +174,12 @@ export function buildCandidate(
   partial: Omit<MemoryCandidate, "id" | "dedupeKey"> & {
     id?: string;
     dedupeKey?: string;
-  }
+  },
 ): MemoryCandidate {
   const dedupeKey =
     partial.dedupeKey ??
     generateDedupeKey(partial.category, partial.summary, partial.agentId, partial.scopeHint);
-  const id =
-    partial.id ?? generateCandidateId(dedupeKey, partial.ts);
+  const id = partial.id ?? generateCandidateId(dedupeKey, partial.ts);
   return {
     ...partial,
     id,

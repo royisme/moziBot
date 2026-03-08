@@ -68,8 +68,6 @@ export class AcpClientSession {
     return {
       sessionId: session.sessionId,
       cwd: options.cwd ?? process.cwd(),
-      currentMode: session.currentMode,
-      availableModes: session.availableModes,
     };
   }
 
@@ -86,7 +84,7 @@ export class AcpClientSession {
       this.sessionId = this.sessionKey;
     }
 
-    const session = await this.transport.connection.loadSession({
+    await this.transport.connection.loadSession({
       sessionId: this.sessionId,
       cwd: options.cwd ?? process.cwd(),
       mcpServers: options.mcpServers ?? [],
@@ -96,8 +94,6 @@ export class AcpClientSession {
     return {
       sessionId: this.sessionId,
       cwd: options.cwd ?? process.cwd(),
-      currentMode: session.currentMode,
-      availableModes: session.availableModes,
     };
   }
 
@@ -109,7 +105,7 @@ export class AcpClientSession {
       throw new Error("Session not initialized. Call spawn() or load() first.");
     }
 
-    const prompt: acp.PromptContent[] = [
+    const prompt: acp.ContentBlock[] = [
       {
         type: "text",
         text: options.text,
@@ -120,8 +116,11 @@ export class AcpClientSession {
       for (const attachment of options.attachments) {
         prompt.push({
           type: "resource",
-          uri: attachment.content,
-          mimeType: attachment.mimeType,
+          resource: {
+            uri: "",
+            mimeType: attachment.mimeType,
+            text: attachment.content,
+          },
         });
       }
     }
@@ -170,7 +169,7 @@ export class AcpClientSession {
 
     await this.transport.connection.setSessionMode({
       sessionId: this.sessionId,
-      mode,
+      modeId: mode,
     });
   }
 
@@ -184,7 +183,7 @@ export class AcpClientSession {
 
     return result.sessions.map((session) => ({
       sessionKey: session.sessionId,
-      label: session.title,
+      label: session.title ?? undefined,
     }));
   }
 

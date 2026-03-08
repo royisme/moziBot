@@ -3,9 +3,13 @@ import { LONG_TERM_CANDIDATE_CATEGORIES, DAILY_AND_PROMOTABLE_CATEGORIES } from 
 
 function compareCandidates(a: MemoryCandidate, b: MemoryCandidate): number {
   const ts = a.ts.localeCompare(b.ts);
-  if (ts !== 0) return ts;
+  if (ts !== 0) {
+    return ts;
+  }
   const category = a.category.localeCompare(b.category);
-  if (category !== 0) return category;
+  if (category !== 0) {
+    return category;
+  }
   return a.id.localeCompare(b.id);
 }
 
