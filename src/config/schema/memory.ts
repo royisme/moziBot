@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_GOVERNANCE_CONFIG } from "../../memory/governance/config";
 
 const MemoryPathSchema = z
   .object({
@@ -207,6 +208,22 @@ const MemoryPersistenceSchema = z
   })
   .strict();
 
+const MemoryGovernanceSchema = z
+  .object({
+    enabled: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.enabled),
+    extractOnTurnCompleted: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.extractOnTurnCompleted),
+    extractOnBeforeReset: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.extractOnBeforeReset),
+    extractOnPreCompact: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.extractOnPreCompact),
+    minConfidence: z.number().min(0).max(1).default(DEFAULT_GOVERNANCE_CONFIG.minConfidence),
+    promotionScoreThreshold: z.number().default(DEFAULT_GOVERNANCE_CONFIG.promotionScoreThreshold),
+    autoPromoteOnUserExplicit: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.autoPromoteOnUserExplicit),
+    recurrenceWindowDays: z.number().positive().default(DEFAULT_GOVERNANCE_CONFIG.recurrenceWindowDays),
+    recurrenceCountThreshold: z.number().positive().default(DEFAULT_GOVERNANCE_CONFIG.recurrenceCountThreshold),
+    dailyCompilerDebounceMs: z.number().min(0).default(DEFAULT_GOVERNANCE_CONFIG.dailyCompilerDebounceMs),
+    maintenanceAutoRun: z.boolean().default(DEFAULT_GOVERNANCE_CONFIG.maintenanceAutoRun),
+  })
+  .strict();
+
 const BuiltinSyncSchema = z
   .object({
     onSessionStart: z.boolean().default(true),
@@ -232,6 +249,7 @@ export const MemoryConfigSchema = z
     builtin: MemoryBuiltinSchema.optional(),
     embedded: MemoryEmbeddedSchema.optional(),
     persistence: MemoryPersistenceSchema.optional(),
+    governance: MemoryGovernanceSchema.optional(),
   })
   .strict();
 

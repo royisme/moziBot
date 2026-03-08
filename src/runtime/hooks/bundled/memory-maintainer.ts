@@ -19,69 +19,39 @@ import type {
   TurnCompletedContext,
   TurnCompletedEvent,
 } from "../types";
+import { MemoryInboxStore } from "../../../memory/governance/inbox-store";
+import {
+  MemoryExtractionService,
+  containsSecret,
+  renderMessageText,
+} from "../../../memory/governance/extraction-service";
+import { GovernanceMaintenanceRunner } from "../../../memory/governance/maintenance-runner";
+import {
+  resolveGovernanceConfig,
+  type GovernanceConfig,
+} from "../../../memory/governance/config";
 
 const MIN_TURNS_BEFORE_FLUSH = 3;
 const FLUSH_DEBOUNCE_MS = 120_000;
-const MAX_LINES_PER_FLUSH = 8;
-const MAX_LINE_CHARS = 240;
 const SESSION_MEMORY_DEFAULT_MESSAGES = 15;
 const SESSION_MEMORY_DEFAULT_TIMEOUT_MS = 15_000;
 const SESSION_MEMORY_MAX_CONTENT_CHARS = 2000;
-
-const SECRET_PATTERNS = [
-  /sk-[A-Za-z0-9_-]{16,}/,
-  /bot\d{8,}:[A-Za-z0-9_-]{20,}/,
-  /(Bearer\s+)[A-Za-z0-9._-]{16,}/i,
-  /tvly-[A-Za-z0-9_-]{16,}/i,
-];
+const MAX_LINE_CHARS = 240;
 
 type SessionBuffer = {
-  lines: string[];
   turnCount: number;
   lastFlushedAt: number;
 };
 
 let runtimeConfig: MoziConfig | null = null;
+let governanceConfig: GovernanceConfig | null = null;
 let installed = false;
 const sessionBuffers = new Map<string, SessionBuffer>();
-
-function hasSecretLikeContent(value: string): boolean {
-  return SECRET_PATTERNS.some((pattern) => pattern.test(value));
-}
-
-function normalizeText(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function toLine(prefix: "User" | "Assistant", value: string): string | null {
-  const normalized = normalizeText(value);
-  if (!normalized) {
-    return null;
-  }
-  if (hasSecretLikeContent(normalized)) {
-    return null;
-  }
-  const clipped =
-    normalized.length > MAX_LINE_CHARS ? `${normalized.slice(0, MAX_LINE_CHARS)}...` : normalized;
-  return `${prefix}: ${clipped}`;
-}
-
-function renderMessageText(content: unknown): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return "";
-  }
-  return content
-    .map((part) => {
-      if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
-        return part.text;
-      }
-      return "";
-    })
-    .join("");
-}
+/** Cached per-agentId extraction service instances (avoid per-call allocation). */
+const extractionServices = new Map<string, MemoryExtractionService>();
+const maintenanceRunners = new Map<string, GovernanceMaintenanceRunner>();
+const maintenanceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingMaintenanceDates = new Map<string, Set<string>>();
 
 type SessionMemoryConfig = {
   enabled: boolean;
@@ -126,7 +96,7 @@ function buildSessionSummary(messages: AgentMessage[] | undefined, maxMessages: 
       if (!text || text.startsWith("/")) {
         return null;
       }
-      if (hasSecretLikeContent(text)) {
+      if (containsSecret(text)) {
         return null;
       }
       const clipped = text.length > MAX_LINE_CHARS ? `${text.slice(0, MAX_LINE_CHARS)}...` : text;
@@ -231,39 +201,6 @@ async function generateSlugViaLlm(params: {
   return await Promise.race([run, timeoutPromise]);
 }
 
-function extractLinesFromMessages(messages: AgentMessage[] | undefined): string[] {
-  if (!messages || messages.length === 0) {
-    return [];
-  }
-  const raw = messages
-    .filter((msg) => msg.role === "user" || msg.role === "assistant")
-    .slice(-10)
-    .map((msg) =>
-      msg.role === "user"
-        ? toLine("User", renderMessageText(msg.content))
-        : toLine("Assistant", renderMessageText(msg.content)),
-    )
-    .filter((line): line is string => Boolean(line));
-  return raw;
-}
-
-function extractLinesFromTurn(event: TurnCompletedEvent): string[] {
-  const lines: string[] = [];
-  if (event.userText) {
-    const userLine = toLine("User", event.userText);
-    if (userLine) {
-      lines.push(userLine);
-    }
-  }
-  if (event.replyText) {
-    const assistantLine = toLine("Assistant", event.replyText);
-    if (assistantLine) {
-      lines.push(assistantLine);
-    }
-  }
-  return lines;
-}
-
 function getBufferKey(ctx: { sessionKey?: string; agentId?: string }): string | null {
   if (!ctx.sessionKey || !ctx.agentId) {
     return null;
@@ -277,7 +214,6 @@ function getOrCreateBuffer(key: string): SessionBuffer {
     return existing;
   }
   const created: SessionBuffer = {
-    lines: [],
     turnCount: 0,
     lastFlushedAt: 0,
   };
@@ -285,111 +221,85 @@ function getOrCreateBuffer(key: string): SessionBuffer {
   return created;
 }
 
-async function writeMemoryArtifacts(params: {
-  homeDir: string;
-  reason: string;
-  lines: string[];
-}): Promise<void> {
-  const uniqueLines = Array.from(new Set(params.lines)).slice(0, MAX_LINES_PER_FLUSH);
-  if (uniqueLines.length === 0) {
+function makeExtractionService(agentId: string): MemoryExtractionService | null {
+  if (!runtimeConfig) return null;
+  const cached = extractionServices.get(agentId);
+  if (cached) return cached;
+  const homeDir = resolveHomeDir(runtimeConfig, agentId);
+  const inboxBaseDir = path.join(homeDir, "memory");
+  const inbox = new MemoryInboxStore(inboxBaseDir);
+  const service = new MemoryExtractionService(inbox);
+  extractionServices.set(agentId, service);
+  return service;
+}
+
+function makeMaintenanceRunner(agentId: string): GovernanceMaintenanceRunner | null {
+  if (!runtimeConfig) return null;
+  const cached = maintenanceRunners.get(agentId);
+  if (cached) return cached;
+  const homeDir = resolveHomeDir(runtimeConfig, agentId);
+  const runner = new GovernanceMaintenanceRunner(homeDir);
+  maintenanceRunners.set(agentId, runner);
+  return runner;
+}
+
+async function scheduleMaintenance(agentId: string, candidates: Array<{ ts: string }>): Promise<void> {
+  if (!runtimeConfig || !governanceConfig || candidates.length === 0) {
+    return;
+  }
+  if (!governanceConfig.enabled || !governanceConfig.maintenanceAutoRun) {
     return;
   }
 
-  const now = new Date();
-  const iso = now.toISOString();
-  const date = iso.split("T")[0];
-  const memoryRootFile = path.join(params.homeDir, "MEMORY.md");
-  const memoryDir = path.join(params.homeDir, "memory");
-  const archiveFile = path.join(memoryDir, `${date}.md`);
-
-  await fs.mkdir(memoryDir, { recursive: true });
-
-  let existing = "";
-  try {
-    existing = await fs.readFile(memoryRootFile, "utf-8");
-  } catch {
-    existing = "";
+  const runner = makeMaintenanceRunner(agentId);
+  if (!runner) {
+    return;
   }
 
-  const freshLines = uniqueLines.filter((line) => !existing.includes(line));
-  if (freshLines.length > 0) {
-    if (!existing.trim()) {
-      await fs.writeFile(memoryRootFile, "# MEMORY\n", "utf-8");
+  const dates = candidates.map((candidate) => new Date(candidate.ts).toISOString().slice(0, 10));
+
+  if (governanceConfig.dailyCompilerDebounceMs <= 0) {
+    for (const date of new Set(dates)) {
+      await runner.runForDate(date);
     }
-    const section = [
-      "",
-      "",
-      `## Auto Memory ${iso}`,
-      `Reason: ${params.reason}`,
-      ...freshLines.map((line) => `- ${line}`),
-      "",
-    ].join("\n");
-    await fs.appendFile(memoryRootFile, section, "utf-8");
-  }
-
-  const archiveSection = [
-    "",
-    "",
-    `### Auto Memory Flush ${iso} (${params.reason})`,
-    ...uniqueLines.map((line) => `- ${line}`),
-    "",
-  ].join("\n");
-  await fs.appendFile(archiveFile, archiveSection, "utf-8");
-}
-
-async function flushSessionBuffer(params: {
-  key: string;
-  sessionKey: string;
-  agentId: string;
-  reason: string;
-  extraLines?: string[];
-}): Promise<void> {
-  if (!runtimeConfig) {
-    return;
-  }
-  const buffer = sessionBuffers.get(params.key);
-  const candidate = [...(buffer?.lines ?? []), ...(params.extraLines ?? [])].filter(
-    (line) => line && line.trim().length > 0,
-  );
-
-  if (candidate.length === 0) {
     return;
   }
 
-  const homeDir = resolveHomeDir(runtimeConfig, params.agentId);
-  try {
-    await writeMemoryArtifacts({
-      homeDir,
-      reason: params.reason,
-      lines: candidate,
-    });
-    logger.info(
-      {
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-        reason: params.reason,
-        lineCount: candidate.length,
-      },
-      "Memory maintainer wrote memory artifacts",
-    );
-  } catch (error) {
-    logger.warn(
-      {
-        error,
-        sessionKey: params.sessionKey,
-        agentId: params.agentId,
-      },
-      "Memory maintainer flush failed",
-    );
+  const pendingDates = pendingMaintenanceDates.get(agentId) ?? new Set<string>();
+  for (const date of dates) {
+    pendingDates.add(date);
+  }
+  pendingMaintenanceDates.set(agentId, pendingDates);
+
+  const existing = maintenanceTimers.get(agentId);
+  if (existing) {
+    clearTimeout(existing);
   }
 
-  sessionBuffers.set(params.key, {
-    lines: [],
-    turnCount: 0,
-    lastFlushedAt: Date.now(),
-  });
+  const timer = setTimeout(() => {
+    maintenanceTimers.delete(agentId);
+    const scheduledDates = [...(pendingMaintenanceDates.get(agentId) ?? new Set<string>())];
+    pendingMaintenanceDates.delete(agentId);
+    void (async () => {
+      for (const date of scheduledDates) {
+        await runner.runForDate(date);
+      }
+    })().catch((error) =>
+      logger.warn(
+        { error, agentId, dates: scheduledDates },
+        "Memory maintainer: governance maintenance failed",
+      ),
+    );
+  }, governanceConfig.dailyCompilerDebounceMs);
+
+  maintenanceTimers.set(agentId, timer);
 }
 
+/**
+ * Session snapshot: writes a human-readable session summary to the workspace
+ * memory directory. This is intentionally kept separate from durable memory
+ * governance – it is context-continuity output only, not a durable memory write.
+ */
 async function writeSessionMemorySnapshot(params: {
   sessionKey: string;
   agentId: string;
@@ -483,13 +393,8 @@ async function handleTurnCompleted(
   if (!key || !ctx.sessionKey || !ctx.agentId) {
     return;
   }
-  const lines = extractLinesFromTurn(event);
-  if (lines.length === 0) {
-    return;
-  }
 
   const buffer = getOrCreateBuffer(key);
-  buffer.lines.push(...lines);
   buffer.turnCount += 1;
 
   const now = Date.now();
@@ -500,12 +405,39 @@ async function handleTurnCompleted(
     return;
   }
 
-  await flushSessionBuffer({
-    key,
-    sessionKey: ctx.sessionKey,
-    agentId: ctx.agentId,
-    reason: "turn_completed",
-  });
+  const service = makeExtractionService(ctx.agentId);
+  if (!service) return;
+
+  try {
+    const result = await service.extractFromTurnAndSubmit({
+      userText: event.userText,
+      replyText: event.replyText,
+      agentId: ctx.agentId,
+      sessionId: ctx.sessionKey,
+    });
+    if (result.written > 0) {
+      logger.info(
+        {
+          sessionKey: ctx.sessionKey,
+          agentId: ctx.agentId,
+          written: result.written,
+          reason: "turn_completed",
+        },
+        "Memory maintainer: candidates submitted to inbox",
+      );
+      await scheduleMaintenance(ctx.agentId, result.candidates);
+      sessionBuffers.set(key, {
+        turnCount: 0,
+        lastFlushedAt: Date.now(),
+      });
+    }
+  } catch (error) {
+    logger.warn(
+      { error, sessionKey: ctx.sessionKey, agentId: ctx.agentId },
+      "Memory maintainer: turn_completed extraction failed",
+    );
+  }
+
 }
 
 async function handleBeforeReset(event: BeforeResetEvent, ctx: BeforeResetContext): Promise<void> {
@@ -514,15 +446,37 @@ async function handleBeforeReset(event: BeforeResetEvent, ctx: BeforeResetContex
     return;
   }
 
-  const messageLines = extractLinesFromMessages(event.messages);
-  await flushSessionBuffer({
-    key,
-    sessionKey: ctx.sessionKey,
-    agentId: ctx.agentId,
-    reason: event.reason || "reset",
-    extraLines: messageLines,
-  });
+  const service = makeExtractionService(ctx.agentId);
+  if (service) {
+    try {
+      const result = await service.extractFromMessagesAndSubmit({
+        messages: event.messages,
+        source: "before_reset",
+        agentId: ctx.agentId,
+        sessionId: ctx.sessionKey,
+      });
+      if (result.written > 0) {
+        logger.info(
+          {
+            sessionKey: ctx.sessionKey,
+            agentId: ctx.agentId,
+            written: result.written,
+            reason: event.reason || "reset",
+          },
+          "Memory maintainer: before_reset candidates submitted to inbox",
+        );
+        await scheduleMaintenance(ctx.agentId, result.candidates);
+      }
+    } catch (error) {
+      logger.warn(
+        { error, sessionKey: ctx.sessionKey, agentId: ctx.agentId },
+        "Memory maintainer: before_reset extraction failed",
+      );
+    }
+  }
 
+  // Session snapshot is context-continuity output only, kept separate from
+  // durable memory governance per spec §Separation of Concerns.
   void writeSessionMemorySnapshot({
     sessionKey: ctx.sessionKey,
     agentId: ctx.agentId,
@@ -538,6 +492,14 @@ async function handleBeforeReset(event: BeforeResetEvent, ctx: BeforeResetContex
 
 export function configureMemoryMaintainerHooks(config: MoziConfig): void {
   runtimeConfig = config;
+  governanceConfig = resolveGovernanceConfig(config.memory?.governance);
+  extractionServices.clear();
+  maintenanceRunners.clear();
+  pendingMaintenanceDates.clear();
+  for (const timer of maintenanceTimers.values()) {
+    clearTimeout(timer);
+  }
+  maintenanceTimers.clear();
   if (installed) {
     return;
   }
@@ -554,6 +516,14 @@ export function configureMemoryMaintainerHooks(config: MoziConfig): void {
 
 export function resetMemoryMaintainerHooksForTests(): void {
   runtimeConfig = null;
+  governanceConfig = null;
   installed = false;
   sessionBuffers.clear();
+  extractionServices.clear();
+  maintenanceRunners.clear();
+  pendingMaintenanceDates.clear();
+  for (const timer of maintenanceTimers.values()) {
+    clearTimeout(timer);
+  }
+  maintenanceTimers.clear();
 }
