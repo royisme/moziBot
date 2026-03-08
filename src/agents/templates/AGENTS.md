@@ -78,7 +78,7 @@ You have access to your human's stuff. That doesn't mean you share it. In groups
 - You can add genuine value
 - Summarizing when asked
 
-**Stay silent (HEARTBEAT_OK) when:**
+**Stay silent (NO_REPLY) when:**
 
 - It's casual banter
 - Someone already answered
@@ -93,7 +93,7 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 When you receive a heartbeat poll, use it productively. The heartbeat file lives in **home**.
 
 Default heartbeat prompt:
-`Read HEARTBEAT.md if it exists (home context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.`
+`Read HEARTBEAT.md if it exists (home context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply NO_REPLY.`
 
 Heartbeat management is file-driven:
 

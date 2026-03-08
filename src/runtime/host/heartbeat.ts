@@ -11,7 +11,7 @@ import { normalizeRouteContext } from "./routing/route-context";
 
 const DEFAULT_HEARTBEAT_EVERY = "30m";
 const DEFAULT_HEARTBEAT_PROMPT =
-  "Read HEARTBEAT.md if it exists (home context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.";
+  "Read HEARTBEAT.md if it exists (home context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply NO_REPLY.";
 
 const HEARTBEAT_FILENAME = "HEARTBEAT.md";
 

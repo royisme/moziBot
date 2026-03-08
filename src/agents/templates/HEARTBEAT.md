@@ -15,7 +15,7 @@ read_when:
 
 # Optional: override prompt for heartbeat turns.
 
-# @heartbeat prompt=Read HEARTBEAT.md and execute only listed tasks. Reply HEARTBEAT_OK when no action is needed.
+# @heartbeat prompt=Read HEARTBEAT.md and execute only listed tasks. Reply NO_REPLY when no action is needed.
 
 # Context injected into the heartbeat prompt:
 
