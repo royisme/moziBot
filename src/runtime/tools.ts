@@ -24,6 +24,7 @@ const subagentSchema = Type.Object({
   prompt: Type.String({ minLength: 1 }),
   agentId: Type.Optional(Type.String()),
   model: Type.Optional(Type.String()),
+  timeoutSeconds: Type.Optional(Type.Number({ minimum: 1 })),
 });
 
 export function createSubagentTool(params: {
@@ -37,16 +38,27 @@ export function createSubagentTool(params: {
     description: "Run a subagent with a prompt",
     parameters: subagentSchema,
     execute: async (_toolCallId, args: Static<typeof subagentSchema>) => {
-      const result = await params.subagents.run({
+      const result = await params.subagents.spawn({
         parentSessionKey: params.parentSessionKey,
         parentAgentId: params.parentAgentId,
         prompt: args.prompt,
         agentId: args.agentId,
         model: args.model,
+        timeoutSeconds: args.timeoutSeconds,
       });
+      const text =
+        result.status === "accepted"
+          ? `Subagent accepted. Run ID: ${result.runId}`
+          : result.error || "Subagent request failed.";
       return {
-        content: [{ type: "text", text: result }],
-        details: {},
+        content: [{ type: "text", text }],
+        details: {
+          runId: result.runId,
+          childKey: result.childKey,
+          sessionId: result.sessionId,
+          status: result.status,
+          ...(result.error ? { error: result.error } : {}),
+        },
       };
     },
   };

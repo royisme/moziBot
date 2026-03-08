@@ -15,6 +15,7 @@ import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/
 import { spawnSubAgent } from "../../runtime/host/sessions/spawn";
 import type { Session } from "../../runtime/host/sessions/types";
 import { resolveAgentJobEscalationTarget } from "../../runtime/jobs/policy";
+import { sessionsStatus, sessionsStatusDescription, sessionsStatusSchema } from "./sessions-status";
 
 export interface SessionToolsContext {
   sessionManager: SessionManager;
@@ -158,6 +159,7 @@ async function initializeAcpSubAgent(
   if (config) {
     if (!isAcpEnabledByPolicy(config)) {
       return {
+        runId: spawnResult.runId,
         childKey: "",
         sessionId: "",
         status: "rejected",
@@ -166,6 +168,7 @@ async function initializeAcpSubAgent(
     }
     if (!isAcpDispatchEnabledByPolicy(config)) {
       return {
+        runId: spawnResult.runId,
         childKey: "",
         sessionId: "",
         status: "rejected",
@@ -178,6 +181,7 @@ async function initializeAcpSubAgent(
   const childSession = ctx.sessionManager.get(childKey);
   if (!childSession) {
     return {
+      runId: spawnResult.runId,
       childKey: "",
       sessionId: "",
       status: "error",
@@ -189,6 +193,7 @@ async function initializeAcpSubAgent(
   const resolvedBackend = acpOptions.backend?.trim() || config?.acp?.backend?.trim();
   if (!resolvedBackend) {
     return {
+      runId: spawnResult.runId,
       childKey: "",
       sessionId: "",
       status: "rejected",
@@ -261,13 +266,14 @@ async function initializeAcpSubAgent(
       // best-effort cleanup
     }
 
-    ctx.subAgentRegistry.complete(childKey, {
+    await ctx.subAgentRegistry.completeByChildKey(childKey, {
       status: "failed",
       error: message,
     });
     await ctx.sessionManager.setStatus(childKey, "failed");
 
     return {
+      runId: spawnResult.runId,
       childKey,
       sessionId: spawnResult.sessionId,
       status: "error",
@@ -300,6 +306,27 @@ export async function sessionsSpawn(
 
   return initializeAcpSubAgent(ctx, params, spawnResult);
 }
+
+export const subagentStatusSchema = sessionsStatusSchema;
+
+export async function subagentStatus(
+  ctx: SessionToolsContext,
+  params: z.infer<typeof subagentStatusSchema>,
+) {
+  return await sessionsStatus(ctx.subAgentRegistry, params);
+}
+
+export const subagentListSchema = sessionsStatusSchema;
+
+export async function subagentList(
+  ctx: SessionToolsContext,
+  params: z.infer<typeof subagentListSchema>,
+) {
+  return await sessionsStatus(ctx.subAgentRegistry, params);
+}
+
+export const subagentStatusDescription = sessionsStatusDescription;
+export const subagentListDescription = sessionsStatusDescription;
 
 export const scheduleContinuationSchema = z.object({
   prompt: z.string().min(1),

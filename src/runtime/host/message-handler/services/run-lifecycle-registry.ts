@@ -6,9 +6,13 @@ export type RunLifecycleState =
   | "streaming"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  | "timeout";
 
-export type RunTerminal = Extract<RunLifecycleState, "completed" | "failed" | "aborted">;
+export type RunTerminal = Extract<
+  RunLifecycleState,
+  "completed" | "failed" | "aborted" | "timeout"
+>;
 
 export interface RunLifecycleEntry {
   readonly runId: string;
@@ -133,7 +137,10 @@ export class RunLifecycleRegistry {
     entry.terminalError = payload.error;
     entry.terminalReason = payload.reason;
 
-    if (payload.state === "aborted" && !entry.controller.signal.aborted) {
+    if (
+      (payload.state === "aborted" || payload.state === "timeout") &&
+      !entry.controller.signal.aborted
+    ) {
       entry.controller.abort(payload.reason ?? payload.error);
     }
 
@@ -156,6 +163,21 @@ export class RunLifecycleRegistry {
     }
     return this.setTerminal(runId, {
       state: "aborted",
+      reason,
+      partialText: entry.buffer.snapshot(),
+    });
+  }
+
+  timeoutRun(runId: string, reason = "run-timeout"): boolean {
+    const entry = this.byRunId.get(runId);
+    if (!entry) {
+      return false;
+    }
+    if (!entry.controller.signal.aborted) {
+      entry.controller.abort(reason);
+    }
+    return this.setTerminal(runId, {
+      state: "timeout",
       reason,
       partialText: entry.buffer.snapshot(),
     });
@@ -198,6 +220,8 @@ export class RunLifecycleRegistry {
   }
 
   private isTerminal(state: RunLifecycleState): state is RunTerminal {
-    return state === "completed" || state === "failed" || state === "aborted";
+    return (
+      state === "completed" || state === "failed" || state === "aborted" || state === "timeout"
+    );
   }
 }

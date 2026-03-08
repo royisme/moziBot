@@ -157,3 +157,127 @@ Use these fields as the single correlation keyset across host/core logs:
 - Keep command text, routing, and session-key behavior internally consistent.
 - Avoid bypassing router/session-key helpers when adding new host pathways.
 - Any lifecycle change must preserve clean shutdown semantics (channel disconnect, heartbeat/cron stop, kernel stop).
+
+## Subagent System (`sessions_spawn` / `subagent_run`)
+
+The host layer manages detached background subagent execution through a set of coordinated components.
+
+### Core Components
+
+- `src/runtime/host/sessions/spawn.ts` - Spawns subagent sessions via `spawnSubAgent()`
+- `src/runtime/host/sessions/subagent-registry.ts` - Tracks all subagent runs via `EnhancedSubAgentRegistry`
+- `src/runtime/host/sessions/subagent-announce.ts` - Announces terminal results to parent session
+
+### Detached/Background Execution
+
+Subagents run as detached background tasks. When `sessions_spawn` (or `subagent_run`) is invoked:
+
+1. A new child session is created with channel `"subagent"` and `parentKey` set to the spawning session
+2. The run is registered in `EnhancedSubAgentRegistry` with status `"accepted"`
+3. The run executes asynchronously in a separate session context
+4. Parent receives immediate response (not waiting for completion)
+
+### Immediate Accepted Response
+
+`sessions_spawn` returns immediately with a `SpawnResult`:
+```typescript
+{ runId: string; childKey: string; sessionId: string; status: "accepted" | "rejected" | "error"; error?: string }
+```
+
+- `"accepted"`: Subagent started successfully
+- `"rejected"`: Spawn denied (nested subagent, missing parent, etc.)
+- `"error"`: Internal error during spawn
+
+### Status/List Querying
+
+Two tools provide querying capabilities:
+
+- `subagent_status` / `sessionsStatus` - Query specific runs or list runs by parent
+  - `runId`: Check specific run
+  - `parentKey`: List all runs spawned by a session
+  - No args: List all tracked runs
+
+- `subagent_list` - Alias for `subagent_status`
+
+Return format includes: `runId`, `label`, `status`, `runtime` (duration), `error`
+
+### timeoutSeconds Behavior
+
+- Optional parameter in `sessions_spawn` (`runTimeoutSeconds`)
+- Set at spawn time and stored in registry
+- When timeout expires, run transitions to `"timeout"` terminal state
+- Timeout triggers announcement to parent session
+
+### Terminal States
+
+`SubAgentRunStatus` values:
+- `"accepted"` - Spawned, waiting to start
+- `"started"` - Execution began
+- `"streaming"` - Actively producing output
+- `"completed"` - Finished successfully
+- `"failed"` - Execution failed with error
+- `"aborted"` - Cancelled by user/system
+- `"timeout"` - Exceeded timeout threshold
+
+Terminal states: `"completed"`, `"failed"`, `"aborted"`, `"timeout"`
+
+### Parent Announcement Behavior
+
+On terminal transition:
+1. `EnhancedSubAgentRegistry.setTerminal()` is called
+2. `triggerAnnounce()` checks if announcement needed
+3. Builds trigger message via `buildTriggerMessage()`
+4. Injects message into parent session via `messageHandlerRef.handleInternalMessage()`
+5. Message includes metadata: `subagentRunId`, `subagentChildKey`, `subagentStatus`
+6. Announced runs are marked `announced: true`
+
+Announcement content includes:
+- Task label or truncated task description
+- Status (completed/failed/timeout)
+- Result or error message
+- Runtime duration
+- Natural-language summarization prompt (with `NO_REPLY` option)
+
+### Restart Reconciliation
+
+On host startup/restart:
+1. `EnhancedSubAgentRegistry.restore()` loads persisted runs from `subagent-runs.json`
+2. `reconcileOrphanedRuns()` identifies non-terminal runs (`accepted`/`started`/`streaming`)
+3. Orphaned runs are marked as `"failed"` with error: "Host restarted while run was in progress"
+4. This triggers announcement to parent session about the interrupted run
+
+Cleanup policy (`cleanup` field):
+- `"delete"`: Remove run record after announcement
+- `"keep"`: Retain run record for history
+
+### Tool Definitions
+
+- `sessions_spawn` schema:
+  ```typescript
+  {
+    task: string;
+    agentId?: string;
+    model?: string;
+    label?: string;
+    cleanup?: "delete" | "keep";
+    runTimeoutSeconds?: number;
+    runtime?: "default" | "acp";
+    acp?: { backend?: string; agent?: string; mode?: "persistent" | "oneshot"; ... };
+  }
+  ```
+
+- `sessions_list` schema:
+  ```typescript
+  {
+    agentId?: string;
+    channel?: string;
+    status?: "idle" | "queued" | "running" | "retrying" | "completed" | "failed" | "interrupted";
+    limit?: number;
+  }
+  ```
+
+### Persistence
+
+- Subagent runs persisted to: `{dataDir}/subagent-runs.json`
+- Sweeper runs every 5 minutes, cleaning up announced runs older than 1 hour
+- Registry shutdown ensures final persistence

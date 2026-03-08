@@ -1,4 +1,6 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   __testing as acpRuntimeRegistryTesting,
@@ -29,6 +31,7 @@ describe("Session Tools", () => {
   let sessionManager: SessionManager;
   let subAgentRegistry: SubAgentRegistry;
   let ctx: SessionToolsContext;
+  let registryDir: string;
 
   const backendId = "acp-test-backend";
   const config = {
@@ -36,15 +39,18 @@ describe("Session Tools", () => {
       enabled: true,
       dispatch: { enabled: true },
       backend: backendId,
+      allowedAgents: [],
+      runtime: { ttlMinutes: 60 },
     },
-  };
+  } as SessionToolsContext["config"];
 
   beforeEach(async () => {
     cleanupTestDb();
     initDb(TEST_DB);
 
     sessionManager = new SessionManager();
-    subAgentRegistry = new SubAgentRegistry();
+    registryDir = mkdtempSync(path.join(os.tmpdir(), "session-tools-subagents-"));
+    subAgentRegistry = new SubAgentRegistry(registryDir);
 
     // Create a dummy current session
     const currentSessionKey = "agent1:telegram:dm:user1";
@@ -83,6 +89,8 @@ describe("Session Tools", () => {
   afterEach(() => {
     unregisterAcpRuntimeBackend(backendId);
     acpRuntimeRegistryTesting.resetAcpRuntimeBackendsForTests();
+    subAgentRegistry.shutdown();
+    rmSync(registryDir, { recursive: true, force: true });
     closeDb();
     cleanupTestDb();
   });

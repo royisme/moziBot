@@ -1,6 +1,10 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import { AgentManager } from "./agent-manager";
+import type { PromptMode } from "./agent-manager/prompt-builder";
+import type { SessionManager } from "./host/sessions/manager";
+import { spawnSubAgent } from "./host/sessions/spawn";
+import type { SubAgentRegistry as SessionSubAgentRegistry } from "./host/sessions/spawn";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import type { ModelSpec } from "./types";
@@ -13,10 +17,44 @@ type SubagentRunParams = {
   prompt: string;
   agentId?: string;
   model?: string;
+  timeoutSeconds?: number;
+};
+
+export interface SubagentSpawnResult {
+  runId: string;
+  childKey: string;
+  sessionId: string;
+  status: "accepted" | "rejected" | "error";
+  error?: string;
+}
+
+export type HostSubagentRuntime = {
+  sessionManager: SessionManager;
+  subAgentRegistry: SessionSubAgentRegistry;
+  startDetachedPromptRun: (params: {
+    runId: string;
+    sessionKey: string;
+    agentId: string;
+    text: string;
+    traceId?: string;
+    promptMode?: PromptMode;
+    modelRef?: string;
+    timeoutSeconds?: number;
+    onAccepted?: () => Promise<void> | void;
+    onTerminal?: (params: {
+      terminal: "completed" | "failed" | "aborted" | "timeout";
+      partialText?: string;
+      error?: Error;
+      reason?: string;
+      errorCode?: string;
+    }) => Promise<void> | void;
+  }) => Promise<{ runId: string }>;
+  isDetachedRunActive: (runId: string) => boolean;
 };
 
 export class SubagentRegistry {
   private activeCounts = new Map<string, number>();
+  private activeDetachedRuns = new Map<string, string>();
   private tempCounters = new Map<string, number>();
   private tempAgents = new Map<string, Agent>();
   private readonly depthMap = new Map<string, number>();
@@ -25,7 +63,20 @@ export class SubagentRegistry {
     private modelRegistry: ModelRegistry,
     private providerRegistry: ProviderRegistry,
     private agentManager: AgentManager,
+    private hostRuntime?: HostSubagentRuntime,
   ) {}
+
+  reconfigure(params: {
+    modelRegistry: ModelRegistry;
+    providerRegistry: ProviderRegistry;
+    agentManager: AgentManager;
+    hostRuntime?: HostSubagentRuntime;
+  }): void {
+    this.modelRegistry = params.modelRegistry;
+    this.providerRegistry = params.providerRegistry;
+    this.agentManager = params.agentManager;
+    this.hostRuntime = params.hostRuntime;
+  }
 
   private incActive(sessionKey: string) {
     const current = this.activeCounts.get(sessionKey) || 0;
@@ -42,6 +93,10 @@ export class SubagentRegistry {
 
   private getSpawnDepth(sessionKey: string): number {
     return this.depthMap.get(sessionKey) ?? 0;
+  }
+
+  private setSpawnDepth(sessionKey: string, depth: number): void {
+    this.depthMap.set(sessionKey, depth);
   }
 
   private nextTempId(parentAgentId: string, sessionKey: string): string {
@@ -84,6 +139,88 @@ export class SubagentRegistry {
     const allow = parentEntry?.subagents?.allow ?? [];
     if (!allow.includes(params.targetAgentId)) {
       throw new Error(`Subagent not allowlisted: ${params.targetAgentId}`);
+    }
+  }
+
+  async spawn(params: SubagentRunParams): Promise<SubagentSpawnResult> {
+    if (!this.hostRuntime) {
+      throw new Error("Detached subagent runtime is not available");
+    }
+
+    this.incActive(params.parentSessionKey);
+    const targetAgentId = params.agentId ?? params.parentAgentId;
+    let runId: string | undefined;
+    try {
+      if (params.agentId) {
+        this.ensureAllowed({
+          parentAgentId: params.parentAgentId,
+          targetAgentId,
+          sessionKey: params.parentSessionKey,
+        });
+      }
+
+      const spawnResult = await spawnSubAgent(
+        this.hostRuntime.sessionManager,
+        this.hostRuntime.subAgentRegistry,
+        {
+          parentKey: params.parentSessionKey,
+          agentId: targetAgentId,
+          model: params.model,
+          task: params.prompt,
+          cleanup: "keep",
+          timeoutSeconds: params.timeoutSeconds,
+        },
+      );
+      runId = spawnResult.runId;
+
+      if (spawnResult.status !== "accepted") {
+        this.decActive(params.parentSessionKey);
+        return spawnResult;
+      }
+
+      const detachedRunId = spawnResult.runId;
+      const timeoutSeconds = this.hostRuntime.subAgentRegistry.get(detachedRunId)?.timeoutSeconds;
+      const parentDepth = this.getSpawnDepth(params.parentSessionKey);
+      this.setSpawnDepth(spawnResult.childKey, parentDepth + 1);
+      this.activeDetachedRuns.set(detachedRunId, params.parentSessionKey);
+
+      const subagentPromptMode = params.agentId
+        ? this.agentManager.resolveSubagentPromptMode(params.parentAgentId)
+        : "full";
+
+      await this.hostRuntime.startDetachedPromptRun({
+        runId: detachedRunId,
+        sessionKey: spawnResult.childKey,
+        agentId: targetAgentId,
+        text: params.prompt,
+        traceId: `subagent:${detachedRunId}`,
+        promptMode: subagentPromptMode === "full" ? "main" : "subagent-minimal",
+        modelRef: params.model,
+        timeoutSeconds,
+        onAccepted: async () => {
+          this.hostRuntime?.subAgentRegistry.markStarted(detachedRunId);
+        },
+        onTerminal: async ({ terminal, partialText, error, reason }) => {
+          await this.hostRuntime?.subAgentRegistry.completeByChildKey(spawnResult.childKey, {
+            status: terminal,
+            result: partialText,
+            error: reason ?? error?.message,
+          });
+          const parentSessionKey = this.activeDetachedRuns.get(detachedRunId);
+          if (parentSessionKey) {
+            this.activeDetachedRuns.delete(detachedRunId);
+            this.decActive(parentSessionKey);
+          }
+        },
+      });
+
+      return spawnResult;
+    } catch (error) {
+      if (typeof runId === "string") {
+        this.activeDetachedRuns.delete(runId);
+      }
+      this.decActive(params.parentSessionKey);
+      throw error;
     }
   }
 

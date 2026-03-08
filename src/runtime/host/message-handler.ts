@@ -9,7 +9,7 @@ import type { InboundMessage } from "../adapters/channels/types";
 import type { PromptMode } from "../agent-manager/prompt-builder";
 import { configureMemoryMaintainerHooks } from "../hooks/bundled/memory-maintainer";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
-import { SubagentRegistry } from "../subagent-registry";
+import { SubagentRegistry, type HostSubagentRuntime } from "../subagent-registry";
 import { parseCommand, normalizeImplicitControlCommand } from "./commands/parser";
 import { parseInlineOverrides as _unusedParseInlineOverridesService } from "./commands/reasoning";
 import { createMessageTurnContext } from "./message-handler/context";
@@ -175,6 +175,8 @@ export class MessageHandler {
 
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
+  private hostSessionManager?: SessionManager;
+  private hostSubAgentRegistry?: SessionSubAgentRegistry;
   private mediaPreprocessor: InboundMediaPreprocessor;
 
   getAgentManager(): AgentManager {
@@ -215,6 +217,8 @@ export class MessageHandler {
     this.config = config;
     configureMemoryMaintainerHooks(config);
     this.runtimeControl = deps?.runtimeControl;
+    this.hostSessionManager = deps?.sessionManager;
+    this.hostSubAgentRegistry = deps?.subAgentRegistry;
     this.mediaPreprocessor = new InboundMediaPreprocessor(config);
     this.sessions = new SessionStore(config);
     this.router = new RuntimeRouter(config);
@@ -230,6 +234,7 @@ export class MessageHandler {
       this.modelRegistry,
       this.providerRegistry,
       this.agentManager,
+      this.createHostSubagentRuntime(deps?.sessionManager, deps?.subAgentRegistry),
     );
     this.agentManager.setSubagentRegistry(this.subagents);
     if (deps?.sessionManager && deps?.subAgentRegistry) {
@@ -250,6 +255,106 @@ export class MessageHandler {
   /**
    * Hot-reload configuration without losing agent state
    */
+  private createHostSubagentRuntime(
+    sessionManager?: SessionManager,
+    subAgentRegistry?: SessionSubAgentRegistry,
+  ): HostSubagentRuntime | undefined {
+    if (!sessionManager || !subAgentRegistry) {
+      return undefined;
+    }
+
+    return {
+      sessionManager,
+      subAgentRegistry,
+      startDetachedPromptRun: async ({
+        runId,
+        sessionKey,
+        agentId,
+        text,
+        traceId,
+        promptMode,
+        modelRef,
+        timeoutSeconds,
+        onAccepted,
+        onTerminal,
+      }) => {
+        const active = await this.agentManager.getAgent(sessionKey, agentId, {
+          ...(promptMode ? { promptMode } : {}),
+          ...(modelRef ? { model: modelRef } : {}),
+        });
+        this.runLifecycle.createRun({
+          runId,
+          sessionKey,
+          agentId,
+          traceId,
+          modelRef: active.modelRef,
+        });
+        if (onTerminal) {
+          this.detachedTerminalCallbacks.set(runId, async (params) => {
+            await onTerminal({
+              terminal: params.terminal,
+              partialText: params.partialText,
+              error: params.error,
+              reason: params.reason,
+              errorCode: params.errorCode,
+            });
+          });
+        }
+        queueMicrotask(() => {
+          void (async () => {
+            let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            try {
+              this.runLifecycle.markStarted(runId);
+              if (
+                typeof timeoutSeconds === "number" &&
+                Number.isFinite(timeoutSeconds) &&
+                timeoutSeconds > 0
+              ) {
+                timeoutHandle = setTimeout(() => {
+                  this.runLifecycle.timeoutRun(runId, "subagent-timeout");
+                }, timeoutSeconds * 1000);
+                timeoutHandle.unref?.();
+              }
+              await onAccepted?.();
+              await this.runPromptWithFallback({
+                sessionKey,
+                agentId,
+                text,
+                traceId,
+                promptMode,
+              });
+              const finalText = await this.resolveLatestAssistantText(sessionKey, agentId);
+              this.runLifecycle.finalizeCompleted(runId, finalText || undefined);
+            } catch (error) {
+              const err = toErrorService(error);
+              const lifecycleRun = this.runLifecycle.getRun(runId);
+              if (lifecycleRun?.state === "timeout") {
+                return;
+              }
+              if (isAbortErrorService(err)) {
+                this.runLifecycle.setTerminal(runId, {
+                  state: "aborted",
+                  reason: err.message,
+                  partialText: lifecycleRun?.buffer.snapshot(),
+                });
+              } else {
+                this.runLifecycle.finalizeFailed(runId, err);
+              }
+            } finally {
+              if (timeoutHandle) {
+                clearTimeout(timeoutHandle);
+              }
+              this.detachedTerminalCallbacks.delete(runId);
+              this.runLifecycle.dispose(runId);
+            }
+          })();
+        });
+        return { runId };
+      },
+      isDetachedRunActive: (runId: string) => Boolean(this.runLifecycle.getRun(runId)),
+    };
+  }
+
   async reloadConfig(config: MoziConfig): Promise<void> {
     this.config = config;
     configureMemoryMaintainerHooks(config);
@@ -262,11 +367,15 @@ export class MessageHandler {
       modelRegistry: this.modelRegistry,
       providerRegistry: this.providerRegistry,
     });
-    this.subagents = new SubagentRegistry(
-      this.modelRegistry,
-      this.providerRegistry,
-      this.agentManager,
-    );
+    this.subagents.reconfigure({
+      modelRegistry: this.modelRegistry,
+      providerRegistry: this.providerRegistry,
+      agentManager: this.agentManager,
+      hostRuntime: this.createHostSubagentRuntime(
+        this.hostSessionManager,
+        this.hostSubAgentRegistry,
+      ),
+    });
     this.agentManager.setSubagentRegistry(this.subagents);
     logger.info("MessageHandler config reloaded (agents preserved)");
   }
@@ -538,6 +647,7 @@ export class MessageHandler {
     message: InboundMessage;
     channel: ChannelPlugin;
     queueItemId?: string;
+    runId?: string;
     onTerminal?: (params: {
       entry: RunLifecycleEntry;
       terminal: RunTerminal;
@@ -549,7 +659,7 @@ export class MessageHandler {
   }): Promise<DetachedRunHandle> {
     const route = this.resolveSessionContext(params.message);
     const active = await this.agentManager.getAgent(route.sessionKey, route.agentId);
-    const runId = `run:${params.message.id}`;
+    const runId = params.runId ?? `run:${params.message.id}`;
 
     this.runLifecycle.createRun({
       runId,

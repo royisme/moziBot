@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { agentEvents } from "../../../infra/agent-events";
+import { injectMessageHandler } from "./subagent-announce";
 import { EnhancedSubAgentRegistry } from "./subagent-registry";
 
 describe("EnhancedSubAgentRegistry", () => {
@@ -16,6 +17,7 @@ describe("EnhancedSubAgentRegistry", () => {
 
   afterEach(() => {
     registry.shutdown();
+    injectMessageHandler({ handleInternalMessage: async () => {} } as never);
     agentEvents.removeAllListeners();
     try {
       fs.rmSync(tmpDir, { recursive: true });
@@ -86,6 +88,29 @@ describe("EnhancedSubAgentRegistry", () => {
       const runs = registry.listByParent("parent-1");
       expect(runs).toHaveLength(2);
       expect(runs.map((r) => r.runId).toSorted()).toEqual(["run-1", "run-2"]);
+    });
+
+    it("should list only non-terminal runs as active", () => {
+      registry.register({
+        runId: "run-active",
+        childKey: "agent:test:subagent:dm:active",
+        parentKey: "parent-active",
+        task: "Active task",
+        cleanup: "keep",
+        status: "started",
+      });
+      registry.register({
+        runId: "run-done",
+        childKey: "agent:test:subagent:dm:done",
+        parentKey: "parent-active",
+        task: "Done task",
+        cleanup: "keep",
+        status: "completed",
+      });
+
+      const runs = registry.listActiveByParent("parent-active");
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.runId).toBe("run-active");
     });
   });
 
@@ -191,6 +216,90 @@ describe("EnhancedSubAgentRegistry", () => {
       expect(run).toBeDefined();
       expect(run?.status).toBe("running");
       expect(run?.task).toBe("Restored task");
+
+      newRegistry.shutdown();
+      try {
+        fs.rmSync(restoreTmpDir, { recursive: true });
+      } catch {}
+    });
+
+    it("reconciles restored non-terminal runs and announces them", async () => {
+      const restoreTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-reconcile-test-"));
+      const filePath = path.join(restoreTmpDir, "subagent-runs.json");
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          "restored-run": {
+            runId: "restored-run",
+            childKey: "agent:test:subagent:dm:restored",
+            parentKey: "parent-restored",
+            task: "Restored task",
+            cleanup: "keep",
+            status: "started",
+            createdAt: Date.now() - 1000,
+            startedAt: Date.now() - 500,
+          },
+        }),
+      );
+
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+
+      const newRegistry = new EnhancedSubAgentRegistry(restoreTmpDir);
+      await newRegistry.reconcileOrphanedRuns();
+      const run = newRegistry.get("restored-run");
+
+      expect(run).toBeDefined();
+      expect(run?.status).toBe("failed");
+      expect(run?.error).toBe("Host restarted while run was in progress");
+      expect(run?.announced).toBe(true);
+      expect(run?.endedAt).toBeGreaterThan(0);
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      expect(handleInternalMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionKey: "parent-restored",
+          source: "subagent-announce",
+          metadata: expect.objectContaining({
+            subagentRunId: "restored-run",
+            subagentChildKey: "agent:test:subagent:dm:restored",
+            subagentStatus: "failed",
+          }),
+        }),
+      );
+
+      newRegistry.shutdown();
+      try {
+        fs.rmSync(restoreTmpDir, { recursive: true });
+      } catch {}
+    });
+
+    it("reconciles restored delete-cleanup runs and removes them", async () => {
+      const restoreTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-reconcile-delete-test-"));
+      const filePath = path.join(restoreTmpDir, "subagent-runs.json");
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          "restored-run": {
+            runId: "restored-run",
+            childKey: "agent:test:subagent:dm:restored",
+            parentKey: "parent-restored",
+            task: "Restored task",
+            cleanup: "delete",
+            status: "streaming",
+            createdAt: Date.now() - 1000,
+            startedAt: Date.now() - 500,
+          },
+        }),
+      );
+
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+
+      const newRegistry = new EnhancedSubAgentRegistry(restoreTmpDir);
+      await newRegistry.reconcileOrphanedRuns();
+
+      expect(newRegistry.get("restored-run")).toBeUndefined();
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
 
       newRegistry.shutdown();
       try {

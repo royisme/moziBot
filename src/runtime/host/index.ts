@@ -82,7 +82,7 @@ export class RuntimeHost {
     this.configManager = new ConfigManager();
     this.health = new HealthCheck();
     this.sessionManager = new SessionManager();
-    this.subAgentRegistry = new SessionSubAgentRegistry();
+    this.subAgentRegistry = new SessionSubAgentRegistry(path.join(process.cwd(), "data"));
     this.channelRegistry = new ChannelRegistry();
 
     this.configManager.on("change", (config) => {
@@ -234,6 +234,7 @@ export class RuntimeHost {
       });
       injectMessageHandler(this.messageHandler);
       await this.messageHandler.initExtensions();
+      await this.subAgentRegistry.reconcileOrphanedRuns();
       logger.info("MessageHandler initialized");
     }
 

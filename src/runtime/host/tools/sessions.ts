@@ -15,6 +15,12 @@ import {
 import {
   scheduleContinuation,
   scheduleContinuationSchema,
+  subagentList,
+  subagentListDescription,
+  subagentListSchema,
+  subagentStatus,
+  subagentStatusDescription,
+  subagentStatusSchema,
   sessionsHistory,
   sessionsHistorySchema,
   sessionsList,
@@ -128,6 +134,30 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       schema: sessionsSpawnSchema,
       ctx,
       execute: sessionsSpawn,
+    }),
+    createZodTool({
+      name: "subagent_status",
+      label: "Subagent Status",
+      description: subagentStatusDescription,
+      parameters: Type.Object({
+        runId: Type.Optional(Type.String()),
+        parentKey: Type.Optional(Type.String()),
+      }),
+      schema: subagentStatusSchema,
+      ctx,
+      execute: subagentStatus,
+    }),
+    createZodTool({
+      name: "subagent_list",
+      label: "Subagent List",
+      description: subagentListDescription,
+      parameters: Type.Object({
+        runId: Type.Optional(Type.String()),
+        parentKey: Type.Optional(Type.String()),
+      }),
+      schema: subagentListSchema,
+      ctx,
+      execute: subagentList,
     }),
     createZodTool({
       name: "schedule_continuation",

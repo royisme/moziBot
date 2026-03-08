@@ -64,4 +64,29 @@ describe("RunLifecycleRegistry", () => {
     expect(onTerminal).toHaveBeenCalledTimes(1);
     expect(onTerminal.mock.calls[0]?.[1]).toMatchObject({ state: "aborted", reason: "cancelled" });
   });
+
+  it("marks run as timeout and aborts controller", () => {
+    const onTerminal = vi.fn();
+    const registry = new RunLifecycleRegistry({ onTerminal });
+    const entry = registry.createRun({
+      runId: "run-timeout",
+      sessionKey: "s-timeout",
+      agentId: "main",
+    });
+    registry.appendDelta("run-timeout", "partial");
+
+    const timedOut = registry.timeoutRun("run-timeout", "subagent-timeout");
+
+    expect(timedOut).toBe(true);
+    expect(entry.state).toBe("timeout");
+    expect(entry.controller.signal.aborted).toBe(true);
+    expect(entry.terminalReason).toBe("subagent-timeout");
+    expect(entry.buffer.snapshot()).toBe("partial");
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+    expect(onTerminal.mock.calls[0]?.[1]).toMatchObject({
+      state: "timeout",
+      reason: "subagent-timeout",
+      partialText: "partial",
+    });
+  });
 });

@@ -1,5 +1,5 @@
-import type { MessageHandler } from "../message-handler";
 import { logger } from "../../../logger";
+import type { MessageHandler } from "../message-handler";
 
 export interface AnnounceParams {
   runId: string;
@@ -45,11 +45,11 @@ export function buildTriggerMessage(params: AnnounceParams): string {
   const statusLabel = buildStatusLabel(params.status, params.error);
   const duration = formatDuration(params.startedAt, params.endedAt);
 
-  const lines = [
+  return [
     `A background task "${taskLabel}" just ${statusLabel}.`,
     "",
     "Findings:",
-    params.result || "(no output)",
+    params.result || (params.error ? `Error: ${params.error}` : "(no output)"),
     "",
     `Stats: runtime ${duration} • sessionKey ${params.childKey}`,
     "",
@@ -57,9 +57,7 @@ export function buildTriggerMessage(params: AnnounceParams): string {
     "Flow it into the conversation naturally.",
     "Do not mention technical details like sessionKey or that this was a background task.",
     "You can respond with NO_REPLY if no announcement is needed.",
-  ];
-
-  return lines.join("\n");
+  ].join("\n");
 }
 
 let messageHandlerRef: MessageHandler | null = null;
@@ -76,15 +74,6 @@ export async function announceSubagentResult(params: AnnounceParams): Promise<bo
 
   const triggerMessage = buildTriggerMessage(params);
 
-  logger.info(
-    {
-      runId: params.runId,
-      parentKey: params.parentKey,
-      status: params.status,
-    },
-    "Announcing subagent result to parent",
-  );
-
   try {
     await messageHandlerRef.handleInternalMessage({
       sessionKey: params.parentKey,
@@ -96,7 +85,6 @@ export async function announceSubagentResult(params: AnnounceParams): Promise<bo
         subagentStatus: params.status,
       },
     });
-
     return true;
   } catch (err) {
     logger.error({ err, runId: params.runId }, "Failed to announce subagent result");

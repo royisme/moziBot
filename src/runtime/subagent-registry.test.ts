@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { SubAgentRegistry as SessionSubAgentRegistry } from "./host/sessions/spawn";
+import type { HostSubagentRuntime } from "./subagent-registry";
 import { SubagentRegistry } from "./subagent-registry";
 
 describe("SubagentRegistry", () => {
@@ -188,5 +193,105 @@ describe("SubagentRegistry", () => {
         prompt: "task 3",
       }),
     ).rejects.toThrow("Max subagent spawn depth (2) reached");
+  });
+
+  it("removes only the failed detached run from active tracking", async () => {
+    const registryDir = mkdtempSync(path.join(os.tmpdir(), "subagent-runtime-test-"));
+    const sessionManager = {
+      get: vi.fn((key: string) => {
+        if (key === "parent-1") {
+          return {
+            key,
+            agentId: "mozi",
+            channel: "telegram",
+            peerId: "user-1",
+            peerType: "dm",
+            status: "idle",
+            createdAt: new Date(),
+            lastActiveAt: new Date(),
+          };
+        }
+        return undefined;
+      }),
+      getOrCreate: vi.fn(async (key: string, defaults: Record<string, unknown>) => ({
+        key,
+        agentId: (defaults.agentId as string) ?? "worker",
+        channel: (defaults.channel as string) ?? "subagent",
+        peerId: (defaults.peerId as string) ?? "peer",
+        peerType: (defaults.peerType as "dm" | "group") ?? "dm",
+        status: (defaults.status as string) ?? "idle",
+        parentKey: defaults.parentKey as string | undefined,
+        metadata: defaults.metadata,
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      })),
+    };
+    const subAgentRegistry = new SessionSubAgentRegistry(registryDir);
+    const startDetachedPromptRun = vi
+      .fn<HostSubagentRuntime["startDetachedPromptRun"]>()
+      .mockResolvedValueOnce({ runId: "run-a" })
+      .mockRejectedValueOnce(new Error("startup failed"))
+      .mockResolvedValueOnce({ runId: "run-c" })
+      .mockResolvedValueOnce({ runId: "run-d" });
+
+    const registry = new SubagentRegistry(
+      {
+        get: () => ({ id: "quotio/gemini-3-flash-preview" }),
+      } as never,
+      {
+        resolveApiKey: () => "test-key",
+      } as never,
+      {
+        getAgentEntry: () => ({ subagents: { allow: ["worker"] } }),
+        resolveSubagentPromptMode: () => "minimal",
+      } as never,
+      {
+        sessionManager: sessionManager as never,
+        subAgentRegistry,
+        startDetachedPromptRun,
+        isDetachedRunActive: vi.fn((runId: string) => runId === "run-a"),
+      },
+    );
+
+    try {
+      const first = await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        agentId: "worker",
+        prompt: "task a",
+      });
+
+      await expect(
+        registry.spawn({
+          parentSessionKey: "parent-1",
+          parentAgentId: "mozi",
+          agentId: "worker",
+          prompt: "task b",
+        }),
+      ).rejects.toThrow("startup failed");
+
+      const firstOnTerminal = startDetachedPromptRun.mock.calls[0]?.[0].onTerminal;
+      await firstOnTerminal?.({ terminal: "completed" });
+
+      const third = await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        agentId: "worker",
+        prompt: "task c",
+      });
+      const fourth = await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        agentId: "worker",
+        prompt: "task d",
+      });
+
+      expect(first.status).toBe("accepted");
+      expect(third.status).toBe("accepted");
+      expect(fourth.status).toBe("accepted");
+    } finally {
+      subAgentRegistry.shutdown();
+      rmSync(registryDir, { recursive: true, force: true });
+    }
   });
 });

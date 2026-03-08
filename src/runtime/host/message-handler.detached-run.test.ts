@@ -203,4 +203,83 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
     );
   });
+
+  it("emits timeout terminal once when detached run exceeds timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const handler = new MessageHandler(createConfig());
+      const h = handler as unknown as {
+        agentManager: {
+          getAgent: (
+            sessionKey: string,
+            agentId: string,
+          ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        };
+        runPromptWithFallback: (params: {
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          traceId?: string;
+        }) => Promise<void>;
+        resolveLatestAssistantText: (sessionKey: string, agentId: string) => Promise<string>;
+        createHostSubagentRuntime: (
+          sessionManager: unknown,
+          subAgentRegistry: unknown,
+        ) => {
+          startDetachedPromptRun: (params: {
+            runId: string;
+            sessionKey: string;
+            agentId: string;
+            text: string;
+            timeoutSeconds?: number;
+            onTerminal?: (params: {
+              terminal: "completed" | "failed" | "aborted" | "timeout";
+              partialText?: string;
+              error?: Error;
+              reason?: string;
+              errorCode?: string;
+            }) => Promise<void> | void;
+          }) => Promise<{ runId: string }>;
+        };
+      };
+
+      h.agentManager = {
+        getAgent: async () => ({
+          agent: { messages: [{ role: "assistant", content: "late-success" }] },
+          modelRef: "quotio/gemini-3-flash-preview",
+        }),
+      };
+      h.resolveLatestAssistantText = async () => "late-success";
+      h.runPromptWithFallback = vi.fn(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      );
+
+      const runtime = h.createHostSubagentRuntime({} as never, {} as never);
+      const onTerminal = vi.fn();
+
+      await runtime?.startDetachedPromptRun({
+        runId: "subagent-timeout-run",
+        sessionKey: "agent:worker:subagent:dm:chat-1",
+        agentId: "worker",
+        text: "work",
+        timeoutSeconds: 1,
+        onTerminal,
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          terminal: "timeout",
+          reason: "subagent-timeout",
+        }),
+      );
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

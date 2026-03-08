@@ -1,8 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import { onAgentEvent, type AgentEvent } from "../../../infra/agent-events";
 import { logger } from "../../../logger";
 import { announceSubagentResult } from "./subagent-announce";
+
+export type SubAgentRunStatus =
+  | "accepted"
+  | "started"
+  | "streaming"
+  | "completed"
+  | "failed"
+  | "aborted"
+  | "timeout";
 
 export interface SubAgentRunRecord {
   runId: string;
@@ -11,37 +19,40 @@ export interface SubAgentRunRecord {
   task: string;
   label?: string;
   cleanup: "delete" | "keep";
-  status: "pending" | "running" | "completed" | "failed" | "timeout";
+  status: SubAgentRunStatus;
   createdAt: number;
   startedAt?: number;
   endedAt?: number;
   result?: string;
   error?: string;
   announced?: boolean;
+  timeoutSeconds?: number;
 }
 
 export class EnhancedSubAgentRegistry {
   private runs: Map<string, SubAgentRunRecord> = new Map();
-  private listenerStop: (() => void) | null = null;
   private persistPath: string;
   private sweepInterval: NodeJS.Timeout | null = null;
 
   constructor(dataDir: string) {
     this.persistPath = path.join(dataDir, "subagent-runs.json");
     this.restore();
-    this.startListener();
     this.startSweeper();
   }
 
-  register(run: Omit<SubAgentRunRecord, "createdAt" | "status">): void {
+  register(
+    run: Omit<SubAgentRunRecord, "createdAt" | "status"> & {
+      createdAt?: number;
+      status?: SubAgentRunStatus;
+    },
+  ): void {
     const record: SubAgentRunRecord = {
       ...run,
-      status: "pending",
-      createdAt: Date.now(),
+      createdAt: run.createdAt ?? Date.now(),
+      status: run.status ?? "accepted",
     };
-    this.runs.set(run.runId, record);
+    this.runs.set(record.runId, record);
     this.persist();
-    logger.debug(`SubAgent registered: ${run.runId} for parent: ${run.parentKey}`);
   }
 
   get(runId: string): SubAgentRunRecord | undefined {
@@ -53,49 +64,80 @@ export class EnhancedSubAgentRegistry {
   }
 
   listByParent(parentKey: string): SubAgentRunRecord[] {
-    return [...this.runs.values()].filter((r) => r.parentKey === parentKey);
+    return [...this.runs.values()]
+      .filter((r) => r.parentKey === parentKey)
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 
   listAll(): SubAgentRunRecord[] {
-    return [...this.runs.values()];
+    return [...this.runs.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  private startListener(): void {
-    this.listenerStop = onAgentEvent((evt) => this.handleEvent(evt));
+  listActiveByParent(parentKey: string): SubAgentRunRecord[] {
+    return this.listByParent(parentKey).filter(
+      (r) => !["completed", "failed", "aborted", "timeout"].includes(r.status),
+    );
   }
 
-  private handleEvent(evt: AgentEvent): void {
-    if (evt.stream !== "lifecycle") {
-      return;
+  update(runId: string, changes: Partial<SubAgentRunRecord>): SubAgentRunRecord | undefined {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return undefined;
+    }
+    Object.assign(run, changes);
+    this.persist();
+    return run;
+  }
+
+  markStarted(runId: string, startedAt = Date.now()): SubAgentRunRecord | undefined {
+    return this.update(runId, { status: "started", startedAt });
+  }
+
+  markStreaming(runId: string, startedAt?: number): SubAgentRunRecord | undefined {
+    return this.update(runId, {
+      status: "streaming",
+      ...(startedAt ? { startedAt } : {}),
+    });
+  }
+
+  async setTerminal(params: {
+    runId: string;
+    status: "completed" | "failed" | "aborted" | "timeout";
+    result?: string;
+    error?: string;
+    endedAt?: number;
+  }): Promise<SubAgentRunRecord | undefined> {
+    const run = this.runs.get(params.runId);
+    if (!run) {
+      return undefined;
+    }
+    if (run.announced || ["completed", "failed", "aborted", "timeout"].includes(run.status)) {
+      return run;
     }
 
-    const run = this.getByChildKey(evt.sessionKey);
+    run.status = params.status;
+    run.result = params.result;
+    run.error = params.error;
+    run.endedAt = params.endedAt ?? Date.now();
+    this.persist();
+
+    await this.triggerAnnounce(run);
+    return run;
+  }
+
+  async completeByChildKey(
+    childKey: string,
+    result: {
+      status: "completed" | "failed" | "aborted" | "timeout";
+      result?: string;
+      error?: string;
+    },
+  ): Promise<void> {
+    const run = this.getByChildKey(childKey);
     if (!run) {
       return;
     }
-
-    const { phase, startedAt, endedAt, error } = evt.data;
-
-    if (phase === "start") {
-      run.status = "running";
-      run.startedAt = startedAt ?? Date.now();
-      this.persist();
-      logger.debug(`SubAgent started: ${run.runId}`);
-      return;
-    }
-
-    if (phase === "end" || phase === "error") {
-      run.endedAt = endedAt ?? Date.now();
-      run.status = phase === "error" ? "failed" : "completed";
-      if (error) {
-        run.error = error;
-      }
-      this.persist();
-
-      logger.debug(`SubAgent ${run.status}: ${run.runId}`);
-
-      void this.triggerAnnounce(run);
-    }
+    await this.setTerminal({ runId: run.runId, ...result });
   }
 
   private async triggerAnnounce(run: SubAgentRunRecord): Promise<void> {
@@ -103,39 +145,52 @@ export class EnhancedSubAgentRegistry {
       return;
     }
 
-    if (run.status !== "completed" && run.status !== "failed" && run.status !== "timeout") {
+    if (!["completed", "failed", "timeout", "aborted"].includes(run.status)) {
       return;
     }
 
-    try {
-      await announceSubagentResult({
-        runId: run.runId,
-        childKey: run.childKey,
-        parentKey: run.parentKey,
-        task: run.task,
-        label: run.label,
-        status: run.status,
-        result: run.result,
-        error: run.error,
-        startedAt: run.startedAt,
-        endedAt: run.endedAt,
-      });
-
-      run.announced = true;
-      this.persist();
-
-      if (run.cleanup === "delete") {
-        this.runs.delete(run.runId);
-        this.persist();
+    const shouldAnnounce = run.status !== "aborted";
+    if (shouldAnnounce) {
+      try {
+        const announced = await announceSubagentResult({
+          runId: run.runId,
+          childKey: run.childKey,
+          parentKey: run.parentKey,
+          task: run.task,
+          label: run.label,
+          status:
+            run.status === "completed"
+              ? "completed"
+              : run.status === "timeout"
+                ? "timeout"
+                : "failed",
+          result: run.result,
+          error: run.error,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt,
+        });
+        if (!announced) {
+          return;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error({ err: message, runId: run.runId }, "Failed to announce subagent result");
+        return;
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error({ err: message, runId: run.runId }, "Failed to announce subagent result");
+    }
+
+    run.announced = true;
+    this.persist();
+
+    if (run.cleanup === "delete") {
+      this.runs.delete(run.runId);
+      this.persist();
     }
   }
 
   private persist(): void {
     try {
+      fs.mkdirSync(path.dirname(this.persistPath), { recursive: true });
       const data = Object.fromEntries(this.runs);
       fs.writeFileSync(this.persistPath, JSON.stringify(data, null, 2));
     } catch (err) {
@@ -153,7 +208,6 @@ export class EnhancedSubAgentRegistry {
       for (const [id, record] of Object.entries(data)) {
         this.runs.set(id, record as SubAgentRunRecord);
       }
-      logger.info({ count: this.runs.size }, "Restored subagent runs from disk");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn({ err: message }, "Failed to restore subagent registry");
@@ -168,22 +222,35 @@ export class EnhancedSubAgentRegistry {
       for (const [id, run] of this.runs) {
         if (run.announced && run.endedAt && run.endedAt < cutoff) {
           this.runs.delete(id);
-          swept++;
+          swept += 1;
         }
       }
       if (swept > 0) {
         this.persist();
-        logger.debug(`Swept ${swept} old subagent runs`);
       }
     }, sweepMs);
     this.sweepInterval.unref?.();
   }
 
-  shutdown(): void {
-    if (this.listenerStop) {
-      this.listenerStop();
-      this.listenerStop = null;
+  async reconcileOrphanedRuns(): Promise<void> {
+    const orphanedRuns = [...this.runs.values()].filter(
+      (run) => !run.announced && ["accepted", "started", "streaming"].includes(run.status),
+    );
+
+    for (const run of orphanedRuns) {
+      logger.warn(
+        { runId: run.runId, childKey: run.childKey, status: run.status },
+        "Marking orphaned subagent run as failed after host restart",
+      );
+      await this.setTerminal({
+        runId: run.runId,
+        status: "failed",
+        error: "Host restarted while run was in progress",
+      });
     }
+  }
+
+  shutdown(): void {
     if (this.sweepInterval) {
       clearInterval(this.sweepInterval);
       this.sweepInterval = null;

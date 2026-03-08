@@ -76,6 +76,6 @@ export const sessionsStatusSchema = inputSchema;
 
 export const sessionsStatusDescription =
   "Check the status of spawned subagent tasks. " +
-  "Use without arguments to list all active runs. " +
+  "Use without arguments to list all tracked runs. " +
   "Use with runId to check a specific run. " +
   "Use with parentKey to list all runs spawned by a specific session.";

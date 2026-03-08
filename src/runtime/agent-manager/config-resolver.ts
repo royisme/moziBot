@@ -54,6 +54,8 @@ export const DEFAULT_TOOL_NAMES = [
   "sessions_history",
   "sessions_send",
   "sessions_spawn",
+  "subagent_status",
+  "subagent_list",
   "schedule_continuation",
   "reminder_create",
   "reminder_list",
