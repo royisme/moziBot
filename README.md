@@ -156,19 +156,68 @@ OPENAI_API_KEY=sk-...
 TELEGRAM_BOT_TOKEN=...
 ```
 
+### Doctor Commands
+
+Mozi includes built-in diagnostic commands for config and ACP setup.
+
+```bash
+# top-level config doctor
+mozi doctor
+mozi doctor --json
+mozi doctor --verbose
+mozi doctor --fix
+
+# config doctor via config surface
+mozi config --doctor
+mozi config --doctor --json
+mozi config --doctor --fix
+
+# ACP-specific doctor
+mozi acp doctor
+mozi acp doctor --json
+mozi acp doctor --verbose
+```
+
+What they help with:
+
+- config consistency and missing required values
+- unresolved env placeholders and redacted secrets
+- agent/model/provider wiring problems
+- ACP backend/defaultAgent/allowedAgents/installCommand consistency
+- machine-readable JSON output for scripting and CI
+
+Current limitation:
+
+- these doctor commands focus on static configuration and setup validation
+- they do **not** yet diagnose all runtime causes of `(no response)` failures such as upstream provider/runtime/reply-rendering probe failures
+
 ### Running (Dev / Local)
 
 In local development, build first, then run the compiled CLI from `dist/`:
 
 ```bash
 pnpm run build
-node dist/mozi.mjs runtime start
+bun dist/mozi.mjs runtime start
 ```
 
 If `mozi` is globally installed or linked to your PATH, this is equivalent:
 
 ```bash
 mozi runtime start
+```
+
+### Development Workflow
+
+Mozi uses repo-local git hooks to enforce validation before code leaves your machine:
+
+- `pre-commit` runs `pnpm run check`
+- `pre-push` runs `pnpm run test`
+
+You can also run them manually:
+
+```bash
+pnpm run check
+pnpm run test
 ```
 
 ### Skills

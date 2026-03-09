@@ -21,6 +21,10 @@ Default to using Bun instead of Node.js for runtime execution.
 
 Use `pnpm run test` to run repo tests. Only use `bun test` for Bun-specific test files.
 
+Repo-local git hooks enforce:
+- `pre-commit` → `pnpm run check`
+- `pre-push` → `pnpm run test`
+
 ## Frontend
 
 Use HTML imports with `Bun.serve()`. Don't use `vite`. HTML imports fully support React, CSS, Tailwind.
