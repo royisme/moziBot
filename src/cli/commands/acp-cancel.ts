@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
+import { bootstrapAcpRuntimeBackendsOrExit } from "../../acp/runtime/bootstrap";
 import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
 import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import { resolveSessionKey } from "../../acp/session-key-utils";
@@ -54,16 +54,7 @@ export async function acpCancel(
   const backendId = meta.backend;
 
   // Bootstrap ACP runtime backends before using them
-  try {
-    await bootstrapAcpRuntimeBackends(config, backendId);
-  } catch (err) {
-    console.error(
-      pc.red(
-        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
-      ),
-    );
-    process.exit(1);
-  }
+  await bootstrapAcpRuntimeBackendsOrExit(config, backendId);
 
   const backend = getAcpRuntimeBackend(backendId);
   if (!backend) {

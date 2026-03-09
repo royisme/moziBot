@@ -95,7 +95,7 @@ export function createAcpBridgeRuntimeAdapter(
       const sessionEntry = readAcpSessionEntry({ sessionKey });
       const meta = sessionEntry?.acp;
 
-      if (!meta || !meta.identity?.agentSessionId) {
+      if (!meta || !meta.identity?.acpxSessionId) {
         log(`abortSession: no active run for ${sessionKey}`);
         return;
       }
@@ -207,8 +207,9 @@ async function ensureRuntimeHandle(params: {
 }> {
   const { sessionKey, meta, backend } = params;
 
-  // If we already have identity, return handle
-  if (meta.identity?.agentSessionId) {
+  // If we already have identity with a backend session, return handle
+  // For ACPX, we use acpxSessionId (backendSessionId) since agentSessionId is not available
+  if (meta.identity?.acpxSessionId || meta.identity?.agentSessionId) {
     return {
       sessionKey,
       backend: meta.backend,
@@ -226,7 +227,7 @@ async function ensureRuntimeHandle(params: {
   const handle = await runtimeBackend.runtime.ensureSession({
     sessionKey,
     agent: meta.agent,
-    mode: meta.mode,
+    mode: meta.mode ?? "persistent",
     cwd: meta.cwd,
   });
 

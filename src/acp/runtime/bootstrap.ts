@@ -1,3 +1,4 @@
+import pc from "picocolors";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";
 import { AcpxRuntimeBackend } from "./backends/acpx";
@@ -6,6 +7,32 @@ import { registerAcpRuntimeBackend } from "./registry";
 const ACPX_BACKEND_ID = "acpx";
 
 let acpxBackendRegistered = false;
+
+/**
+ * Bootstrap ACP runtime backends with error handling for CLI commands.
+ *
+ * This helper wraps bootstrapAcpRuntimeBackends with standard error handling
+ * including console output and process.exit(1) on failure.
+ *
+ * @param config - The Mozi configuration
+ * @param backendIdOverride - Optional backend ID override
+ * @returns Promise that resolves when bootstrap succeeds (never returns on failure)
+ */
+export async function bootstrapAcpRuntimeBackendsOrExit(
+  config: MoziConfig,
+  backendIdOverride?: string,
+): Promise<void> {
+  try {
+    await bootstrapAcpRuntimeBackends(config, backendIdOverride);
+  } catch (err) {
+    console.error(
+      pc.red(
+        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    process.exit(1);
+  }
+}
 
 /**
  * Bootstrap the ACP runtime backends based on configuration.

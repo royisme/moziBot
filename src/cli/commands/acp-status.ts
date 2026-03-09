@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
+import { bootstrapAcpRuntimeBackendsOrExit } from "../../acp/runtime/bootstrap";
 import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
 import { readAcpSessionEntry } from "../../acp/runtime/session-meta";
 import { resolveSessionKey } from "../../acp/session-key-utils";
@@ -54,16 +54,7 @@ export async function acpStatus(
 
   // Get runtime backend
   // Bootstrap ACP runtime backends before using them
-  try {
-    await bootstrapAcpRuntimeBackends(config, meta.backend);
-  } catch (err) {
-    console.error(
-      pc.red(
-        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
-      ),
-    );
-    process.exit(1);
-  }
+  await bootstrapAcpRuntimeBackendsOrExit(config, meta.backend);
 
   const backend = getAcpRuntimeBackend(meta.backend);
 
@@ -127,7 +118,7 @@ export async function acpStatus(
   }
 
   // Try to get runtime status if available
-  if (backend && meta.identity?.agentSessionId) {
+  if (backend && (meta.identity?.acpxSessionId || meta.identity?.agentSessionId)) {
     try {
       const handle = {
         sessionKey,
