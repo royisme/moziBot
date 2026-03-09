@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { bootstrapAcpRuntimeBackends } from "../../../acp/runtime/bootstrap";
 import { getAcpRuntimeBackend, requireAcpRuntimeBackend } from "../../../acp/runtime/registry";
 import {
   listAcpSessionEntries,
@@ -542,6 +543,7 @@ async function handleAcpSpawnFromRuntime(params: {
 
   let runtimeBackend: ReturnType<typeof requireAcpRuntimeBackend>;
   try {
+    await bootstrapAcpRuntimeBackends(config, resolvedBackend);
     runtimeBackend = requireAcpRuntimeBackend(resolvedBackend);
   } catch (error) {
     await channel.send(peerId, {
@@ -659,7 +661,8 @@ async function handleAcpStatusFromRuntime(params: {
           cwd: meta.cwd,
           identity: meta.identity,
           lastActivityAt: meta.lastActivityAt,
-          lastError: meta.lastError,
+          lastError: meta.lastErrorDetails?.message,
+          lastErrorDetails: meta.lastErrorDetails,
         },
         null,
         2,
@@ -668,6 +671,7 @@ async function handleAcpStatusFromRuntime(params: {
     return;
   }
 
+  await bootstrapAcpRuntimeBackends(config, meta.backend);
   const backend = getAcpRuntimeBackend(meta.backend);
   const lines = [
     "ACP session status:",
@@ -700,8 +704,8 @@ async function handleAcpStatusFromRuntime(params: {
     }
   }
 
-  if (meta.lastError) {
-    lines.push(`lastError: ${meta.lastError}`);
+  if (meta.lastErrorDetails?.message) {
+    lines.push(`lastError: ${meta.lastErrorDetails.message}`);
   }
 
   await channel.send(peerId, { text: lines.join("\n") });
@@ -728,6 +732,7 @@ async function handleAcpCancelFromRuntime(params: {
     return;
   }
 
+  await bootstrapAcpRuntimeBackends(config, meta.backend);
   const backend = getAcpRuntimeBackend(meta.backend);
   if (!backend) {
     await channel.send(peerId, {

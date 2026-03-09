@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
 import { getAcpRuntimeBackend } from "../../acp/runtime/registry";
 import { readAcpSessionEntry } from "../../acp/runtime/session-meta";
 import { resolveSessionKey } from "../../acp/session-key-utils";
@@ -52,6 +53,18 @@ export async function acpStatus(
   }
 
   // Get runtime backend
+  // Bootstrap ACP runtime backends before using them
+  try {
+    await bootstrapAcpRuntimeBackends(config, meta.backend);
+  } catch (err) {
+    console.error(
+      pc.red(
+        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    process.exit(1);
+  }
+
   const backend = getAcpRuntimeBackend(meta.backend);
 
   if (options.json) {
@@ -66,7 +79,8 @@ export async function acpStatus(
       cwd: meta.cwd,
       identity: meta.identity,
       lastActivityAt: meta.lastActivityAt,
-      lastError: meta.lastError,
+      lastError: meta.lastErrorDetails?.message,
+      lastErrorDetails: meta.lastErrorDetails,
     };
     console.log(JSON.stringify(status, null, 2));
     return;
@@ -107,9 +121,9 @@ export async function acpStatus(
   console.log("");
   console.log(`  Last Activity: ${pc.dim(new Date(meta.lastActivityAt).toLocaleString())}`);
 
-  if (meta.lastError) {
+  if (meta.lastErrorDetails?.message) {
     console.log("");
-    console.log(pc.red(`  Last Error: ${meta.lastError}`));
+    console.log(pc.red(`  Last Error: ${meta.lastErrorDetails.message}`));
   }
 
   // Try to get runtime status if available

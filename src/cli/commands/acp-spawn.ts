@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
 import { requireAcpRuntimeBackend } from "../../acp/runtime/registry";
 import { upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import type { SessionAcpMeta } from "../../acp/types";
@@ -72,6 +73,17 @@ export async function acpSpawn(
   }
 
   // Require runtime backend
+  try {
+    await bootstrapAcpRuntimeBackends(config, resolvedBackend);
+  } catch (err) {
+    console.error(
+      pc.red(
+        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    process.exit(1);
+  }
+
   let runtimeBackend;
   try {
     runtimeBackend = requireAcpRuntimeBackend(resolvedBackend);

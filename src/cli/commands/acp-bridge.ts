@@ -1,6 +1,7 @@
 import pc from "picocolors";
 import { createAcpBridgeRuntimeAdapter } from "../../acp/bridge/runtime-adapter-impl";
 import { serveAcpBridge } from "../../acp/bridge/server";
+import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
 import { loadConfig } from "../../config/loader";
 import { isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
 
@@ -38,6 +39,18 @@ export async function acpBridge(options: AcpBridgeOptions): Promise<void> {
 
   if (verbose) {
     console.log(pc.dim("Starting ACP Bridge server..."));
+  }
+
+  // Bootstrap ACP runtime backends before creating adapter
+  try {
+    await bootstrapAcpRuntimeBackends(config);
+  } catch (err) {
+    console.error(
+      pc.red(
+        `Error: failed to bootstrap ACP runtime: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    process.exit(1);
   }
 
   // Create runtime adapter

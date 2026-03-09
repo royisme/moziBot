@@ -131,7 +131,7 @@ export async function runAcpChecks(
       summary: "No ACP runtime install command configured (`acp.runtime.installCommand`).",
       details: "Without an install command, operators cannot be guided to set up the ACP runtime.",
       fixHint:
-        "Set `acp.runtime.installCommand` to the shell command that installs the ACP runtime (e.g. `npm install -g acpx`).",
+        "Set `acp.runtime.installCommand` to the shell command that installs the ACP runtime (e.g. `pnpm add -g acpx`).",
     });
   } else {
     findings.push({

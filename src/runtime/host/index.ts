@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { bootstrapAcpRuntimeBackends } from "../../acp/runtime/bootstrap";
 import type { MoziConfig } from "../../config";
 import { configureLogger, logger } from "../../logger";
 import { initDb } from "../../storage/db";
@@ -142,6 +143,16 @@ export class RuntimeHost {
     configureLogger(loadedConfig.logging?.level);
     await this.runAutoSandboxBootstrap(loadedConfig);
     await this.startBrowserRelayIfNeeded(loadedConfig);
+
+    // 3.5. Bootstrap ACP runtime backends
+    try {
+      await bootstrapAcpRuntimeBackends(loadedConfig);
+    } catch (error) {
+      logger.warn(
+        { err: error },
+        "ACP runtime backend bootstrap failed; ACP features may not be available.",
+      );
+    }
 
     // 4. Initialize database
     try {
