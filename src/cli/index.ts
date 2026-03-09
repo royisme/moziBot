@@ -73,10 +73,16 @@ const configCmd = program
   .option("-c, --config <path>", "Config file path")
   .option("--doctor", "Run extended validation checks")
   .option("--fix", "Try to bootstrap sandbox dependencies (with --doctor)")
+  .option("--json", "Output machine-readable JSON (with --doctor)")
+  .option("-v, --verbose", "Show detailed output (with --doctor)")
   .action(async (options) => {
     const { validateConfig, doctorConfig } = await import("./commands/config");
     if (options.doctor) {
-      await doctorConfig(options.config, { fix: options.fix });
+      await doctorConfig(options.config, {
+        fix: options.fix,
+        json: options.json,
+        verbose: options.verbose,
+      });
       return;
     }
     await validateConfig(options.config);
@@ -160,9 +166,15 @@ program
   .description("Validate configuration is runnable")
   .option("-c, --config <path>", "Config file path")
   .option("--fix", "Try to bootstrap sandbox dependencies")
+  .option("--json", "Output machine-readable JSON")
+  .option("-v, --verbose", "Show detailed output")
   .action(async (options) => {
     const { doctorConfig } = await import("./commands/config");
-    await doctorConfig(options.config, { fix: options.fix });
+    await doctorConfig(options.config, {
+      fix: options.fix,
+      json: options.json,
+      verbose: options.verbose,
+    });
   });
 
 program

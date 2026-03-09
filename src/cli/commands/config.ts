@@ -1,10 +1,8 @@
 import fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import JSON5 from "json5";
-import type { MoziConfig } from "../../config";
 import {
   applyConfigOps,
-  CONFIG_REDACTION_SENTINEL,
   deleteConfigValue,
   isConfigConflictError,
   loadConfig,
@@ -13,10 +11,8 @@ import {
   setConfigValue,
   writeConfigRawAtomic,
 } from "../../config";
-import { resolveAgentModelRouting } from "../../config/model-routing";
-import { ModelRegistry } from "../../runtime/model-registry";
-import { ProviderRegistry } from "../../runtime/provider-registry";
 import { bootstrapSandboxes } from "../../runtime/sandbox/bootstrap";
+import { runConfigChecks, createDoctorReport, printDoctorReport } from "../doctor";
 
 export async function validateConfig(configPath?: string) {
   const result = loadConfig(configPath);
@@ -128,159 +124,6 @@ function printMutationSuccess(label: string, rawHash: string): void {
   console.log(`rawHash: ${rawHash}`);
 }
 
-function hasRedactedValue(value: unknown): boolean {
-  if (value === CONFIG_REDACTION_SENTINEL) {
-    return true;
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => hasRedactedValue(item));
-  }
-  if (value && typeof value === "object") {
-    return Object.values(value as Record<string, unknown>).some((item) => hasRedactedValue(item));
-  }
-  return false;
-}
-
-function collectBlockingSecretIssues(config: MoziConfig): string[] {
-  const issues: string[] = [];
-  const unresolvedEnvPattern = /^\$\{[^}]+\}$/;
-  const providers = config.models?.providers ?? {};
-  for (const [provider, entry] of Object.entries(providers)) {
-    if (entry.apiKey === CONFIG_REDACTION_SENTINEL) {
-      issues.push(`Provider ${provider} apiKey is redacted sentinel and must be replaced.`);
-    }
-    if (typeof entry.apiKey === "string" && unresolvedEnvPattern.test(entry.apiKey)) {
-      issues.push(`Provider ${provider} apiKey is unresolved env placeholder.`);
-    }
-  }
-  const telegram = config.channels?.telegram;
-  if (telegram?.enabled) {
-    if (telegram.botToken === CONFIG_REDACTION_SENTINEL) {
-      issues.push("Telegram botToken is redacted sentinel and must be replaced.");
-    }
-    if (typeof telegram.botToken === "string" && unresolvedEnvPattern.test(telegram.botToken)) {
-      issues.push("Telegram botToken is unresolved env placeholder.");
-    }
-  }
-  const discord = config.channels?.discord;
-  if (discord?.enabled) {
-    if (discord.botToken === CONFIG_REDACTION_SENTINEL) {
-      issues.push("Discord botToken is redacted sentinel and must be replaced.");
-    }
-    if (typeof discord.botToken === "string" && unresolvedEnvPattern.test(discord.botToken)) {
-      issues.push("Discord botToken is unresolved env placeholder.");
-    }
-  }
-  const localDesktop = config.channels?.localDesktop;
-  if (localDesktop?.enabled) {
-    if (localDesktop.authToken === CONFIG_REDACTION_SENTINEL) {
-      issues.push("Local desktop authToken is redacted sentinel and must be replaced.");
-    }
-    if (
-      typeof localDesktop.authToken === "string" &&
-      unresolvedEnvPattern.test(localDesktop.authToken)
-    ) {
-      issues.push("Local desktop authToken is unresolved env placeholder.");
-    }
-  }
-  return issues;
-}
-
-type DoctorReport = {
-  errors: string[];
-  warnings: string[];
-};
-
-function collectDoctorReport(config: MoziConfig): DoctorReport {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  const agentEntries = listAgentEntries(config);
-  if (agentEntries.length === 0) {
-    errors.push("No agents configured. Add at least one agent entry under agents.");
-  }
-
-  const modelRegistry = new ModelRegistry(config);
-  const providerRegistry = new ProviderRegistry(config);
-
-  for (const { id } of agentEntries) {
-    const routing = resolveAgentModelRouting(config, id);
-    const modelRef = routing.defaultModel.primary;
-    if (!modelRef) {
-      errors.push(`Agent ${id} has no model configured.`);
-      continue;
-    }
-    const spec = modelRegistry.get(modelRef);
-    if (!spec) {
-      errors.push(`Agent ${id} references unknown model: ${modelRef}`);
-      continue;
-    }
-    const apiKey = providerRegistry.resolveApiKey(spec.provider);
-    if (!apiKey) {
-      warnings.push(`Provider ${spec.provider} has no API key (agent ${id}).`);
-    }
-
-    const modalityEntries: Array<{ input: "image"; refs: string[] }> = [
-      {
-        input: "image",
-        refs: [routing.imageModel.primary, ...routing.imageModel.fallbacks].filter(
-          (ref): ref is string => Boolean(ref),
-        ),
-      },
-    ];
-
-    for (const modality of modalityEntries) {
-      for (const ref of modality.refs) {
-        const modSpec = modelRegistry.get(ref);
-        if (!modSpec) {
-          errors.push(`Agent ${id} ${modality.input} route references unknown model: ${ref}`);
-          continue;
-        }
-        if (!(modSpec.input ?? ["text"]).includes(modality.input)) {
-          warnings.push(
-            `Agent ${id} ${modality.input} route model ${ref} does not declare ${modality.input} input capability.`,
-          );
-        }
-      }
-    }
-  }
-
-  const channels = config.channels ?? {};
-  const telegram = channels.telegram;
-  if (telegram?.enabled && !telegram.botToken) {
-    errors.push("Telegram is enabled but botToken is missing.");
-  }
-  const discord = channels.discord;
-  if (discord?.enabled && !discord.botToken) {
-    errors.push("Discord is enabled but botToken is missing.");
-  }
-
-  for (const agentId of referencedAgents(channels)) {
-    if (!agentEntries.some((entry) => entry.id === agentId)) {
-      errors.push(`Channel references unknown agent: ${agentId}`);
-    }
-  }
-
-  const heartbeatIssues = validateHeartbeat(config, agentEntries);
-  errors.push(...heartbeatIssues.errors);
-  warnings.push(...heartbeatIssues.warnings);
-
-  const secretIssues = collectBlockingSecretIssues(config);
-  errors.push(...secretIssues);
-
-  if (hasRedactedValue(config)) {
-    warnings.push("Config contains redaction sentinel values.");
-  }
-
-  if (config.extensions?.installs && Object.keys(config.extensions.installs).length > 0) {
-    warnings.push(
-      "extensions.installs is currently metadata only and does not auto-install extension packages.",
-    );
-  }
-
-  return { errors, warnings };
-}
-
 async function rollbackConfig(
   before: ReturnType<typeof readConfigSnapshot>,
   after: ReturnType<typeof readConfigSnapshot>,
@@ -300,24 +143,6 @@ async function rollbackConfig(
   }
 }
 
-function printDoctorReport(report: DoctorReport): void {
-  if (report.errors.length === 0) {
-    console.log("✅ Config check passed. The config is runnable.");
-  } else {
-    console.error("❌ Config check failed with blocking issues:");
-    for (const error of report.errors) {
-      console.error(`- ${error}`);
-    }
-  }
-
-  if (report.warnings.length > 0) {
-    console.warn("\n⚠️ Warnings:");
-    for (const warn of report.warnings) {
-      console.warn(`- ${warn}`);
-    }
-  }
-}
-
 async function postMutationValidateOrRollback(
   mutationLabel: string,
   before: ReturnType<typeof readConfigSnapshot>,
@@ -333,15 +158,19 @@ async function postMutationValidateOrRollback(
     }
     process.exit(1);
   }
-  const report = collectDoctorReport(after.load.config);
-  if (report.errors.length > 0) {
+  const findings = await runConfigChecks(after.load.config, {
+    config: after.load.config,
+    fix: false,
+  });
+  const report = createDoctorReport(findings);
+  if (report.summary.fail > 0) {
     await rollbackConfig(before, after);
     console.error(`❌ ${mutationLabel} rejected by config checks. Changes were rolled back.`);
-    printDoctorReport(report);
+    printDoctorReport(report, {});
     process.exit(1);
   }
-  if (report.warnings.length > 0) {
-    printDoctorReport(report);
+  if (report.summary.warn > 0) {
+    printDoctorReport(report, {});
   }
 }
 
@@ -437,157 +266,90 @@ export async function applyConfigOperations(
   }
 }
 
-export async function doctorConfig(configPath?: string, options: { fix?: boolean } = {}) {
+export async function doctorConfig(
+  configPath?: string,
+  options: { fix?: boolean; json?: boolean; verbose?: boolean } = {},
+) {
   const result = loadConfig(configPath);
   if (!result.success || !result.config) {
-    console.error("❌ Config check failed. Invalid config file:");
-    for (const error of result.errors ?? []) {
-      console.error(`- ${error}`);
+    if (options.json) {
+      console.log(
+        JSON.stringify(
+          {
+            passed: false,
+            findings: [
+              {
+                id: "config:load-failed",
+                level: "fail",
+                summary: "Failed to load config file",
+                details: result.errors?.join(", "),
+              },
+            ],
+            summary: { pass: 0, warn: 0, fail: 1 },
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.error("❌ Config check failed. Invalid config file:");
+      for (const error of result.errors ?? []) {
+        console.error(`- ${error}`);
+      }
     }
     process.exit(1);
   }
 
   const config = result.config;
-  const report = collectDoctorReport(config);
-  const errors = [...report.errors];
-  const warnings = [...report.warnings];
 
+  // Run config checks using the shared framework
+  const findings = await runConfigChecks(config, { config, fix: Boolean(options.fix) });
+  let report = createDoctorReport(findings);
+
+  // Handle --fix option
   if (options.fix) {
-    if (errors.length > 0) {
-      warnings.push("Sandbox bootstrap skipped because blocking config issues exist.");
+    const hasBlockingIssues = report.summary.fail > 0;
+    if (hasBlockingIssues) {
+      report.findings.push({
+        id: "sandbox:skipped",
+        level: "warn",
+        summary: "Sandbox bootstrap skipped because blocking config issues exist.",
+      });
     } else {
       const bootstrap = await bootstrapSandboxes(config, { fix: true });
-      for (const action of bootstrap.actions) {
-        console.log(`🔧 [${action.agentId}] ${action.message}`);
+      // Only print bootstrap actions to stdout in non-JSON mode
+      // In JSON mode, we suppress these to keep stdout valid JSON
+      if (!options.json) {
+        for (const action of bootstrap.actions) {
+          console.log(`🔧 [${action.agentId}] ${action.message}`);
+        }
       }
       for (const issue of bootstrap.issues) {
-        const line = `[${issue.agentId}] ${issue.message}`;
-        if (issue.level === "error") {
-          errors.push(line);
-        } else {
-          warnings.push(line);
+        const finding: {
+          id: string;
+          level: "fail" | "warn";
+          summary: string;
+          details?: string;
+          fixHint?: string;
+        } = {
+          id: `sandbox:${issue.agentId}`,
+          level: issue.level === "error" ? "fail" : "warn",
+          summary: `[${issue.agentId}] ${issue.message}`,
+        };
+        if (issue.hints.length > 0) {
+          finding.details = issue.hints.join("; ");
         }
-        for (const hint of issue.hints) {
-          warnings.push(`[${issue.agentId}] hint: ${hint}`);
-        }
+        report.findings.push(finding);
       }
+      // Recalculate report after sandbox changes
+      report = createDoctorReport(report.findings);
     }
   }
 
-  printDoctorReport({ errors, warnings });
+  // Output the report
+  printDoctorReport(report, { json: options.json, verbose: options.verbose });
 
-  if (errors.length > 0) {
+  if (report.summary.fail > 0) {
     process.exit(1);
   }
-}
-
-type AgentEntry = {
-  id: string;
-  entry: {
-    heartbeat?: { enabled?: boolean; every?: string; prompt?: string };
-  };
-};
-
-function listAgentEntries(config: MoziConfig): AgentEntry[] {
-  const agents = config.agents || {};
-  return Object.entries(agents)
-    .filter(([key]) => key !== "defaults")
-    .map(([id, entry]) => ({ id, entry: entry as AgentEntry["entry"] }));
-}
-
-function referencedAgents(channels: MoziConfig["channels"]): string[] {
-  const ids: string[] = [];
-  if (channels?.telegram?.agentId) {
-    ids.push(channels.telegram.agentId);
-  }
-  if (channels?.telegram?.agent) {
-    ids.push(channels.telegram.agent);
-  }
-  if (channels?.discord?.agentId) {
-    ids.push(channels.discord.agentId);
-  }
-  if (channels?.discord?.agent) {
-    ids.push(channels.discord.agent);
-  }
-  if (channels?.routing?.dmAgentId) {
-    ids.push(channels.routing.dmAgentId);
-  }
-  if (channels?.routing?.dmAgent) {
-    ids.push(channels.routing.dmAgent);
-  }
-  if (channels?.routing?.groupAgentId) {
-    ids.push(channels.routing.groupAgentId);
-  }
-  if (channels?.routing?.groupAgent) {
-    ids.push(channels.routing.groupAgent);
-  }
-  return Array.from(new Set(ids));
-}
-
-function validateHeartbeat(config: MoziConfig, agentEntries: AgentEntry[]) {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const defaults = (
-    config.agents?.defaults as { heartbeat?: { enabled?: boolean; every?: string } } | undefined
-  )?.heartbeat;
-  const hasExplicitAgents = agentEntries.some((entry) => Boolean(entry.entry.heartbeat));
-  const defaultAgentId = resolveDefaultAgentId(config);
-  let hasEnabled = false;
-  for (const { id, entry } of agentEntries) {
-    if (hasExplicitAgents && !entry.heartbeat) {
-      continue;
-    }
-    if (!hasExplicitAgents && id !== defaultAgentId) {
-      continue;
-    }
-    const hb = entry.heartbeat ?? defaults;
-    if (!hb?.enabled) {
-      continue;
-    }
-    hasEnabled = true;
-    const every = hb.every ?? "30m";
-    if (!parseEveryMs(every)) {
-      errors.push(`Agent ${id} heartbeat.every is invalid: ${every}`);
-    }
-  }
-  if (!hasEnabled) {
-    warnings.push(
-      "Heartbeat is disabled. No periodic checks will run unless enabled for at least one agent.",
-    );
-  }
-  return { errors, warnings };
-}
-
-function resolveDefaultAgentId(config: MoziConfig): string {
-  const agents = config.agents ?? {};
-  const entries = Object.entries(agents).filter(([id]) => id !== "defaults");
-  const main = entries.find(([, entry]) => (entry as { main?: boolean }).main === true);
-  if (main?.[0]) {
-    return main[0];
-  }
-  return entries[0]?.[0] || "mozi";
-}
-
-function parseEveryMs(raw: string): number | null {
-  const value = raw.trim().toLowerCase();
-  if (!value) {
-    return null;
-  }
-  const match = /^([0-9]+)\s*(ms|s|m|h|d)$/.exec(value);
-  if (!match) {
-    return null;
-  }
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return null;
-  }
-  const unit = match[2];
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
-  };
-  return amount * (multipliers[unit] || 0);
 }

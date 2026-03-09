@@ -53,3 +53,14 @@ acpCommand
     const { acpBridge } = await import("./acp-bridge");
     await acpBridge(options);
   });
+
+acpCommand
+  .command("doctor")
+  .description("Check ACP configuration consistency")
+  .option("-c, --config <path>", "Config file path")
+  .option("--json", "Output as JSON")
+  .option("--verbose", "Show detailed output including passed checks")
+  .action(async (options) => {
+    const { acpDoctor } = await import("./acp-doctor");
+    await acpDoctor(options);
+  });

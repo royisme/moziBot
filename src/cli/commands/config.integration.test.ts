@@ -240,3 +240,95 @@ test("config doctor fails when provider apiKey remains unresolved env placeholde
     "Provider quotio apiKey is unresolved env placeholder",
   );
 });
+
+test("config --doctor --json outputs valid JSON", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-config-doctor-json-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  fs.writeFileSync(configPath, JSON.stringify(BASE_CONFIG, null, 2), "utf-8");
+
+  const doctor = spawnSync("tsx", [CLI_PATH, "config", "--doctor", "-c", configPath, "--json"], {
+    env: { ...process.env, MOZI_CLI: "true" },
+  });
+  expect(doctor.status).toBe(0);
+
+  // Verify stdout is valid JSON
+  const parsed = JSON.parse(doctor.stdout.toString());
+  expect(parsed).toHaveProperty("passed");
+  expect(parsed).toHaveProperty("findings");
+  expect(parsed).toHaveProperty("summary");
+  expect(parsed.summary).toHaveProperty("pass");
+  expect(parsed.summary).toHaveProperty("warn");
+  expect(parsed.summary).toHaveProperty("fail");
+});
+
+test("config --doctor --json --fix outputs valid JSON without extra lines", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-config-doctor-json-fix-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  fs.writeFileSync(configPath, JSON.stringify(BASE_CONFIG, null, 2), "utf-8");
+
+  const doctor = spawnSync(
+    "tsx",
+    [CLI_PATH, "config", "--doctor", "-c", configPath, "--json", "--fix"],
+    {
+      env: { ...process.env, MOZI_CLI: "true" },
+    },
+  );
+
+  // stdout should be valid JSON (no bootstrap action lines like "🔧 [...]")
+  const stdout = doctor.stdout.toString();
+  const parsed = JSON.parse(stdout);
+  expect(parsed).toHaveProperty("passed");
+  expect(parsed).toHaveProperty("findings");
+  expect(parsed).toHaveProperty("summary");
+});
+
+test("config --doctor --verbose shows detailed output for passing config", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-config-doctor-verbose-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  fs.writeFileSync(configPath, JSON.stringify(BASE_CONFIG, null, 2), "utf-8");
+
+  // Use top-level doctor command which supports --verbose
+  const doctor = spawnSync("tsx", [CLI_PATH, "doctor", "-c", configPath, "--verbose"], {
+    env: { ...process.env, MOZI_CLI: "true" },
+  });
+  expect(doctor.status).toBe(0);
+  // Verbose mode should show the summary line
+  expect(doctor.stdout.toString()).toContain("Config check passed");
+});
+
+test("top-level doctor --json outputs valid JSON", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-doctor-json-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  fs.writeFileSync(configPath, JSON.stringify(BASE_CONFIG, null, 2), "utf-8");
+
+  const doctor = spawnSync("tsx", [CLI_PATH, "doctor", "-c", configPath, "--json"], {
+    env: { ...process.env, MOZI_CLI: "true" },
+  });
+  expect(doctor.status).toBe(0);
+
+  // Verify stdout is valid JSON
+  const parsed = JSON.parse(doctor.stdout.toString());
+  expect(parsed).toHaveProperty("passed");
+  expect(parsed).toHaveProperty("findings");
+  expect(parsed).toHaveProperty("summary");
+  expect(parsed.summary).toHaveProperty("pass");
+  expect(parsed.summary).toHaveProperty("warn");
+  expect(parsed.summary).toHaveProperty("fail");
+});
+
+test("top-level doctor --json --fix outputs valid JSON without extra lines", async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-doctor-json-fix-"));
+  const configPath = path.join(tmpDir, "config.jsonc");
+  fs.writeFileSync(configPath, JSON.stringify(BASE_CONFIG, null, 2), "utf-8");
+
+  const doctor = spawnSync("tsx", [CLI_PATH, "doctor", "-c", configPath, "--json", "--fix"], {
+    env: { ...process.env, MOZI_CLI: "true" },
+  });
+
+  // stdout should be valid JSON (no bootstrap action lines like "🔧 [...]")
+  const stdout = doctor.stdout.toString();
+  const parsed = JSON.parse(stdout);
+  expect(parsed).toHaveProperty("passed");
+  expect(parsed).toHaveProperty("findings");
+  expect(parsed).toHaveProperty("summary");
+});
