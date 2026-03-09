@@ -85,6 +85,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     sessionKey: string;
     agentId: string;
     message: unknown;
+    channel: ReturnType<typeof deps.getChannel>;
     promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }) => deps.ensureChannelContext(params);
   const resolveReasoningLevel = (params: {
@@ -142,7 +143,12 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
   }
 
   // 2. Prelude: Context & Indicators
-  await ensureChannelContext({ sessionKey, agentId, message: payload });
+  await ensureChannelContext({
+    sessionKey,
+    agentId,
+    message: payload,
+    channel: getChannel(payload),
+  });
 
   state.stopTyping = await startTyping({ sessionKey, agentId, peerId });
   await emitPhase({

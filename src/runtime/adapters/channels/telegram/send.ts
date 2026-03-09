@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import type { Bot } from "grammy";
 import { InputFile } from "grammy";
 import { logger } from "../../../../logger";
@@ -72,6 +73,14 @@ export async function sendMessage(
             { error, url: media.url },
             "Failed to download media from URL, falling back to text-only",
           );
+        }
+      }
+
+      if (!media.buffer && media.path) {
+        try {
+          media.buffer = await fs.readFile(media.path);
+        } catch (error) {
+          logger.warn({ error, path: media.path }, "Failed to read media from local path");
         }
       }
 

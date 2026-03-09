@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
 import type {
+  ChannelActionQueryContext,
+  ChannelActionSpec,
+  ChannelCapabilities,
   ChannelStatus,
   InboundMessage,
   OutboundMessage,
@@ -21,6 +24,8 @@ export interface ChannelPlugin extends EventEmitter {
 
   // Messaging
   send(peerId: string, message: OutboundMessage): Promise<string>; // Returns message ID
+  getCapabilities(): ChannelCapabilities;
+  listActions?(context?: ChannelActionQueryContext): ChannelActionSpec[];
   beginTyping?(peerId: string): Promise<(() => Promise<void> | void) | void>;
   editMessage?(messageId: string, peerId: string, newText: string): Promise<void>;
   emitPhase?(
@@ -56,6 +61,40 @@ export abstract class BaseChannelPlugin extends EventEmitter implements ChannelP
   abstract connect(): Promise<void>;
   abstract disconnect(): Promise<void>;
   abstract send(peerId: string, message: OutboundMessage): Promise<string>;
+
+  getCapabilities(): ChannelCapabilities {
+    return {
+      media: false,
+      polls: false,
+      reactions: false,
+      threads: false,
+      editMessage: false,
+      deleteMessage: false,
+      implicitCurrentTarget: true,
+      supportedActions: ["send_text", "reply"],
+    };
+  }
+
+  listActions(context?: ChannelActionQueryContext): ChannelActionSpec[] {
+    const supported = new Set(this.getCapabilities().supportedActions);
+    return [
+      {
+        name: "send_text",
+        enabled: supported.has("send_text"),
+        description: "Send text to the current conversation.",
+      },
+      {
+        name: "send_media",
+        enabled: supported.has("send_media"),
+        description: "Send media attachments to the current conversation.",
+      },
+      {
+        name: "reply",
+        enabled: supported.has("reply"),
+        description: "Reply in the current conversation or thread.",
+      },
+    ].filter((spec) => spec.enabled || context !== undefined);
+  }
 
   getStatus(): ChannelStatus {
     return this.status;

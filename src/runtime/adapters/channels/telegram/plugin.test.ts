@@ -107,6 +107,18 @@ describe("TelegramPlugin", () => {
     expect(plugin.name).toBe("Telegram");
   });
 
+  it("should declare channel capabilities for media-aware dispatch", () => {
+    expect(plugin.getCapabilities()).toMatchObject({
+      media: true,
+      reactions: true,
+      threads: true,
+      editMessage: true,
+      deleteMessage: true,
+      implicitCurrentTarget: true,
+      supportedActions: ["send_text", "send_media", "reply"],
+    });
+  });
+
   it("should call run on connect", async () => {
     await plugin.connect();
     expect(run).toHaveBeenCalled();
@@ -204,6 +216,20 @@ describe("TelegramPlugin", () => {
       expect(text.length).toBeLessThanOrEqual(4096);
       expect(options?.disable_notification).toBe(true);
     }
+  });
+
+  it("should send document from local artifact path", async () => {
+    const messageId = await plugin.send("12345", {
+      text: "artifact",
+      media: [{ type: "document", path: __filename, filename: "plugin.test.ts" }],
+    });
+    const botInstance = (Bot as unknown as MockWithResults<MockedBot>).mock.results[0].value;
+    expect(messageId).toBe("125");
+    expect(botInstance.api.sendDocument).toHaveBeenCalledWith(
+      "12345",
+      expect.any(Object),
+      expect.objectContaining({ caption: "artifact" }),
+    );
   });
 
   it("should send photo message", async () => {

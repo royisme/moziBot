@@ -451,6 +451,19 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
     return Buffer.from(raw).toString("utf8");
   }
 
+  override getCapabilities(): import("../types").ChannelCapabilities {
+    return {
+      media: true,
+      polls: false,
+      reactions: false,
+      threads: false,
+      editMessage: false,
+      deleteMessage: false,
+      implicitCurrentTarget: true,
+      supportedActions: ["send_text", "send_media", "reply"],
+    };
+  }
+
   async send(peerId: string, message: OutboundMessage): Promise<string> {
     const eventId = `out-${randomUUID()}`;
     const text = message.text ?? "";

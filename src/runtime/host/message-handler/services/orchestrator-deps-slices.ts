@@ -182,9 +182,17 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
         id: channel.id,
         send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) =>
           channel.send(peerId, message),
+        getCapabilities: () => channel.getCapabilities(),
+        listActions: (
+          context?: import("../../../adapters/channels/types").ChannelActionQueryContext,
+        ) => channel.listActions?.(context) ?? [],
       } as {
         id: string;
         send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) => Promise<string>;
+        getCapabilities: () => ReturnType<ChannelPlugin["getCapabilities"]>;
+        listActions?: (
+          context?: import("../../../adapters/channels/types").ChannelActionQueryContext,
+        ) => import("../../../adapters/channels/types").ChannelActionSpec[];
         editMessage?: (messageId: string, peerId: string, text: string) => Promise<void>;
       };
 
@@ -349,11 +357,18 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         ingestPlan: ingestPlan as DeliveryPlan | null | undefined,
       });
     },
-    ensureChannelContext: async ({ sessionKey, agentId, message, promptModeOverride }) => {
+    ensureChannelContext: async ({
+      sessionKey,
+      agentId,
+      message,
+      channel: targetChannel,
+      promptModeOverride,
+    }) => {
       await agentManager.ensureChannelContext({
         sessionKey,
         agentId,
         message: message as InboundMessage,
+        channel: targetChannel,
         promptModeOverride,
       });
     },

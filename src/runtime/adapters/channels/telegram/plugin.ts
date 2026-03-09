@@ -401,6 +401,21 @@ export class TelegramPlugin extends BaseChannelPlugin {
     }
   }
 
+  override getCapabilities(): import("../types").ChannelCapabilities {
+    return {
+      media: true,
+      polls: false,
+      reactions: true,
+      threads: true,
+      editMessage: true,
+      deleteMessage: true,
+      implicitCurrentTarget: true,
+      maxTextLength: 4096,
+      maxCaptionLength: 1024,
+      supportedActions: ["send_text", "send_media", "reply"],
+    };
+  }
+
   async send(peerId: string, message: OutboundMessage): Promise<string> {
     logger.info(
       {

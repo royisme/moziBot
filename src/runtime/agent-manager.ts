@@ -77,6 +77,7 @@ import {
 } from "./cli-backends";
 import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
+import { buildCurrentChannelContextFromInbound } from "./host/message-handler/services/current-channel-context";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import { SandboxService } from "./sandbox/service";
@@ -542,9 +543,10 @@ export class AgentManager {
     sessionKey: string;
     agentId: string;
     message: InboundMessage;
+    channel: import("./adapters/channels/plugin").ChannelPlugin;
     promptModeOverride?: PromptMode;
   }): Promise<void> {
-    const { agentId, sessionKey, message, promptModeOverride } = params;
+    const { agentId, sessionKey, message, channel, promptModeOverride } = params;
     const entry = this.getAgentEntry(agentId);
     const workspaceDir = resolveWorkspaceDir(this.config, agentId, entry);
     const homeDir = resolveHomeDir(this.config, agentId, entry);
@@ -587,7 +589,12 @@ export class AgentManager {
       },
     });
 
-    const channelContext = buildChannelContext(message);
+    const currentChannel = buildCurrentChannelContextFromInbound({
+      plugin: channel,
+      message,
+      sessionKey,
+    });
+    const channelContext = buildChannelContext(message, currentChannel);
     const nextPrompt = channelContext ? `${basePrompt}\n\n${channelContext}` : basePrompt;
     if (agent.systemPrompt !== nextPrompt) {
       applySystemPromptOverrideToSession(agent, nextPrompt);

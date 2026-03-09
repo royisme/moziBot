@@ -3,11 +3,14 @@ import { checkBootstrapState, loadHomeFiles, type BootstrapState } from "../../a
 import type { SkillLoader } from "../../agents/skills/loader";
 import { loadWorkspaceFiles } from "../../agents/workspace";
 import { sanitizePromptLiteral } from "../../security/prompt-literal";
-import type { InboundMessage } from "../adapters/channels/types";
+import type { CurrentChannelContext, InboundMessage } from "../adapters/channels/types";
 import { SILENT_REPLY_TOKEN } from "../host/reply-utils";
 import type { SandboxConfig } from "../sandbox/types";
 
-export function buildChannelContext(message: InboundMessage): string {
+export function buildChannelContext(
+  message: InboundMessage,
+  currentChannel?: CurrentChannelContext,
+): string {
   const lines: string[] = ["# Channel Context"];
   lines.push(`channel: ${sanitizePromptLiteral(message.channel)}`);
   if (message.peerType) {
@@ -24,6 +27,9 @@ export function buildChannelContext(message: InboundMessage): string {
   if (message.threadId !== undefined) {
     lines.push(`threadId: ${sanitizePromptLiteral(String(message.threadId))}`);
   }
+  if (message.replyToId !== undefined) {
+    lines.push(`replyToId: ${sanitizePromptLiteral(String(message.replyToId))}`);
+  }
   if (message.senderId) {
     lines.push(`senderId: ${sanitizePromptLiteral(message.senderId)}`);
   }
@@ -33,8 +39,47 @@ export function buildChannelContext(message: InboundMessage): string {
   if (message.timestamp instanceof Date) {
     lines.push(`timestamp: ${sanitizePromptLiteral(message.timestamp.toISOString())}`);
   }
+  if (currentChannel) {
+    lines.push(`sessionKey: ${sanitizePromptLiteral(currentChannel.sessionKey ?? "")}`);
+    lines.push(
+      `allowedActions: ${currentChannel.allowedActions.map((action) => sanitizePromptLiteral(action)).join(", ")}`,
+    );
+    lines.push(`supportsMedia: ${currentChannel.capabilities.media}`);
+    lines.push(`supportsPolls: ${currentChannel.capabilities.polls}`);
+    lines.push(`supportsReactions: ${currentChannel.capabilities.reactions}`);
+    lines.push(`supportsThreads: ${currentChannel.capabilities.threads}`);
+    lines.push(`supportsEditMessage: ${currentChannel.capabilities.editMessage}`);
+    lines.push(`supportsDeleteMessage: ${currentChannel.capabilities.deleteMessage}`);
+    lines.push(`implicitCurrentTarget: ${currentChannel.capabilities.implicitCurrentTarget}`);
+    lines.push(
+      `defaultTarget.peerId: ${sanitizePromptLiteral(currentChannel.defaultTarget.peerId)}`,
+    );
+    if (currentChannel.defaultTarget.threadId) {
+      lines.push(
+        `defaultTarget.threadId: ${sanitizePromptLiteral(currentChannel.defaultTarget.threadId)}`,
+      );
+    }
+    if (currentChannel.defaultTarget.replyToId) {
+      lines.push(
+        `defaultTarget.replyToId: ${sanitizePromptLiteral(currentChannel.defaultTarget.replyToId)}`,
+      );
+    }
+    if (currentChannel.capabilities.maxTextLength !== undefined) {
+      lines.push(
+        `maxTextLength: ${sanitizePromptLiteral(String(currentChannel.capabilities.maxTextLength))}`,
+      );
+    }
+    if (currentChannel.capabilities.maxCaptionLength !== undefined) {
+      lines.push(
+        `maxCaptionLength: ${sanitizePromptLiteral(String(currentChannel.capabilities.maxCaptionLength))}`,
+      );
+    }
+  }
   lines.push(
     "Default delivery contract: your normal reply text is automatically delivered back to this same channel, peer, and thread when present.",
+  );
+  lines.push(
+    "When the current channel advertises send_media or other actions, you may use them without re-asking for the current peerId/threadId; the runtime fills the current target automatically.",
   );
   lines.push(
     "Do not ask the user how to send the reply, do not search for bot tokens, and do not look for CLI/scripts just to answer in the current conversation.",

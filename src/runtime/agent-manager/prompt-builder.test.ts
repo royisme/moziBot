@@ -206,6 +206,9 @@ describe("buildSystemPrompt", () => {
       "Default delivery contract: your normal reply text is automatically delivered back to this same channel, peer, and thread when present.",
     );
     expect(text).toContain(
+      "When the current channel advertises send_media or other actions, you may use them without re-asking for the current peerId/threadId; the runtime fills the current target automatically.",
+    );
+    expect(text).toContain(
       "Do not ask the user how to send the reply, do not search for bot tokens, and do not look for CLI/scripts just to answer in the current conversation.",
     );
     expect(text).toContain(

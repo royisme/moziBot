@@ -524,6 +524,20 @@ export class DiscordPlugin extends BaseChannelPlugin {
     }
   }
 
+  override getCapabilities(): import("../types").ChannelCapabilities {
+    return {
+      media: true,
+      polls: true,
+      reactions: true,
+      threads: true,
+      editMessage: false,
+      deleteMessage: false,
+      implicitCurrentTarget: true,
+      maxTextLength: DISCORD_TEXT_LIMIT,
+      supportedActions: ["send_text", "send_media", "reply"],
+    };
+  }
+
   async send(peerId: string, message: OutboundMessage): Promise<string> {
     const media = message.media ?? [];
     const { files, urls } = await resolveOutboundFiles(media);

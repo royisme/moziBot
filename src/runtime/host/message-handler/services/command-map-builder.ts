@@ -221,6 +221,7 @@ export function buildCommandHandlerMap(params: {
           sessionKey: sk,
           agentId: agId,
           message,
+          channel: msgChannel,
           promptModeOverride: "main",
         });
       } catch (error) {

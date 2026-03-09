@@ -1,9 +1,16 @@
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
-import { planOutboundByNegotiation } from "../../../../multimodal/outbound";
-import type { OutboundMessage } from "../../../adapters/channels/types";
+import {
+  lowerPlannedOutboundToMessages,
+  planOutboundByNegotiation,
+} from "../../../../multimodal/outbound";
+import type {
+  ChannelActionEnvelope,
+  CurrentChannelContext,
+  OutboundMessage,
+} from "../../../adapters/channels/types";
 import { renderAssistantReply } from "../../reply-utils";
-import { routeContextToOutboundMessage } from "../../routing/route-context";
 import type { DeliveryContext } from "../../routing/types";
+import { buildCurrentChannelContextFromDelivery } from "./current-channel-context";
 
 /**
  * Reply Dispatcher and Outbound Delivery Service
@@ -15,15 +22,32 @@ import type { DeliveryContext } from "../../routing/types";
 export interface ChannelDispatcherShape {
   readonly id: string;
   readonly send: (peerId: string, message: OutboundMessage) => Promise<string>;
+  readonly getCapabilities: () => CurrentChannelContext["capabilities"];
+  readonly listActions?: (
+    context?: import("../../../adapters/channels/types").ChannelActionQueryContext,
+  ) => import("../../../adapters/channels/types").ChannelActionSpec[];
 }
 
 export function buildReplyOutbound(params: {
   channelId: string;
+  currentChannel: CurrentChannelContext;
   replyText?: string;
   inboundPlan?: DeliveryPlan | null;
   showThinking?: boolean;
-}): OutboundMessage {
-  const { channelId, replyText, inboundPlan, showThinking = false } = params;
+  media?: OutboundMessage["media"];
+  buttons?: OutboundMessage["buttons"];
+  silent?: boolean;
+}): ChannelActionEnvelope {
+  const {
+    channelId,
+    currentChannel,
+    replyText,
+    inboundPlan,
+    showThinking = false,
+    media,
+    buttons,
+    silent,
+  } = params;
 
   const renderedText = replyText
     ? renderAssistantReply(replyText, {
@@ -31,14 +55,16 @@ export function buildReplyOutbound(params: {
       })
     : "";
 
-  // Parity: use "(no response)" fallback for empty rendered text
   const text = renderedText || "(no response)";
 
-  // Parity: delegate to multimodal negotiation logic
   return planOutboundByNegotiation({
     channelId,
     text,
     inboundPlan,
+    currentChannel,
+    media,
+    buttons,
+    silent,
   });
 }
 
@@ -48,17 +74,35 @@ export async function dispatchReply(params: {
   replyText?: string;
   inboundPlan?: DeliveryPlan | null;
   showThinking?: boolean;
+  media?: OutboundMessage["media"];
+  buttons?: OutboundMessage["buttons"];
+  silent?: boolean;
 }): Promise<string> {
-  const { channel, delivery, replyText, inboundPlan, showThinking } = params;
+  const { channel, delivery, replyText, inboundPlan, showThinking, media, buttons, silent } =
+    params;
+  const currentChannel = buildCurrentChannelContextFromDelivery({
+    plugin: channel,
+    delivery,
+  });
   const outbound = buildReplyOutbound({
     channelId: delivery.route.channelId,
+    currentChannel,
     replyText,
     inboundPlan,
     showThinking,
+    media,
+    buttons,
+    silent,
   });
-  const flattened = routeContextToOutboundMessage(delivery.route, {
-    ...outbound,
-    traceId: delivery.traceId ?? outbound.traceId,
+  const lowered = lowerPlannedOutboundToMessages({
+    envelope: outbound,
+    currentChannel,
+    traceId: delivery.traceId,
   });
-  return channel.send(delivery.route.peerId, flattened);
+
+  let lastId = "";
+  for (const message of lowered.messages) {
+    lastId = await channel.send(lowered.peerId, message);
+  }
+  return lastId;
 }

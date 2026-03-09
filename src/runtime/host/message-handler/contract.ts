@@ -115,6 +115,7 @@ export interface OrchestratorDeps {
     sessionKey: string;
     agentId: string;
     message: unknown;
+    channel: ChannelPlugin;
     promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }): Promise<void>;
   startTypingIndicator(params: {
@@ -168,6 +169,10 @@ export interface OrchestratorDeps {
 
 export interface ChannelDispatcherBridge {
   readonly id: string;
+  readonly getCapabilities: () => import("../../adapters/channels/types").ChannelCapabilities;
+  readonly listActions?: (
+    context?: import("../../adapters/channels/types").ChannelActionQueryContext,
+  ) => import("../../adapters/channels/types").ChannelActionSpec[];
   readonly editMessage?: (messageId: string, peerId: string, text: string) => Promise<void>;
   readonly send: (peerId: string, message: OutboundMessage) => Promise<string>;
 }
