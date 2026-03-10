@@ -25,6 +25,7 @@
       "name": "Mozi",
       "home": "~/.mozi/agents/mozi/home",
       "workspace": "~/.mozi/agents/mozi/workspace",
+      "tools": ["send_media"],
       "skills": ["web-search", "summarize", "freshness-check", "create-skills", "auth-config"],
     },
   },

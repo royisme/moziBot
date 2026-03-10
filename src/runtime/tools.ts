@@ -31,20 +31,21 @@ export function createSubagentTool(params: {
   subagents: SubagentRegistry;
   parentSessionKey: string;
   parentAgentId: string;
-}): AgentTool<typeof subagentSchema> {
+}): AgentTool {
   return {
     name: "subagent_run",
     label: "Subagent Run",
     description: "Run a subagent with a prompt",
     parameters: subagentSchema,
-    execute: async (_toolCallId, args: Static<typeof subagentSchema>) => {
+    execute: async (_toolCallId, args: unknown) => {
+      const { prompt, agentId, model, timeoutSeconds } = args as Static<typeof subagentSchema>;
       const result = await params.subagents.spawn({
         parentSessionKey: params.parentSessionKey,
         parentAgentId: params.parentAgentId,
-        prompt: args.prompt,
-        agentId: args.agentId,
-        model: args.model,
-        timeoutSeconds: args.timeoutSeconds,
+        prompt,
+        agentId,
+        model,
+        timeoutSeconds,
       });
       const text =
         result.status === "accepted"

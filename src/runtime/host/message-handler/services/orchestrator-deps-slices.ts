@@ -1,11 +1,13 @@
 import type { ImageContent } from "@mariozechner/pi-ai";
-import type { AgentManager, ModelRegistry, SessionStore } from "../../..";
 import type { MoziConfig } from "../../../../config";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { ingestInboundMessage } from "../../../../multimodal/ingest";
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
+import type { AgentManager } from "../../../agent-manager";
 import type { InboundMediaPreprocessor } from "../../../media-understanding/preprocess";
+import type { ModelRegistry } from "../../../model-registry";
+import type { SessionStore } from "../../../session-store";
 import { parseInlineOverrides } from "../../commands/reasoning";
 import type { LastRouteContext } from "../../routing/types";
 import type { OrchestratorDeps } from "../contract";

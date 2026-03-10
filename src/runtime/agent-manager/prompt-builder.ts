@@ -10,6 +10,7 @@ import type { SandboxConfig } from "../sandbox/types";
 export function buildChannelContext(
   message: InboundMessage,
   currentChannel?: CurrentChannelContext,
+  registeredTools?: string[],
 ): string {
   const lines: string[] = ["# Channel Context"];
   lines.push(`channel: ${sanitizePromptLiteral(message.channel)}`);
@@ -41,9 +42,20 @@ export function buildChannelContext(
   }
   if (currentChannel) {
     lines.push(`sessionKey: ${sanitizePromptLiteral(currentChannel.sessionKey ?? "")}`);
+    const effectiveActions = currentChannel.allowedActions.filter((action) => {
+      if (action === "send_media") {
+        return registeredTools?.includes("send_media") ?? false;
+      }
+      return true;
+    });
     lines.push(
-      `allowedActions: ${currentChannel.allowedActions.map((action) => sanitizePromptLiteral(action)).join(", ")}`,
+      `allowedActions: ${effectiveActions.map((a) => sanitizePromptLiteral(a)).join(", ")}`,
     );
+    if (effectiveActions.includes("send_media")) {
+      lines.push(
+        "When send_media is listed, use the send_media tool with a local filePath — do not search for tokens or scripts.",
+      );
+    }
     lines.push(`supportsMedia: ${currentChannel.capabilities.media}`);
     lines.push(`supportsPolls: ${currentChannel.capabilities.polls}`);
     lines.push(`supportsReactions: ${currentChannel.capabilities.reactions}`);

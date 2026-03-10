@@ -77,6 +77,7 @@ import {
 } from "./cli-backends";
 import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
+import type { ChannelDispatcherBridge } from "./host/message-handler/contract";
 import { buildCurrentChannelContextFromInbound } from "./host/message-handler/services/current-channel-context";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
@@ -167,6 +168,7 @@ export class AgentManager {
   // Tape system: per-workspace store and per-session service registry
   private tapeStore: TapeStore | undefined;
   private tapeServices = new Map<string, TapeService>();
+  private sessionContexts = new Map<string, { channel: ChannelDispatcherBridge; peerId: string }>();
 
   constructor(params: {
     config: MoziConfig;
@@ -594,7 +596,8 @@ export class AgentManager {
       message,
       sessionKey,
     });
-    const channelContext = buildChannelContext(message, currentChannel);
+    const registeredTools = this.promptToolsBySession.get(sessionKey);
+    const channelContext = buildChannelContext(message, currentChannel, registeredTools);
     const nextPrompt = channelContext ? `${basePrompt}\n\n${channelContext}` : basePrompt;
     if (agent.systemPrompt !== nextPrompt) {
       applySystemPromptOverrideToSession(agent, nextPrompt);
@@ -872,6 +875,23 @@ export class AgentManager {
     });
   }
 
+  registerSessionContext(
+    sessionKey: string,
+    ctx: { channel: ChannelDispatcherBridge; peerId: string },
+  ): void {
+    this.sessionContexts.set(sessionKey, ctx);
+  }
+
+  getSessionContext(
+    sessionKey: string,
+  ): { channel: ChannelDispatcherBridge; peerId: string } | undefined {
+    return this.sessionContexts.get(sessionKey);
+  }
+
+  clearSessionContext(sessionKey: string): void {
+    this.sessionContexts.delete(sessionKey);
+  }
+
   disposeRuntimeSession(sessionKey: string): void {
     disposeRuntimeSessionState({
       sessionKey,
@@ -882,6 +902,7 @@ export class AgentManager {
     });
     this.promptMetadataBySession.delete(sessionKey);
     this.promptToolsBySession.delete(sessionKey);
+    this.sessionContexts.delete(sessionKey);
   }
 
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined {

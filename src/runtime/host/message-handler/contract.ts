@@ -151,6 +151,11 @@ export interface OrchestratorDeps {
     replyText?: string;
     inboundPlan: DeliveryPlan | null;
   }): Promise<string>;
+  registerSessionContext?(
+    sessionKey: string,
+    ctx: { channel: ChannelDispatcherBridge; peerId: string },
+  ): void;
+  clearSessionContext?(sessionKey: string): void;
 
   // Error Helpers
   toError(err: unknown): Error;

@@ -5,5 +5,10 @@ import {
 } from "./orchestrator-deps-slices";
 
 export function buildOrchestratorDeps(params: OrchestratorDepsBuilderParams): OrchestratorDeps {
-  return composeOrchestratorDeps(params);
+  return {
+    ...composeOrchestratorDeps(params),
+    registerSessionContext: (sessionKey, ctx) =>
+      params.agentManager.registerSessionContext?.(sessionKey, ctx),
+    clearSessionContext: (sessionKey) => params.agentManager.clearSessionContext?.(sessionKey),
+  };
 }

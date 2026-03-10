@@ -11,6 +11,7 @@ import type { PromptMode } from "../agent-manager/prompt-builder";
 import { configureMemoryMaintainerHooks } from "../hooks/bundled/memory-maintainer";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { SubagentRegistry, type HostSubagentRuntime } from "../subagent-registry";
+import { createSendMediaTool } from "../tools/send-media";
 import { parseCommand, normalizeImplicitControlCommand } from "./commands/parser";
 import { parseInlineOverrides as _unusedParseInlineOverridesService } from "./commands/reasoning";
 import { createMessageTurnContext } from "./message-handler/context";
@@ -240,19 +241,33 @@ export class MessageHandler {
       this.createHostSubagentRuntime(deps?.sessionManager, deps?.detachedRunRegistry),
     );
     this.agentManager.setSubagentRegistry(this.subagents);
-    if (deps?.sessionManager && deps?.detachedRunRegistry) {
-      this.agentManager.setToolProvider((params) => [
-        ...createSessionTools({
-          sessionManager: deps.sessionManager!,
-          detachedRunRegistry: deps.detachedRunRegistry!,
-          currentSessionKey: params.sessionKey,
-          config: this.config,
+    this.agentManager.setToolProvider((params) => {
+      const tools: ReturnType<typeof createSessionTools> = [];
+
+      if (deps?.sessionManager && deps?.detachedRunRegistry) {
+        tools.push(
+          ...createSessionTools({
+            sessionManager: deps.sessionManager,
+            detachedRunRegistry: deps.detachedRunRegistry,
+            currentSessionKey: params.sessionKey,
+            config: this.config,
+          }),
+          ...createBrowserTools({
+            getConfig: () => this.config,
+          }),
+        );
+      }
+
+      tools.push(
+        createSendMediaTool({
+          workspaceDir: params.workspaceDir,
+          getChannel: () => this.agentManager.getSessionContext(params.sessionKey)?.channel,
+          getPeerId: () => this.agentManager.getSessionContext(params.sessionKey)?.peerId,
         }),
-        ...createBrowserTools({
-          getConfig: () => this.config,
-        }),
-      ]);
-    }
+      );
+
+      return tools;
+    });
   }
 
   /**

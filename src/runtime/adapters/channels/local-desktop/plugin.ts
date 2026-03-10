@@ -473,7 +473,10 @@ export class LocalDesktopPlugin extends BaseChannelPlugin {
       peerId,
       payload: {
         text,
-        media: message.media ?? [],
+        media: (message.media ?? []).map((item) => ({
+          ...item,
+          buffer: item.buffer ? item.buffer.toString("base64") : undefined,
+        })),
       },
       timestamp: new Date().toISOString(),
     });

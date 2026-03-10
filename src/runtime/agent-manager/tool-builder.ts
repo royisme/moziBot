@@ -282,8 +282,12 @@ export async function buildTools(
       homeDir: params.homeDir,
       sandboxConfig: params.sandboxConfig,
     });
-    const filtered = filterTools(provided, allowList).tools;
-    tools.push(...filtered);
+    // Channel-capability tools (e.g. send_media) bypass the allowList — the channel's
+    // own getCapabilities() is the gate, not the agent config tools array.
+    const CHANNEL_TOOLS = new Set(["send_media"]);
+    const channelTools = provided.filter((t) => CHANNEL_TOOLS.has(t.name));
+    const regularTools = provided.filter((t) => !CHANNEL_TOOLS.has(t.name));
+    tools.push(...filterTools(regularTools, allowList).tools, ...channelTools);
   }
 
   // Inject tools from enabled extensions
