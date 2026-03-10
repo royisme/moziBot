@@ -49,6 +49,7 @@ const DEFAULT_COLLECT_WINDOW_MS = 400;
 export class RuntimeKernel implements RuntimeIngress {
   private readonly messageHandler: MessageHandler;
   private readonly sessionManager: SessionManager;
+  private readonly channelRegistry: ChannelRegistry;
   private readonly egress: RuntimeEgress;
   private readonly errorPolicy: RuntimeErrorPolicy;
   private readonly pollIntervalMs: number;
@@ -70,6 +71,7 @@ export class RuntimeKernel implements RuntimeIngress {
   constructor(options: RuntimeKernelOptions) {
     this.messageHandler = options.messageHandler;
     this.sessionManager = options.sessionManager;
+    this.channelRegistry = options.channelRegistry;
     this.egress = options.egress ?? new ChannelRuntimeEgress(options.channelRegistry);
     this.errorPolicy = options.errorPolicy ?? new DefaultRuntimeErrorPolicy();
     this.pollIntervalMs = options.pollIntervalMs ?? 250;
@@ -360,6 +362,25 @@ export class RuntimeKernel implements RuntimeIngress {
     return createRuntimeChannel({
       ...params,
       egress: this.egress,
+      getChannelCapabilities: (channelId: string) => {
+        const channel = this.channelRegistry.get(channelId);
+        return (
+          channel?.getCapabilities() ?? {
+            media: true,
+            polls: false,
+            reactions: true,
+            threads: true,
+            editMessage: true,
+            deleteMessage: true,
+            implicitCurrentTarget: true,
+            supportedActions: ["send_text", "send_media", "reply"],
+          }
+        );
+      },
+      getChannelListActions: (channelId: string, context?) => {
+        const channel = this.channelRegistry.get(channelId);
+        return channel?.listActions?.(context) ?? [];
+      },
     });
   }
 
