@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { logger } from "../../../logger";
 import { RUN_TERMINAL_STATES } from "../message-handler/services/run-lifecycle-registry";
-import { announceDetachedRunResult } from "./subagent-announce";
+import { announceDetachedRun } from "./subagent-announce";
+import type { DetachedRunAnnouncementStatus } from "./subagent-announce";
 
 export type DetachedRunStatus =
   | "accepted"
@@ -12,6 +13,9 @@ export type DetachedRunStatus =
   | "failed"
   | "aborted"
   | "timeout";
+
+// Track which phases have been announced for deduplication
+export type AnnouncedPhases = Record<DetachedRunStatus, boolean>;
 
 export interface DetachedRunRecord {
   runId: string;
@@ -28,6 +32,7 @@ export interface DetachedRunRecord {
   result?: string;
   error?: string;
   announced?: boolean;
+  announcedPhases?: AnnouncedPhases;
   timeoutSeconds?: number;
 }
 
@@ -43,7 +48,7 @@ export class DetachedRunRegistry {
   }
 
   register(
-    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind"> & {
+    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind" | "announcedPhases"> & {
       kind?: "subagent" | "acp";
       createdAt?: number;
       status?: DetachedRunStatus;
@@ -54,9 +59,23 @@ export class DetachedRunRegistry {
       kind: run.kind ?? "subagent",
       createdAt: run.createdAt ?? Date.now(),
       status: run.status ?? "accepted",
+      announcedPhases: {
+        accepted: false,
+        started: false,
+        streaming: false,
+        completed: false,
+        failed: false,
+        aborted: false,
+        timeout: false,
+      },
     };
     this.runs.set(record.runId, record);
     this.persist();
+
+    // Trigger accepted phase announcement asynchronously
+    this.triggerPhaseAnnounce(record, "accepted").catch((err) => {
+      logger.error({ err, runId: record.runId }, "Failed to announce accepted phase");
+    });
   }
 
   get(runId: string): DetachedRunRecord | undefined {
@@ -83,6 +102,12 @@ export class DetachedRunRegistry {
     );
   }
 
+  listActive(): DetachedRunRecord[] {
+    return [...this.runs.values()]
+      .filter((r) => !["completed", "failed", "aborted", "timeout"].includes(r.status))
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
   update(runId: string, changes: Partial<DetachedRunRecord>): DetachedRunRecord | undefined {
     const run = this.runs.get(runId);
     if (!run) {
@@ -94,14 +119,55 @@ export class DetachedRunRegistry {
   }
 
   markStarted(runId: string, startedAt = Date.now()): DetachedRunRecord | undefined {
-    return this.update(runId, { status: "started", startedAt });
+    const run = this.update(runId, { status: "started", startedAt });
+    if (run) {
+      this.triggerPhaseAnnounce(run, "started").catch((err) => {
+        logger.error({ err, runId }, "Failed to announce started phase");
+      });
+    }
+    return run;
   }
 
   markStreaming(runId: string, startedAt?: number): DetachedRunRecord | undefined {
-    return this.update(runId, {
+    const run = this.update(runId, {
       status: "streaming",
       ...(startedAt ? { startedAt } : {}),
     });
+    if (run) {
+      this.triggerPhaseAnnounce(run, "streaming").catch((err) => {
+        logger.error({ err, runId }, "Failed to announce streaming phase");
+      });
+    }
+    return run;
+  }
+
+  // Trigger announcement for a specific phase (non-terminal)
+  async triggerPhaseAnnounce(
+    run: DetachedRunRecord,
+    phase: "accepted" | "started" | "streaming",
+  ): Promise<void> {
+    const phases = run.announcedPhases;
+    if (!phases || phases[phase]) {
+      return;
+    }
+
+    const announced = await announceDetachedRun({
+      runId: run.runId,
+      childKey: run.childKey,
+      parentKey: run.parentKey,
+      task: run.task,
+      label: run.label,
+      kind: run.kind,
+      status: phase,
+      startedAt: run.startedAt,
+      endedAt: run.endedAt,
+    });
+    if (!announced) {
+      return;
+    }
+
+    phases[phase] = true;
+    this.persist();
   }
 
   async setTerminal(params: {
@@ -115,8 +181,10 @@ export class DetachedRunRegistry {
     if (!run) {
       return undefined;
     }
-    if (run.announced || RUN_TERMINAL_STATES.includes(run.status as (typeof RUN_TERMINAL_STATES)[number])) {
-      return run;
+    const terminalStatus = params.status;
+    const phases = run.announcedPhases;
+    if (phases && phases[terminalStatus]) {
+      return run; // Already announced this terminal phase
     }
 
     const previous = { ...run };
@@ -131,7 +199,7 @@ export class DetachedRunRegistry {
       throw error;
     }
 
-    await this.triggerAnnounce(run);
+    await this.triggerAnnounce(run, terminalStatus);
     return run;
   }
 
@@ -150,35 +218,36 @@ export class DetachedRunRegistry {
     await this.setTerminal({ runId: run.runId, ...result });
   }
 
-  private async triggerAnnounce(run: DetachedRunRecord): Promise<void> {
-    if (run.announced) {
-      return;
+  private async triggerAnnounce(
+    run: DetachedRunRecord,
+    terminalStatus: "completed" | "failed" | "aborted" | "timeout",
+  ): Promise<void> {
+    const phases = run.announcedPhases;
+    if (!phases) {
+      run.announcedPhases = {
+        accepted: false,
+        started: false,
+        streaming: false,
+        completed: false,
+        failed: false,
+        aborted: false,
+        timeout: false,
+      };
     }
 
-    if (!RUN_TERMINAL_STATES.includes(run.status as (typeof RUN_TERMINAL_STATES)[number])) {
-      return;
-    }
-
-    const status =
-      run.status === "completed" ||
-      run.status === "failed" ||
-      run.status === "timeout" ||
-      run.status === "aborted"
-        ? run.status
-        : undefined;
-    if (!status) {
-      return;
+    if (phases?.[terminalStatus]) {
+      return; // Already announced
     }
 
     try {
-      const announced = await announceDetachedRunResult({
+      const announced = await announceDetachedRun({
         runId: run.runId,
         childKey: run.childKey,
         parentKey: run.parentKey,
         task: run.task,
         label: run.label,
         kind: run.kind,
-        status,
+        status: terminalStatus,
         result: run.result,
         error: run.error,
         startedAt: run.startedAt,
@@ -193,6 +262,10 @@ export class DetachedRunRegistry {
       return;
     }
 
+    // Mark terminal phase as announced
+    if (run.announcedPhases) {
+      run.announcedPhases[terminalStatus] = true;
+    }
     run.announced = true;
     this.persist();
 
@@ -262,7 +335,10 @@ export class DetachedRunRegistry {
         { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
         "Retrying pending detached task completion announcement after host restart",
       );
-      await this.triggerAnnounce(run);
+      await this.triggerAnnounce(
+        run,
+        run.status as "completed" | "failed" | "aborted" | "timeout",
+      );
     }
 
     const orphanedRuns = [...this.runs.values()].filter(

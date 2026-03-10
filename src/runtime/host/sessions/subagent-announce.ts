@@ -1,5 +1,12 @@
 import { logger } from "../../../logger";
 import type { MessageHandler } from "../message-handler";
+import type { DetachedRunStatus } from "./subagent-registry";
+
+export type DetachedRunAnnouncementStatus =
+  | DetachedRunStatus
+  | "accepted"
+  | "started"
+  | "streaming";
 
 export interface DetachedRunAnnouncementParams {
   runId: string;
@@ -8,7 +15,7 @@ export interface DetachedRunAnnouncementParams {
   task: string;
   label?: string;
   kind?: "subagent" | "acp";
-  status: "completed" | "failed" | "timeout" | "aborted";
+  status: DetachedRunAnnouncementStatus;
   result?: string;
   error?: string;
   startedAt?: number;
@@ -28,8 +35,14 @@ function formatDuration(startMs?: number, endMs?: number): string {
   return `${min}m${sec}s`;
 }
 
-function buildStatusLabel(status: string, error?: string): string {
+function buildStatusLabel(status: DetachedRunAnnouncementStatus, error?: string): string {
   switch (status) {
+    case "accepted":
+      return "has been accepted";
+    case "started":
+      return "has started";
+    case "streaming":
+      return "is producing output";
     case "completed":
       return "completed successfully";
     case "failed":
@@ -48,13 +61,46 @@ export function buildDetachedRunTriggerMessage(params: DetachedRunAnnouncementPa
   const statusLabel = buildStatusLabel(params.status, params.error);
   const duration = formatDuration(params.startedAt, params.endedAt);
 
+  // Short, natural messages for non-terminal phases
+  const isTerminal = ["completed", "failed", "timeout", "aborted"].includes(params.status);
+
+  if (!isTerminal) {
+    // Non-terminal: short, user-friendly
+    let message = "";
+    switch (params.status) {
+      case "accepted":
+        message = `Background task "${taskLabel}" has been queued.`;
+        break;
+      case "started":
+        message = `Working on "${taskLabel}"...`;
+        break;
+      case "streaming":
+        message = `Task "${taskLabel}" is producing output.`;
+        break;
+      default:
+        message = `Task "${taskLabel}" status: ${params.status}`;
+    }
+    return [
+      message,
+      "",
+      "Acknowledge this briefly. You can respond with NO_REPLY.",
+    ].join("\n");
+  }
+
+  // Terminal phases: include findings and optional error summary
+  const findings = params.status === "failed" || params.status === "timeout" || params.status === "aborted"
+    ? params.error
+      ? `Error: ${params.error.slice(0, 200)}`
+      : "(no error details)"
+    : params.result || "(no output)";
+
   return [
-    `A background task "${taskLabel}" just ${statusLabel}.`,
+    `Background task "${taskLabel}" ${statusLabel}.`,
     "",
     "Findings:",
-    params.result || (params.error ? `Error: ${params.error}` : "(no output)"),
+    findings,
     "",
-    `Stats: runtime ${duration} • sessionKey ${params.childKey}`,
+    `Duration: ${duration}`,
     "",
     "Summarize this naturally for the user. Keep it brief (1-2 sentences).",
     "Flow it into the conversation naturally.",
@@ -69,7 +115,7 @@ export function injectMessageHandler(handler: MessageHandler): void {
   messageHandlerRef = handler;
 }
 
-export async function announceDetachedRunResult(
+export async function announceDetachedRun(
   params: DetachedRunAnnouncementParams,
 ): Promise<boolean> {
   if (!messageHandlerRef) {
@@ -93,7 +139,10 @@ export async function announceDetachedRunResult(
     });
     return true;
   } catch (err) {
-    logger.error({ err, runId: params.runId }, "Failed to announce detached run result");
+    logger.error({ err, runId: params.runId }, "Failed to announce detached run");
     return false;
   }
 }
+
+// Keep backwards compatibility alias
+export const announceDetachedRunResult = announceDetachedRun;

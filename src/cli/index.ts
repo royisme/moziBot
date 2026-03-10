@@ -3,6 +3,7 @@ import { Command } from "commander";
 import "../runtime/pi-package-dir";
 import { APP_VERSION } from "../version";
 import { acpCommand } from "./commands/acp";
+import { subagentCommand } from "./commands/subagent";
 import { runtimeCommand } from "./runtime";
 import { sandboxCommand } from "./sandbox";
 
@@ -38,6 +39,7 @@ function resolveActionOptions(first: unknown, second?: unknown): Record<string, 
 program.addCommand(runtimeCommand);
 program.addCommand(sandboxCommand);
 program.addCommand(acpCommand);
+program.addCommand(subagentCommand);
 
 program
   .command("init")
