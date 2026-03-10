@@ -20,6 +20,7 @@ import type {
   AcpCloseSessionResult,
   AcpInitializeSessionInput,
   AcpManagerObservabilitySnapshot,
+  AcpNormalizedTerminal,
   AcpRunTurnInput,
   AcpSessionManagerDeps,
   AcpSessionStatus,
@@ -48,6 +49,54 @@ import { SessionActorQueue } from "./session-actor-queue";
  * Core ACP session manager that orchestrates session lifecycle,
  * runtime caching, and command queuing.
  */
+function normalizeAcpTerminal(params: {
+  event?: AcpRuntimeEvent;
+  error?: unknown;
+  signal?: AbortSignal;
+}): AcpNormalizedTerminal {
+  const { event, error, signal } = params;
+  const signalReason = typeof signal?.reason === "string" ? signal.reason : undefined;
+  const signalTimedOut = signalReason?.toLowerCase().includes("timeout") ?? false;
+
+  if (event?.type === "done") {
+    return { terminal: "completed", reason: event.stopReason };
+  }
+
+  if (event?.type === "error") {
+    if (event.category === "cancelled") {
+      return {
+        terminal: signalTimedOut ? "timeout" : "aborted",
+        reason: signalReason ?? event.message,
+        errorCode: event.code,
+      };
+    }
+    const terminalError = Object.assign(
+      new Error(event.message),
+      event.code ? { code: event.code } : {},
+    );
+    return {
+      terminal: "failed",
+      reason: event.message,
+      errorCode: event.code,
+      error: terminalError,
+    };
+  }
+
+  if (signal?.aborted) {
+    if (signalTimedOut) {
+      return { terminal: "timeout", reason: signalReason };
+    }
+    return { terminal: "aborted", reason: signalReason };
+  }
+
+  const err = error instanceof Error ? error : new Error(String(error));
+  const reason = err.message;
+  if (reason.toLowerCase().includes("timeout")) {
+    return { terminal: "timeout", reason, error: err };
+  }
+  return { terminal: "failed", reason, error: err };
+}
+
 export class AcpSessionManager {
   private readonly runtimeCache: RuntimeCache;
   private readonly actorQueue: SessionActorQueue;
@@ -295,6 +344,15 @@ export class AcpSessionManager {
         };
         this.activeTurns.set(sessionKey, activeTurn);
 
+        let terminalSeen = false;
+        const emitTerminalOnce = async (params: { event?: AcpRuntimeEvent; error?: unknown }) => {
+          if (terminalSeen || !input.onTerminal) {
+            return;
+          }
+          terminalSeen = true;
+          await input.onTerminal(normalizeAcpTerminal({ ...params, signal }));
+        };
+
         try {
           // Run the turn
           const turnInput = {
@@ -306,7 +364,6 @@ export class AcpSessionManager {
           };
 
           const events: AcpRuntimeEvent[] = [];
-          let terminalSeen = false;
           for await (const event of runtime.runTurn(turnInput)) {
             if (terminalSeen) {
               continue;
@@ -316,7 +373,7 @@ export class AcpSessionManager {
               await input.onEvent(event);
             }
             if (event.type === "done" || event.type === "error") {
-              terminalSeen = true;
+              await emitTerminalOnce({ event });
             }
           }
 
@@ -371,6 +428,9 @@ export class AcpSessionManager {
 
           // Update turn stats
           this.updateTurnStats(sessionKey, turnStart, false);
+        } catch (error) {
+          await emitTerminalOnce({ error });
+          throw error;
         } finally {
           this.activeTurns.delete(sessionKey);
         }
@@ -824,20 +884,28 @@ export class AcpSessionManager {
   private createLinkedSignal(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
     const controller = new AbortController();
 
-    const abortHandler = () => {
-      controller.abort();
+    const abortWithReason = (signal: AbortSignal) => {
+      controller.abort(signal.reason);
+    };
+
+    const abortHandler1 = () => {
+      abortWithReason(signal1);
+    };
+
+    const abortHandler2 = () => {
+      abortWithReason(signal2);
     };
 
     if (signal1.aborted) {
-      controller.abort();
+      abortWithReason(signal1);
     } else {
-      signal1.addEventListener("abort", abortHandler, { once: true });
+      signal1.addEventListener("abort", abortHandler1, { once: true });
     }
 
     if (signal2.aborted) {
-      controller.abort();
+      abortWithReason(signal2);
     } else {
-      signal2.addEventListener("abort", abortHandler, { once: true });
+      signal2.addEventListener("abort", abortHandler2, { once: true });
     }
 
     return controller.signal;

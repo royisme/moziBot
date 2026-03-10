@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AcpSessionManager } from "../../acp/control-plane";
 import type { MoziConfig } from "../../config";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
@@ -214,6 +215,8 @@ describe("MessageHandler.startDetachedRun observability", () => {
             sessionKey: string,
             agentId: string,
           ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+          getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
+          resolveDefaultAgentId: () => string;
         };
         runPromptWithFallback: (params: {
           sessionKey: string;
@@ -224,7 +227,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         resolveLatestAssistantText: (sessionKey: string, agentId: string) => Promise<string>;
         createHostSubagentRuntime: (
           sessionManager: unknown,
-          subAgentRegistry: unknown,
+          detachedRunRegistry: unknown,
         ) => {
           startDetachedPromptRun: (params: {
             runId: string;
@@ -248,13 +251,23 @@ describe("MessageHandler.startDetachedRun observability", () => {
           agent: { messages: [{ role: "assistant", content: "late-success" }] },
           modelRef: "quotio/gemini-3-flash-preview",
         }),
+        getSessionMetadata: () => ({}),
+        resolveDefaultAgentId: () => "mozi",
       };
       h.resolveLatestAssistantText = async () => "late-success";
       h.runPromptWithFallback = vi.fn(
         () => new Promise<void>((resolve) => setTimeout(resolve, 5000)),
       );
 
-      const runtime = h.createHostSubagentRuntime({} as never, {} as never);
+      const runtime = h.createHostSubagentRuntime(
+        { get: () => undefined } as never,
+        {
+          get: () => undefined,
+          register: vi.fn(),
+          markStarted: vi.fn(),
+          setTerminal: vi.fn(),
+        } as never,
+      );
       const onTerminal = vi.fn();
 
       await runtime?.startDetachedPromptRun({
@@ -279,6 +292,548 @@ describe("MessageHandler.startDetachedRun observability", () => {
       await vi.advanceTimersByTimeAsync(5000);
       expect(onTerminal).toHaveBeenCalledTimes(1);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("routes ACP detached runs to normalized completed terminal exactly once", async () => {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
+        resolveDefaultAgentId: () => string;
+      };
+      createHostSubagentRuntime: (
+        sessionManager: unknown,
+        detachedRunRegistry: unknown,
+      ) => {
+        startDetachedPromptRun: (params: {
+          runId: string;
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          timeoutSeconds?: number;
+          onTerminal?: (params: {
+            terminal: "completed" | "failed" | "aborted" | "timeout";
+            partialText?: string;
+            error?: Error;
+            reason?: string;
+            errorCode?: string;
+          }) => Promise<void> | void;
+        }) => Promise<{ runId: string }>;
+      };
+    };
+
+    h.agentManager = {
+      getAgent: async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      }),
+      getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+      resolveDefaultAgentId: () => "mozi",
+    };
+
+    const runTurnMock = vi
+      .spyOn(AcpSessionManager.prototype, "runTurn")
+      .mockImplementation(async (params) => {
+        await params.onTerminal?.({ terminal: "completed", reason: "done" });
+      });
+
+    const onTerminal = vi.fn();
+    const runtime = h.createHostSubagentRuntime(
+      { get: () => ({ parentKey: "parent-session" }) } as never,
+      {
+        get: () => undefined,
+        register: vi.fn(),
+        markStarted: vi.fn(),
+        setTerminal: vi.fn(),
+      } as never,
+    );
+
+    await runtime.startDetachedPromptRun({
+      runId: "acp-complete-run",
+      sessionKey: "agent:worker:subagent:dm:chat-1",
+      agentId: "worker",
+      text: "work",
+      onTerminal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runTurnMock).toHaveBeenCalledTimes(1);
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+    expect(onTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({ terminal: "completed", reason: "done" }),
+    );
+    runTurnMock.mockRestore();
+  });
+
+  it("routes ACP detached runs to normalized failed terminal exactly once", async () => {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
+        resolveDefaultAgentId: () => string;
+      };
+      createHostSubagentRuntime: (
+        sessionManager: unknown,
+        detachedRunRegistry: unknown,
+      ) => {
+        startDetachedPromptRun: (params: {
+          runId: string;
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          timeoutSeconds?: number;
+          onTerminal?: (params: {
+            terminal: "completed" | "failed" | "aborted" | "timeout";
+            partialText?: string;
+            error?: Error;
+            reason?: string;
+            errorCode?: string;
+          }) => Promise<void> | void;
+        }) => Promise<{ runId: string }>;
+      };
+    };
+
+    h.agentManager = {
+      getAgent: async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      }),
+      getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+      resolveDefaultAgentId: () => "mozi",
+    };
+
+    const runTurnMock = vi
+      .spyOn(AcpSessionManager.prototype, "runTurn")
+      .mockImplementation(async (params) => {
+        await params.onTerminal?.({
+          terminal: "failed",
+          reason: "Runtime failed",
+          errorCode: "RUNTIME_ERR",
+        });
+      });
+
+    const onTerminal = vi.fn();
+    const runtime = h.createHostSubagentRuntime(
+      { get: () => ({ parentKey: "parent-session" }) } as never,
+      {
+        get: () => undefined,
+        register: vi.fn(),
+        markStarted: vi.fn(),
+        setTerminal: vi.fn(),
+      } as never,
+    );
+
+    await runtime.startDetachedPromptRun({
+      runId: "acp-failed-run",
+      sessionKey: "agent:worker:subagent:dm:chat-1",
+      agentId: "worker",
+      text: "work",
+      onTerminal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(runTurnMock).toHaveBeenCalledTimes(1);
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+    expect(onTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        terminal: "failed",
+        reason: "Runtime failed",
+        errorCode: "RUNTIME_ERR",
+      }),
+    );
+    runTurnMock.mockRestore();
+  });
+
+  it("registers ACP detached runs durably before execution and marks them started", async () => {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        getSessionMetadata: () => Record<string, unknown>;
+        resolveDefaultAgentId: () => string;
+      };
+      createHostSubagentRuntime: (
+        sessionManager: unknown,
+        detachedRunRegistry: unknown,
+      ) => {
+        startDetachedPromptRun: (params: {
+          runId: string;
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          onTerminal?: (params: {
+            terminal: "completed" | "failed" | "aborted" | "timeout";
+            partialText?: string;
+            error?: Error;
+            reason?: string;
+            errorCode?: string;
+          }) => Promise<void> | void;
+        }) => Promise<{ runId: string }>;
+      };
+    };
+
+    h.agentManager = {
+      getAgent: async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      }),
+      getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+      resolveDefaultAgentId: () => "mozi",
+    };
+
+    const register = vi.fn();
+    const markStarted = vi.fn();
+    const setTerminal = vi.fn(async () => undefined);
+    const get = vi.fn(() => undefined);
+    const runTurnMock = vi
+      .spyOn(AcpSessionManager.prototype, "runTurn")
+      .mockResolvedValue(undefined);
+    const runtime = h.createHostSubagentRuntime(
+      {
+        get: () => ({ parentKey: "parent-session" }),
+      } as never,
+      { register, markStarted, setTerminal, get } as never,
+    );
+
+    await runtime.startDetachedPromptRun({
+      runId: "acp-register-run",
+      sessionKey: "agent:worker:subagent:dm:chat-1",
+      agentId: "worker",
+      text: "work",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(register).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "acp-register-run",
+        kind: "acp",
+        childKey: "agent:worker:subagent:dm:chat-1",
+        parentKey: "parent-session",
+        task: "work",
+      }),
+    );
+    expect(markStarted).toHaveBeenCalledWith("acp-register-run");
+    expect(runTurnMock).toHaveBeenCalledTimes(1);
+    runTurnMock.mockRestore();
+  });
+
+  it("persists ACP terminal exactly once under duplicate settle race", async () => {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+      };
+      createHostSubagentRuntime: (
+        sessionManager: unknown,
+        detachedRunRegistry: unknown,
+      ) => {
+        startDetachedPromptRun: (params: {
+          runId: string;
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          onTerminal?: (params: {
+            terminal: "completed" | "failed" | "aborted" | "timeout";
+            partialText?: string;
+            error?: Error;
+            reason?: string;
+            errorCode?: string;
+          }) => Promise<void> | void;
+        }) => Promise<{ runId: string }>;
+      };
+    };
+
+    h.agentManager = {
+      getAgent: async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      }),
+      getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+      resolveDefaultAgentId: () => "mozi",
+    } as never;
+
+    const onTerminal = vi.fn();
+    const setTerminal = vi.fn(async () => undefined);
+    const runTurnMock = vi
+      .spyOn(AcpSessionManager.prototype, "runTurn")
+      .mockImplementation(async (params) => {
+        await params.onTerminal?.({ terminal: "completed", reason: "done" });
+        throw new Error("late-fail");
+      });
+    const runtime = h.createHostSubagentRuntime(
+      {
+        get: () => ({ parentKey: "parent-session" }),
+      } as never,
+      {
+        register: vi.fn(),
+        markStarted: vi.fn(),
+        setTerminal,
+        get: vi.fn(() => undefined),
+      } as never,
+    );
+
+    await runtime.startDetachedPromptRun({
+      runId: "acp-dedupe-run",
+      sessionKey: "agent:worker:subagent:dm:chat-1",
+      agentId: "worker",
+      text: "work",
+      onTerminal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onTerminal).toHaveBeenCalledTimes(1);
+    expect(setTerminal).toHaveBeenCalledTimes(1);
+    expect(setTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "acp-dedupe-run",
+        status: "completed",
+      }),
+    );
+    runTurnMock.mockRestore();
+  });
+
+  it("persists ACP terminal even without external terminal callback", async () => {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      agentManager: {
+        getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        getSessionMetadata: () => Record<string, unknown>;
+        resolveDefaultAgentId: () => string;
+      };
+      createHostSubagentRuntime: (
+        sessionManager: unknown,
+        detachedRunRegistry: unknown,
+      ) => {
+        startDetachedPromptRun: (params: {
+          runId: string;
+          sessionKey: string;
+          agentId: string;
+          text: string;
+        }) => Promise<{ runId: string }>;
+      };
+    };
+
+    h.agentManager = {
+      getAgent: async () => ({
+        agent: { messages: [] },
+        modelRef: "quotio/gemini-3-flash-preview",
+      }),
+      getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+      resolveDefaultAgentId: () => "mozi",
+    };
+
+    const setTerminal = vi.fn(async () => undefined);
+    const runTurnMock = vi
+      .spyOn(AcpSessionManager.prototype, "runTurn")
+      .mockImplementation(async (params) => {
+        await params.onTerminal?.({ terminal: "completed", reason: "done" });
+      });
+    const runtime = h.createHostSubagentRuntime(
+      { get: () => ({ parentKey: "parent-session" }) } as never,
+      {
+        register: vi.fn(),
+        markStarted: vi.fn(),
+        setTerminal,
+        get: vi.fn(() => undefined),
+      } as never,
+    );
+
+    await runtime.startDetachedPromptRun({
+      runId: "acp-no-callback-run",
+      sessionKey: "agent:worker:subagent:dm:chat-1",
+      agentId: "worker",
+      text: "work",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(setTerminal).toHaveBeenCalledTimes(1);
+    expect(setTerminal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "acp-no-callback-run",
+        status: "completed",
+      }),
+    );
+    runTurnMock.mockRestore();
+  });
+
+  it("persists ACP timeout when runTurn exits without onTerminal", async () => {
+    vi.useFakeTimers();
+    try {
+      const handler = new MessageHandler(createConfig());
+      const h = handler as unknown as {
+        agentManager: {
+          getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+          getSessionMetadata: () => Record<string, unknown>;
+          resolveDefaultAgentId: () => string;
+        };
+        createHostSubagentRuntime: (
+          sessionManager: unknown,
+          detachedRunRegistry: unknown,
+        ) => {
+          startDetachedPromptRun: (params: {
+            runId: string;
+            sessionKey: string;
+            agentId: string;
+            text: string;
+            timeoutSeconds?: number;
+            onTerminal?: (params: {
+              terminal: "completed" | "failed" | "aborted" | "timeout";
+              partialText?: string;
+              error?: Error;
+              reason?: string;
+              errorCode?: string;
+            }) => Promise<void> | void;
+          }) => Promise<{ runId: string }>;
+        };
+      };
+
+      h.agentManager = {
+        getAgent: async () => ({
+          agent: { messages: [] },
+          modelRef: "quotio/gemini-3-flash-preview",
+        }),
+        getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+        resolveDefaultAgentId: () => "mozi",
+      };
+
+      const setTerminal = vi.fn(async () => undefined);
+      const runTurnMock = vi
+        .spyOn(AcpSessionManager.prototype, "runTurn")
+        .mockImplementation(async ({ signal }) => {
+          await new Promise<void>((_, reject) => {
+            signal?.addEventListener("abort", () => reject(new Error(String(signal.reason))), {
+              once: true,
+            });
+          });
+        });
+      const runtime = h.createHostSubagentRuntime(
+        { get: () => ({ parentKey: "parent-session" }) } as never,
+        {
+          register: vi.fn(),
+          markStarted: vi.fn(),
+          setTerminal,
+          get: vi.fn(() => undefined),
+        } as never,
+      );
+      const onTerminal = vi.fn();
+
+      await runtime.startDetachedPromptRun({
+        runId: "acp-timeout-run",
+        sessionKey: "agent:worker:subagent:dm:chat-1",
+        agentId: "worker",
+        text: "work",
+        timeoutSeconds: 1,
+        onTerminal,
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({ terminal: "timeout", reason: "acp-timeout" }),
+      );
+      expect(setTerminal).toHaveBeenCalledTimes(1);
+      expect(setTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId: "acp-timeout-run",
+          status: "timeout",
+          error: "acp-timeout",
+        }),
+      );
+      runTurnMock.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs instead of leaking an unhandled rejection when ACP timeout persistence fails", async () => {
+    vi.useFakeTimers();
+    const loggerModule = await import("../../logger");
+    const loggerError = vi.spyOn(loggerModule.logger, "error").mockImplementation(() => undefined);
+    try {
+      const handler = new MessageHandler(createConfig());
+      const h = handler as unknown as {
+        agentManager: {
+          getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+          getSessionMetadata: () => Record<string, unknown>;
+          resolveDefaultAgentId: () => string;
+        };
+        createHostSubagentRuntime: (
+          sessionManager: unknown,
+          detachedRunRegistry: unknown,
+        ) => {
+          startDetachedPromptRun: (params: {
+            runId: string;
+            sessionKey: string;
+            agentId: string;
+            text: string;
+            timeoutSeconds?: number;
+          }) => Promise<{ runId: string }>;
+        };
+      };
+
+      h.agentManager = {
+        getAgent: async () => ({
+          agent: { messages: [] },
+          modelRef: "quotio/gemini-3-flash-preview",
+        }),
+        getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
+        resolveDefaultAgentId: () => "mozi",
+      };
+
+      const setTerminal = vi.fn(async () => {
+        throw new Error("disk-full");
+      });
+      const runTurnMock = vi
+        .spyOn(AcpSessionManager.prototype, "runTurn")
+        .mockImplementation(async ({ signal }) => {
+          await new Promise<void>((_, reject) => {
+            signal?.addEventListener("abort", () => reject(new Error(String(signal.reason))), {
+              once: true,
+            });
+          });
+        });
+      const runtime = h.createHostSubagentRuntime(
+        { get: () => ({ parentKey: "parent-session" }) } as never,
+        {
+          register: vi.fn(),
+          markStarted: vi.fn(),
+          setTerminal,
+          get: vi.fn(() => undefined),
+        } as never,
+      );
+
+      await runtime.startDetachedPromptRun({
+        runId: "acp-timeout-persist-fail-run",
+        sessionKey: "agent:worker:subagent:dm:chat-1",
+        agentId: "worker",
+        text: "work",
+        timeoutSeconds: 1,
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(setTerminal).toHaveBeenCalledTimes(1);
+      expect(loggerError).toHaveBeenCalledWith(
+        expect.objectContaining({ err: "disk-full", runId: "acp-timeout-persist-fail-run" }),
+        "Failed to persist ACP detached run timeout",
+      );
+      runTurnMock.mockRestore();
+    } finally {
+      loggerError.mockRestore();
       vi.useRealTimers();
     }
   });

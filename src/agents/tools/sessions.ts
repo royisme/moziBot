@@ -11,7 +11,7 @@ import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config
 import { continuationRegistry } from "../../runtime/core/continuation";
 import type { ContinuationRequest } from "../../runtime/core/contracts";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
-import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
+import type { SpawnResult, DetachedRunRegistry } from "../../runtime/host/sessions/spawn";
 import { spawnSubAgent } from "../../runtime/host/sessions/spawn";
 import type { Session } from "../../runtime/host/sessions/types";
 import { resolveAgentJobEscalationTarget } from "../../runtime/jobs/policy";
@@ -19,7 +19,7 @@ import { sessionsStatus, sessionsStatusDescription, sessionsStatusSchema } from 
 
 export interface SessionToolsContext {
   sessionManager: SessionManager;
-  subAgentRegistry: SubAgentRegistry;
+  detachedRunRegistry: DetachedRunRegistry;
   currentSessionKey: string;
   config?: MoziConfig;
 }
@@ -116,7 +116,7 @@ export async function sessionsSend(
   let targetKey = params.sessionKey;
 
   if (!targetKey && params.label) {
-    const children = ctx.subAgentRegistry.listByParent(ctx.currentSessionKey);
+    const children = ctx.detachedRunRegistry.listByParent(ctx.currentSessionKey);
     const found = children.find((c) => c.label === params.label);
     if (found) {
       targetKey = found.childKey;
@@ -266,7 +266,7 @@ async function initializeAcpSubAgent(
       // best-effort cleanup
     }
 
-    await ctx.subAgentRegistry.completeByChildKey(childKey, {
+    await ctx.detachedRunRegistry.completeByChildKey(childKey, {
       status: "failed",
       error: message,
     });
@@ -286,7 +286,7 @@ export async function sessionsSpawn(
   ctx: SessionToolsContext,
   params: z.infer<typeof sessionsSpawnSchema>,
 ): Promise<SpawnResult> {
-  const spawnResult = await spawnSubAgent(ctx.sessionManager, ctx.subAgentRegistry, {
+  const spawnResult = await spawnSubAgent(ctx.sessionManager, ctx.detachedRunRegistry, {
     parentKey: ctx.currentSessionKey,
     agentId: params.agentId,
     model: params.model,
@@ -313,7 +313,7 @@ export async function subagentStatus(
   ctx: SessionToolsContext,
   params: z.infer<typeof subagentStatusSchema>,
 ) {
-  return await sessionsStatus(ctx.subAgentRegistry, params);
+  return await sessionsStatus(ctx.detachedRunRegistry, params);
 }
 
 export const subagentListSchema = sessionsStatusSchema;
@@ -322,7 +322,7 @@ export async function subagentList(
   ctx: SessionToolsContext,
   params: z.infer<typeof subagentListSchema>,
 ) {
-  return await sessionsStatus(ctx.subAgentRegistry, params);
+  return await sessionsStatus(ctx.detachedRunRegistry, params);
 }
 
 export const subagentStatusDescription = sessionsStatusDescription;

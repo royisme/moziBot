@@ -4,15 +4,15 @@ import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { agentEvents } from "../../../infra/agent-events";
 import { injectMessageHandler } from "./subagent-announce";
-import { EnhancedSubAgentRegistry } from "./subagent-registry";
+import { DetachedRunRegistry } from "./subagent-registry";
 
-describe("EnhancedSubAgentRegistry", () => {
+describe("DetachedRunRegistry", () => {
   let tmpDir: string;
-  let registry: EnhancedSubAgentRegistry;
+  let registry: DetachedRunRegistry;
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-registry-test-"));
-    registry = new EnhancedSubAgentRegistry(tmpDir);
+    registry = new DetachedRunRegistry(tmpDir);
   });
 
   afterEach(() => {
@@ -37,7 +37,8 @@ describe("EnhancedSubAgentRegistry", () => {
 
       const run = registry.get("run-123");
       expect(run).toBeDefined();
-      expect(run?.status).toBe("pending");
+      expect(run?.kind).toBe("subagent");
+      expect(run?.status).toBe("accepted");
       expect(run?.task).toBe("Analyze something");
       expect(run?.label).toBe("Test task");
       expect(run?.createdAt).toBeGreaterThan(0);
@@ -57,7 +58,7 @@ describe("EnhancedSubAgentRegistry", () => {
 
       const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
       expect(data["run-456"]).toBeDefined();
-      expect(data["run-456"].status).toBe("pending");
+      expect(data["run-456"].status).toBe("accepted");
     });
   });
 
@@ -115,7 +116,7 @@ describe("EnhancedSubAgentRegistry", () => {
   });
 
   describe("event handling", () => {
-    it("should update status to running on start event", async () => {
+    it("should update status to started when markStarted is called", () => {
       registry.register({
         runId: "run-event-1",
         childKey: "agent:test:subagent:dm:event1",
@@ -124,20 +125,14 @@ describe("EnhancedSubAgentRegistry", () => {
         cleanup: "keep",
       });
 
-      agentEvents.emitLifecycle({
-        runId: "run-event-1",
-        sessionKey: "agent:test:subagent:dm:event1",
-        data: { phase: "start", startedAt: Date.now() },
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      registry.markStarted("run-event-1");
 
       const run = registry.get("run-event-1");
-      expect(run?.status).toBe("running");
+      expect(run?.status).toBe("started");
       expect(run?.startedAt).toBeGreaterThan(0);
     });
 
-    it("should update status to completed on end event", async () => {
+    it("should update status to completed when setTerminal is called", async () => {
       registry.register({
         runId: "run-event-2",
         childKey: "agent:test:subagent:dm:event2",
@@ -146,28 +141,19 @@ describe("EnhancedSubAgentRegistry", () => {
         cleanup: "keep",
       });
 
-      agentEvents.emitLifecycle({
+      registry.markStarted("run-event-2");
+      await registry.setTerminal({
         runId: "run-event-2",
-        sessionKey: "agent:test:subagent:dm:event2",
-        data: { phase: "start", startedAt: Date.now() },
+        status: "completed",
+        endedAt: Date.now(),
       });
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      agentEvents.emitLifecycle({
-        runId: "run-event-2",
-        sessionKey: "agent:test:subagent:dm:event2",
-        data: { phase: "end", endedAt: Date.now() },
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const run = registry.get("run-event-2");
       expect(run?.status).toBe("completed");
       expect(run?.endedAt).toBeGreaterThan(0);
     });
 
-    it("should update status to failed on error event", async () => {
+    it("should update status to failed when setTerminal is called with an error", async () => {
       registry.register({
         runId: "run-event-3",
         childKey: "agent:test:subagent:dm:event3",
@@ -176,17 +162,79 @@ describe("EnhancedSubAgentRegistry", () => {
         cleanup: "keep",
       });
 
-      agentEvents.emitLifecycle({
+      await registry.setTerminal({
         runId: "run-event-3",
-        sessionKey: "agent:test:subagent:dm:event3",
-        data: { phase: "error", error: "Something went wrong", endedAt: Date.now() },
+        status: "failed",
+        error: "Something went wrong",
+        endedAt: Date.now(),
       });
-
-      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const run = registry.get("run-event-3");
       expect(run?.status).toBe("failed");
       expect(run?.error).toBe("Something went wrong");
+    });
+
+    it("announces aborted runs instead of silently swallowing them", async () => {
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+      registry.register({
+        runId: "run-event-aborted",
+        childKey: "agent:test:subagent:dm:event-aborted",
+        parentKey: "parent-event",
+        task: "Event aborted",
+        cleanup: "keep",
+      });
+
+      await registry.setTerminal({
+        runId: "run-event-aborted",
+        status: "aborted",
+        error: "manual-abort",
+        endedAt: Date.now(),
+      });
+
+      const run = registry.get("run-event-aborted");
+      expect(run?.status).toBe("aborted");
+      expect(run?.announced).toBe(true);
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      expect(handleInternalMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionKey: "parent-event",
+          metadata: expect.objectContaining({
+            detachedRunId: "run-event-aborted",
+            detachedStatus: "aborted",
+          }),
+        }),
+      );
+    });
+
+    it("rolls back terminal state when persistence fails", async () => {
+      registry.register({
+        runId: "run-event-persist-fail",
+        childKey: "agent:test:subagent:dm:event-persist-fail",
+        parentKey: "parent-event",
+        task: "Event persist fail",
+        cleanup: "keep",
+      });
+
+      const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementationOnce(() => {
+        throw new Error("disk-full");
+      });
+
+      await expect(
+        registry.setTerminal({
+          runId: "run-event-persist-fail",
+          status: "failed",
+          error: "Something went wrong",
+          endedAt: Date.now(),
+        }),
+      ).rejects.toThrow("disk-full");
+
+      writeSpy.mockRestore();
+      const run = registry.get("run-event-persist-fail");
+      expect(run?.status).toBe("accepted");
+      expect(run?.error).toBeUndefined();
+      expect(run?.endedAt).toBeUndefined();
+      expect(run?.announced).toBeUndefined();
     });
   });
 
@@ -210,7 +258,7 @@ describe("EnhancedSubAgentRegistry", () => {
         }),
       );
 
-      const newRegistry = new EnhancedSubAgentRegistry(restoreTmpDir);
+      const newRegistry = new DetachedRunRegistry(restoreTmpDir);
       const run = newRegistry.get("restored-run");
 
       expect(run).toBeDefined();
@@ -245,7 +293,7 @@ describe("EnhancedSubAgentRegistry", () => {
       const handleInternalMessage = vi.fn(async () => {});
       injectMessageHandler({ handleInternalMessage } as never);
 
-      const newRegistry = new EnhancedSubAgentRegistry(restoreTmpDir);
+      const newRegistry = new DetachedRunRegistry(restoreTmpDir);
       await newRegistry.reconcileOrphanedRuns();
       const run = newRegistry.get("restored-run");
 
@@ -258,11 +306,66 @@ describe("EnhancedSubAgentRegistry", () => {
       expect(handleInternalMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionKey: "parent-restored",
-          source: "subagent-announce",
+          source: "detached-run-announce",
           metadata: expect.objectContaining({
-            subagentRunId: "restored-run",
-            subagentChildKey: "agent:test:subagent:dm:restored",
-            subagentStatus: "failed",
+            taskKind: "subagent",
+            detachedRunId: "restored-run",
+            detachedChildKey: "agent:test:subagent:dm:restored",
+            detachedStatus: "failed",
+          }),
+        }),
+      );
+
+      newRegistry.shutdown();
+      try {
+        fs.rmSync(restoreTmpDir, { recursive: true });
+      } catch {}
+    });
+
+    it("retries restored terminal runs whose announcement previously failed", async () => {
+      const restoreTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-reannounce-test-"));
+      const filePath = path.join(restoreTmpDir, "subagent-runs.json");
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          "restored-run": {
+            runId: "restored-run",
+            childKey: "agent:test:subagent:dm:restored",
+            parentKey: "parent-restored",
+            task: "Restored task",
+            cleanup: "keep",
+            status: "completed",
+            createdAt: Date.now() - 1000,
+            startedAt: Date.now() - 800,
+            endedAt: Date.now() - 500,
+            result: "done",
+            announced: false,
+          },
+        }),
+      );
+
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+
+      const newRegistry = new DetachedRunRegistry(restoreTmpDir);
+      await newRegistry.reconcileOrphanedRuns();
+      const run = newRegistry.get("restored-run");
+
+      expect(run).toBeDefined();
+      expect(run?.status).toBe("completed");
+      expect(run?.announced).toBe(true);
+      const data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      expect(data["restored-run"].announced).toBe(true);
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      expect(handleInternalMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionKey: "parent-restored",
+          source: "detached-run-announce",
+          metadata: expect.objectContaining({
+            taskKind: "subagent",
+            detachedRunId: "restored-run",
+            detachedChildKey: "agent:test:subagent:dm:restored",
+            detachedStatus: "completed",
           }),
         }),
       );
@@ -274,7 +377,9 @@ describe("EnhancedSubAgentRegistry", () => {
     });
 
     it("reconciles restored delete-cleanup runs and removes them", async () => {
-      const restoreTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "subagent-reconcile-delete-test-"));
+      const restoreTmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "subagent-reconcile-delete-test-"),
+      );
       const filePath = path.join(restoreTmpDir, "subagent-runs.json");
       fs.writeFileSync(
         filePath,
@@ -295,7 +400,7 @@ describe("EnhancedSubAgentRegistry", () => {
       const handleInternalMessage = vi.fn(async () => {});
       injectMessageHandler({ handleInternalMessage } as never);
 
-      const newRegistry = new EnhancedSubAgentRegistry(restoreTmpDir);
+      const newRegistry = new DetachedRunRegistry(restoreTmpDir);
       await newRegistry.reconcileOrphanedRuns();
 
       expect(newRegistry.get("restored-run")).toBeUndefined();

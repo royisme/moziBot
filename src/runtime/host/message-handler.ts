@@ -1,6 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AgentSessionEvent } from "@mariozechner/pi-coding-agent";
 import { AgentManager, ModelRegistry, ProviderRegistry, SessionStore } from "..";
+import { AcpSessionManager } from "../../acp/control-plane";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";
 import { type ResolvedMemoryPersistenceConfig } from "../../memory/backend-config";
@@ -36,6 +37,7 @@ import {
   type LastRoute,
 } from "./message-handler/services/message-router";
 import { buildOrchestratorDeps as buildOrchestratorDepsService } from "./message-handler/services/orchestrator-deps-builder";
+import { resolveSessionMetadata as resolveSessionMetadataService } from "./message-handler/services/orchestrator-session";
 import { maybePreFlushBeforePrompt as maybePreFlushBeforePromptService } from "./message-handler/services/preflush-gate";
 import { toPromptCoordinatorAgentManager } from "./message-handler/services/prompt-agent-manager-adapter";
 import { runPromptWithCoordinator as runPromptWithCoordinatorService } from "./message-handler/services/prompt-coordinator";
@@ -57,7 +59,7 @@ import { extractAssistantText } from "./reply-utils";
 import { RuntimeRouter } from "./router";
 import type { RouteContext } from "./routing/types";
 import type { SessionManager } from "./sessions/manager";
-import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { DetachedRunRegistry as SessionDetachedRunRegistry } from "./sessions/spawn";
 import { createBrowserTools } from "./tools/browser";
 import { createSessionTools } from "./tools/sessions";
 
@@ -128,9 +130,10 @@ export class MessageHandler {
     onTerminal: (entry, payload) => {
       const callback = this.detachedTerminalCallbacks.get(entry.runId);
       const errorCode =
-        payload.error && typeof (payload.error as unknown as { code?: unknown }).code === "string"
+        payload.errorCode ??
+        (payload.error && typeof (payload.error as unknown as { code?: unknown }).code === "string"
           ? ((payload.error as unknown as { code: string }).code ?? undefined)
-          : undefined;
+          : undefined);
       const logPayload = {
         runId: entry.runId,
         sessionKey: entry.sessionKey,
@@ -176,7 +179,7 @@ export class MessageHandler {
   private config: MoziConfig;
   private runtimeControl?: RuntimeControl;
   private hostSessionManager?: SessionManager;
-  private hostSubAgentRegistry?: SessionSubAgentRegistry;
+  private hostDetachedRunRegistry?: SessionDetachedRunRegistry;
   private mediaPreprocessor: InboundMediaPreprocessor;
 
   getAgentManager(): AgentManager {
@@ -210,7 +213,7 @@ export class MessageHandler {
     config: MoziConfig,
     deps?: {
       sessionManager?: SessionManager;
-      subAgentRegistry?: SessionSubAgentRegistry;
+      detachedRunRegistry?: SessionDetachedRunRegistry;
       runtimeControl?: RuntimeControl;
     },
   ) {
@@ -218,7 +221,7 @@ export class MessageHandler {
     configureMemoryMaintainerHooks(config);
     this.runtimeControl = deps?.runtimeControl;
     this.hostSessionManager = deps?.sessionManager;
-    this.hostSubAgentRegistry = deps?.subAgentRegistry;
+    this.hostDetachedRunRegistry = deps?.detachedRunRegistry;
     this.mediaPreprocessor = new InboundMediaPreprocessor(config);
     this.sessions = new SessionStore(config);
     this.router = new RuntimeRouter(config);
@@ -234,14 +237,14 @@ export class MessageHandler {
       this.modelRegistry,
       this.providerRegistry,
       this.agentManager,
-      this.createHostSubagentRuntime(deps?.sessionManager, deps?.subAgentRegistry),
+      this.createHostSubagentRuntime(deps?.sessionManager, deps?.detachedRunRegistry),
     );
     this.agentManager.setSubagentRegistry(this.subagents);
-    if (deps?.sessionManager && deps?.subAgentRegistry) {
+    if (deps?.sessionManager && deps?.detachedRunRegistry) {
       this.agentManager.setToolProvider((params) => [
         ...createSessionTools({
           sessionManager: deps.sessionManager!,
-          subAgentRegistry: deps.subAgentRegistry!,
+          detachedRunRegistry: deps.detachedRunRegistry!,
           currentSessionKey: params.sessionKey,
           config: this.config,
         }),
@@ -257,15 +260,15 @@ export class MessageHandler {
    */
   private createHostSubagentRuntime(
     sessionManager?: SessionManager,
-    subAgentRegistry?: SessionSubAgentRegistry,
+    detachedRunRegistry?: SessionDetachedRunRegistry,
   ): HostSubagentRuntime | undefined {
-    if (!sessionManager || !subAgentRegistry) {
+    if (!sessionManager || !detachedRunRegistry) {
       return undefined;
     }
 
     return {
       sessionManager,
-      subAgentRegistry,
+      detachedRunRegistry,
       startDetachedPromptRun: async ({
         runId,
         sessionKey,
@@ -282,6 +285,29 @@ export class MessageHandler {
           ...(promptMode ? { promptMode } : {}),
           ...(modelRef ? { model: modelRef } : {}),
         });
+        const sessionMetadata = resolveSessionMetadataService({
+          sessionKey,
+          sessions: this.sessions,
+          agentManager: this.agentManager,
+        });
+        const acpMetadata =
+          sessionMetadata && typeof sessionMetadata === "object" && "acp" in sessionMetadata
+            ? (sessionMetadata.acp as Record<string, unknown> | undefined)
+            : undefined;
+        const isAcpDetachedRun = Boolean(acpMetadata);
+        const sessionRecord = sessionManager.get(sessionKey);
+        const parentKey = sessionRecord?.parentKey;
+        if (isAcpDetachedRun && parentKey && !detachedRunRegistry.get(runId)) {
+          detachedRunRegistry.register({
+            runId,
+            kind: "acp",
+            childKey: sessionKey,
+            parentKey,
+            task: text,
+            cleanup: "keep",
+            timeoutSeconds,
+          });
+        }
         this.runLifecycle.createRun({
           runId,
           sessionKey,
@@ -303,19 +329,109 @@ export class MessageHandler {
         queueMicrotask(() => {
           void (async () => {
             let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+            const lifecycleTerminated = () => {
+              const lifecycleRun = this.runLifecycle.getRun(runId);
+              return (
+                lifecycleRun?.state === "completed" ||
+                lifecycleRun?.state === "failed" ||
+                lifecycleRun?.state === "timeout" ||
+                lifecycleRun?.state === "aborted"
+              );
+            };
+            const persistAcpTerminal = async (
+              status: "completed" | "failed" | "aborted" | "timeout",
+              options: { result?: string; error?: string; endedAt?: number } = {},
+            ) => {
+              if (!isAcpDetachedRun) {
+                return;
+              }
+              await detachedRunRegistry.setTerminal({
+                runId,
+                status,
+                result: options.result,
+                error: options.error,
+                endedAt: options.endedAt,
+              });
+            };
             try {
               this.runLifecycle.markStarted(runId);
+              if (isAcpDetachedRun) {
+                detachedRunRegistry.markStarted(runId);
+              }
               if (
                 typeof timeoutSeconds === "number" &&
                 Number.isFinite(timeoutSeconds) &&
                 timeoutSeconds > 0
               ) {
                 timeoutHandle = setTimeout(() => {
-                  this.runLifecycle.timeoutRun(runId, "subagent-timeout");
+                  const reason = isAcpDetachedRun ? "acp-timeout" : "subagent-timeout";
+                  const lifecycleEntry = this.runLifecycle.getRun(runId);
+                  const endedAt = Date.now();
+                  this.runLifecycle.timeoutRun(runId, reason);
+                  if (isAcpDetachedRun) {
+                    void persistAcpTerminal("timeout", {
+                      result: lifecycleEntry?.buffer.snapshot(),
+                      error: reason,
+                      endedAt,
+                    }).catch((error) => {
+                      logger.error(
+                        {
+                          err: error instanceof Error ? error.message : String(error),
+                          runId,
+                          sessionKey,
+                        },
+                        "Failed to persist ACP detached run timeout",
+                      );
+                    });
+                  }
                 }, timeoutSeconds * 1000);
                 timeoutHandle.unref?.();
               }
               await onAccepted?.();
+              if (isAcpDetachedRun) {
+                const acpSessionManager = new AcpSessionManager();
+                await acpSessionManager.runTurn({
+                  cfg: this.config,
+                  sessionKey,
+                  text,
+                  mode: "prompt",
+                  requestId: runId,
+                  signal: this.runLifecycle.getRun(runId)?.controller.signal,
+                  onEvent: async (event) => {
+                    if (event.type === "text_delta" && event.text) {
+                      this.runLifecycle.appendDelta(runId, event.text);
+                    }
+                  },
+                  onTerminal: async (terminal) => {
+                    const lifecycleEntry = this.runLifecycle.getRun(runId);
+                    const partialText = lifecycleEntry?.buffer.snapshot();
+                    const terminalError =
+                      terminal.error ??
+                      (terminal.errorCode
+                        ? Object.assign(new Error(terminal.reason ?? terminal.terminal), {
+                            code: terminal.errorCode,
+                          })
+                        : undefined);
+                    const endedAt = Date.now();
+                    await persistAcpTerminal(terminal.terminal, {
+                      result: partialText,
+                      error: terminal.reason ?? terminalError?.message,
+                      endedAt,
+                    });
+                    if (lifecycleEntry) {
+                      lifecycleEntry.endedAt = endedAt;
+                    }
+                    this.runLifecycle.setTerminal(runId, {
+                      state: terminal.terminal,
+                      reason: terminal.reason,
+                      error: terminalError,
+                      errorCode: terminal.errorCode,
+                      partialText,
+                    });
+                  },
+                });
+                return;
+              }
               await this.runPromptWithFallback({
                 sessionKey,
                 agentId,
@@ -328,16 +444,30 @@ export class MessageHandler {
             } catch (error) {
               const err = toErrorService(error);
               const lifecycleRun = this.runLifecycle.getRun(runId);
-              if (lifecycleRun?.state === "timeout") {
+              if (lifecycleTerminated()) {
                 return;
               }
               if (isAbortErrorService(err)) {
+                const partialText = lifecycleRun?.buffer.snapshot();
+                const endedAt = Date.now();
+                await persistAcpTerminal("aborted", {
+                  result: partialText,
+                  error: err.message,
+                  endedAt,
+                });
                 this.runLifecycle.setTerminal(runId, {
                   state: "aborted",
                   reason: err.message,
-                  partialText: lifecycleRun?.buffer.snapshot(),
+                  partialText,
                 });
               } else {
+                const partialText = lifecycleRun?.buffer.snapshot();
+                const endedAt = Date.now();
+                await persistAcpTerminal("failed", {
+                  result: partialText,
+                  error: err.message,
+                  endedAt,
+                });
                 this.runLifecycle.finalizeFailed(runId, err);
               }
             } finally {
@@ -373,7 +503,7 @@ export class MessageHandler {
       agentManager: this.agentManager,
       hostRuntime: this.createHostSubagentRuntime(
         this.hostSessionManager,
-        this.hostSubAgentRegistry,
+        this.hostDetachedRunRegistry,
       ),
     });
     this.agentManager.setSubagentRegistry(this.subagents);

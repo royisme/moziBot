@@ -9,7 +9,7 @@ import {
 } from "../../acp/runtime/registry";
 import { readAcpSessionEntry, upsertAcpSessionMeta } from "../../acp/runtime/session-meta";
 import { SessionManager } from "../../runtime/host/sessions/manager";
-import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
+import { DetachedRunRegistry } from "../../runtime/host/sessions/spawn";
 import { closeDb, initDb } from "../../storage/db";
 import { type SessionToolsContext, sessionsList, sessionsSend, sessionsSpawn } from "./sessions";
 
@@ -29,7 +29,7 @@ function cleanupTestDb() {
 
 describe("Session Tools", () => {
   let sessionManager: SessionManager;
-  let subAgentRegistry: SubAgentRegistry;
+  let detachedRunRegistry: DetachedRunRegistry;
   let ctx: SessionToolsContext;
   let registryDir: string;
 
@@ -50,7 +50,7 @@ describe("Session Tools", () => {
 
     sessionManager = new SessionManager();
     registryDir = mkdtempSync(path.join(os.tmpdir(), "session-tools-subagents-"));
-    subAgentRegistry = new SubAgentRegistry(registryDir);
+    detachedRunRegistry = new DetachedRunRegistry(registryDir);
 
     // Create a dummy current session
     const currentSessionKey = "agent1:telegram:dm:user1";
@@ -58,7 +58,7 @@ describe("Session Tools", () => {
 
     ctx = {
       sessionManager,
-      subAgentRegistry,
+      detachedRunRegistry,
       currentSessionKey,
       config,
     };
@@ -89,7 +89,7 @@ describe("Session Tools", () => {
   afterEach(() => {
     unregisterAcpRuntimeBackend(backendId);
     acpRuntimeRegistryTesting.resetAcpRuntimeBackendsForTests();
-    subAgentRegistry.shutdown();
+    detachedRunRegistry.shutdown();
     rmSync(registryDir, { recursive: true, force: true });
     closeDb();
     cleanupTestDb();
@@ -138,7 +138,7 @@ describe("Session Tools", () => {
     expect(childSession).toBeDefined();
     expect(childSession?.parentKey).toBe(ctx.currentSessionKey);
 
-    const run = subAgentRegistry.get(result.childKey);
+    const run = detachedRunRegistry.get(result.childKey);
     expect(run).toBeDefined();
     expect(run?.task).toBe("test task");
     expect(run?.label).toBe("subagent-1");

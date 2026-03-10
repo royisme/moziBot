@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { SubAgentRegistry as SessionSubAgentRegistry } from "./host/sessions/spawn";
+import { DetachedRunRegistry as SessionDetachedRunRegistry } from "./host/sessions/spawn";
 import type { HostSubagentRuntime } from "./subagent-registry";
 import { SubagentRegistry } from "./subagent-registry";
 
@@ -226,7 +226,7 @@ describe("SubagentRegistry", () => {
         lastActiveAt: new Date(),
       })),
     };
-    const subAgentRegistry = new SessionSubAgentRegistry(registryDir);
+    const detachedRunRegistry = new SessionDetachedRunRegistry(registryDir);
     const startDetachedPromptRun = vi
       .fn<HostSubagentRuntime["startDetachedPromptRun"]>()
       .mockResolvedValueOnce({ runId: "run-a" })
@@ -247,7 +247,7 @@ describe("SubagentRegistry", () => {
       } as never,
       {
         sessionManager: sessionManager as never,
-        subAgentRegistry,
+        detachedRunRegistry,
         startDetachedPromptRun,
         isDetachedRunActive: vi.fn((runId: string) => runId === "run-a"),
       },
@@ -270,6 +270,12 @@ describe("SubagentRegistry", () => {
         }),
       ).rejects.toThrow("startup failed");
 
+      const failedRun = detachedRunRegistry
+        .listByParent("parent-1")
+        .find((run) => run.task === "task b");
+      expect(failedRun?.status).toBe("failed");
+      expect(failedRun?.error).toBe("startup failed");
+
       const firstOnTerminal = startDetachedPromptRun.mock.calls[0]?.[0].onTerminal;
       await firstOnTerminal?.({ terminal: "completed" });
 
@@ -290,7 +296,7 @@ describe("SubagentRegistry", () => {
       expect(third.status).toBe("accepted");
       expect(fourth.status).toBe("accepted");
     } finally {
-      subAgentRegistry.shutdown();
+      detachedRunRegistry.shutdown();
       rmSync(registryDir, { recursive: true, force: true });
     }
   });

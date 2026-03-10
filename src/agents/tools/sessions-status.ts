@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type {
-  EnhancedSubAgentRegistry,
-  SubAgentRunRecord,
+  DetachedRunRegistry,
+  DetachedRunRecord,
 } from "../../runtime/host/sessions/subagent-registry";
 
 const inputSchema = z.object({
@@ -27,7 +27,7 @@ interface FormattedRun {
   error?: string;
 }
 
-function formatRun(run: SubAgentRunRecord): FormattedRun {
+function formatRun(run: DetachedRunRecord): FormattedRun {
   return {
     runId: run.runId,
     label: run.label || run.task.slice(0, 50),
@@ -42,7 +42,7 @@ function formatRun(run: SubAgentRunRecord): FormattedRun {
 }
 
 export async function sessionsStatus(
-  registry: EnhancedSubAgentRegistry,
+  registry: DetachedRunRegistry,
   input: SessionsStatusInput,
 ): Promise<SessionsStatusResult> {
   const { runId, parentKey } = input;
@@ -75,7 +75,7 @@ export async function sessionsStatus(
 export const sessionsStatusSchema = inputSchema;
 
 export const sessionsStatusDescription =
-  "Check the status of spawned subagent tasks. " +
+  "Check the status of detached runs. " +
   "Use without arguments to list all tracked runs. " +
   "Use with runId to check a specific run. " +
   "Use with parentKey to list all runs spawned by a specific session.";

@@ -4,7 +4,7 @@ import { AgentManager } from "./agent-manager";
 import type { PromptMode } from "./agent-manager/prompt-builder";
 import type { SessionManager } from "./host/sessions/manager";
 import { spawnSubAgent } from "./host/sessions/spawn";
-import type { SubAgentRegistry as SessionSubAgentRegistry } from "./host/sessions/spawn";
+import type { DetachedRunRegistry as SessionDetachedRunRegistry } from "./host/sessions/spawn";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import type { ModelSpec } from "./types";
@@ -30,7 +30,7 @@ export interface SubagentSpawnResult {
 
 export type HostSubagentRuntime = {
   sessionManager: SessionManager;
-  subAgentRegistry: SessionSubAgentRegistry;
+  detachedRunRegistry: SessionDetachedRunRegistry;
   startDetachedPromptRun: (params: {
     runId: string;
     sessionKey: string;
@@ -161,7 +161,7 @@ export class SubagentRegistry {
 
       const spawnResult = await spawnSubAgent(
         this.hostRuntime.sessionManager,
-        this.hostRuntime.subAgentRegistry,
+        this.hostRuntime.detachedRunRegistry,
         {
           parentKey: params.parentSessionKey,
           agentId: targetAgentId,
@@ -179,7 +179,8 @@ export class SubagentRegistry {
       }
 
       const detachedRunId = spawnResult.runId;
-      const timeoutSeconds = this.hostRuntime.subAgentRegistry.get(detachedRunId)?.timeoutSeconds;
+      const timeoutSeconds =
+        this.hostRuntime.detachedRunRegistry.get(detachedRunId)?.timeoutSeconds;
       const parentDepth = this.getSpawnDepth(params.parentSessionKey);
       this.setSpawnDepth(spawnResult.childKey, parentDepth + 1);
       this.activeDetachedRuns.set(detachedRunId, params.parentSessionKey);
@@ -198,10 +199,10 @@ export class SubagentRegistry {
         modelRef: params.model,
         timeoutSeconds,
         onAccepted: async () => {
-          this.hostRuntime?.subAgentRegistry.markStarted(detachedRunId);
+          this.hostRuntime?.detachedRunRegistry.markStarted(detachedRunId);
         },
         onTerminal: async ({ terminal, partialText, error, reason }) => {
-          await this.hostRuntime?.subAgentRegistry.completeByChildKey(spawnResult.childKey, {
+          await this.hostRuntime?.detachedRunRegistry.completeByChildKey(spawnResult.childKey, {
             status: terminal,
             result: partialText,
             error: reason ?? error?.message,
@@ -218,6 +219,11 @@ export class SubagentRegistry {
     } catch (error) {
       if (typeof runId === "string") {
         this.activeDetachedRuns.delete(runId);
+        await this.hostRuntime.detachedRunRegistry.setTerminal({
+          runId,
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
       this.decActive(params.parentSessionKey);
       throw error;

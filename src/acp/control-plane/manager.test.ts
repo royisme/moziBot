@@ -538,6 +538,7 @@ describe("AcpSessionManager", () => {
 
       const manager = new AcpSessionManager(deps);
       const events: AcpRuntimeEvent[] = [];
+      const onTerminal = vi.fn();
 
       await manager.runTurn({
         cfg: {} as MoziConfig,
@@ -548,11 +549,158 @@ describe("AcpSessionManager", () => {
         onEvent: (event) => {
           events.push(event);
         },
+        onTerminal,
       });
 
       const terminalEvents = events.filter((e) => e.type === "done" || e.type === "error");
       expect(terminalEvents).toHaveLength(1);
       expect(terminalEvents[0]?.type).toBe("done");
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({ terminal: "completed", reason: "stop" }),
+      );
+    });
+
+    it("should normalize failed terminal exactly once from runtime error event", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          yield {
+            type: "error",
+            message: "Runtime failed",
+            code: "RUNTIME_ERR",
+            category: "runtime",
+          };
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const onTerminal = vi.fn();
+
+      await manager.runTurn({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        text: "hello",
+        mode: "prompt",
+        requestId: "req-1",
+        onTerminal,
+      });
+
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          terminal: "failed",
+          reason: "Runtime failed",
+          errorCode: "RUNTIME_ERR",
+        }),
+      );
+    });
+
+    it("should normalize aborted terminal exactly once from cancelled runtime event", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* (): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          yield {
+            type: "error",
+            message: "cancelled by user",
+            code: "ACP_CANCELLED",
+            category: "cancelled",
+          };
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const onTerminal = vi.fn();
+
+      await manager.runTurn({
+        cfg: {} as MoziConfig,
+        sessionKey: "test:main",
+        text: "hello",
+        mode: "prompt",
+        requestId: "req-1",
+        onTerminal,
+      });
+
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          terminal: "aborted",
+          reason: "cancelled by user",
+          errorCode: "ACP_CANCELLED",
+        }),
+      );
+    });
+
+    it("should normalize timeout terminal exactly once when aborted by timeout signal", async () => {
+      const mockMeta = createMockMeta();
+      mockStore.set("test:main", { acp: mockMeta });
+
+      const timeoutError = new Error("acp-timeout");
+      const mockRuntime = createMockRuntime({
+        runTurn: vi.fn(async function* ({
+          signal,
+        }: {
+          signal?: AbortSignal;
+        }): AsyncGenerator<AcpRuntimeEvent> {
+          yield { type: "started", requestId: "req-1" };
+          if (signal?.aborted) {
+            throw signal.reason;
+          }
+          throw timeoutError;
+        }),
+      });
+
+      const deps = createMockDeps({
+        requireRuntimeBackend: vi.fn(() => ({
+          id: "test-backend",
+          runtime: mockRuntime,
+          healthy: () => true,
+        })),
+      });
+
+      const manager = new AcpSessionManager(deps);
+      const onTerminal = vi.fn();
+      const controller = new AbortController();
+      controller.abort("acp-timeout");
+
+      await expect(
+        manager.runTurn({
+          cfg: {} as MoziConfig,
+          sessionKey: "test:main",
+          text: "hello",
+          mode: "prompt",
+          requestId: "req-1",
+          signal: controller.signal,
+          onTerminal,
+        }),
+      ).rejects.toBeDefined();
+
+      expect(onTerminal).toHaveBeenCalledTimes(1);
+      expect(onTerminal).toHaveBeenCalledWith(
+        expect.objectContaining({ terminal: "timeout", reason: "acp-timeout" }),
+      );
     });
   });
 

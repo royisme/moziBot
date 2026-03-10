@@ -14,6 +14,8 @@ export type RunTerminal = Extract<
   "completed" | "failed" | "aborted" | "timeout"
 >;
 
+export const RUN_TERMINAL_STATES: RunTerminal[] = ["completed", "failed", "aborted", "timeout"];
+
 export interface RunLifecycleEntry {
   readonly runId: string;
   readonly sessionKey: string;
@@ -36,6 +38,7 @@ type TerminalPayload = {
   readonly partialText?: string;
   readonly error?: Error;
   readonly reason?: string;
+  readonly errorCode?: string;
 };
 
 type RunLifecycleListeners = {

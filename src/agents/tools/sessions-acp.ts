@@ -9,7 +9,7 @@ import type { SessionAcpMeta } from "../../acp/types";
 import type { MoziConfig } from "../../config/schema";
 import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
-import type { SpawnResult, SubAgentRegistry } from "../../runtime/host/sessions/spawn";
+import type { SpawnResult, DetachedRunRegistry } from "../../runtime/host/sessions/spawn";
 
 /**
  * ACP spawn options schema
@@ -58,7 +58,7 @@ export function shouldUseAcpSpawn(params: SessionsAcpSpawnParams): boolean {
  */
 export interface SessionAcpToolsContext {
   sessionManager: SessionManager;
-  subAgentRegistry: SubAgentRegistry;
+  detachedRunRegistry: DetachedRunRegistry;
   currentSessionKey: string;
   config?: MoziConfig;
 }
@@ -72,38 +72,42 @@ export interface SessionAcpToolsContext {
  * 3. Ensures the ACP session is initialized via AcpSessionManager
  * 4. Updates the session with ACP metadata
  */
+function validateAcpSpawnRequest(
+  config: MoziConfig | undefined,
+  params: SessionsAcpSpawnParams,
+): string | undefined {
+  if (config) {
+    if (!isAcpEnabledByPolicy(config)) {
+      return "ACP is disabled by policy.";
+    }
+    if (!isAcpDispatchEnabledByPolicy(config)) {
+      return "ACP dispatch is disabled by policy.";
+    }
+  }
+
+  const acpOptions = params.acp ?? {};
+  const resolvedBackend = acpOptions.backend?.trim() || config?.acp?.backend?.trim();
+  if (!resolvedBackend) {
+    return "ACP backend is required (set acp.backend or pass acp.backend).";
+  }
+
+  return undefined;
+}
+
 export async function initializeAcpSubAgent(
   ctx: SessionAcpToolsContext,
   params: SessionsAcpSpawnParams,
   spawnResult: SpawnResult,
 ): Promise<SpawnResult> {
   const config = ctx.config;
-
-  // Validate ACP policy
-  if (config) {
-    if (!isAcpEnabledByPolicy(config)) {
-      return {
-        childKey: "",
-        sessionId: "",
-        status: "rejected",
-        error: "ACP is disabled by policy.",
-      };
-    }
-    if (!isAcpDispatchEnabledByPolicy(config)) {
-      return {
-        childKey: "",
-        sessionId: "",
-        status: "rejected",
-        error: "ACP dispatch is disabled by policy.",
-      };
-    }
-  }
-
   const childKey = spawnResult.childKey;
+  const acpOptions = params.acp ?? {};
+  const resolvedBackend = acpOptions.backend?.trim() || config?.acp?.backend?.trim() || "";
   const childSession = ctx.sessionManager.get(childKey);
 
   if (!childSession) {
     return {
+      runId: spawnResult.runId,
       childKey: "",
       sessionId: "",
       status: "error",
@@ -112,17 +116,6 @@ export async function initializeAcpSubAgent(
   }
 
   // Resolve ACP options
-  const acpOptions = params.acp ?? {};
-  const resolvedBackend = acpOptions.backend?.trim() || config?.acp?.backend?.trim();
-
-  if (!resolvedBackend) {
-    return {
-      childKey: "",
-      sessionId: "",
-      status: "rejected",
-      error: "ACP backend is required (set acp.backend or pass acp.backend).",
-    };
-  }
 
   const resolvedAgent =
     acpOptions.agent?.trim() || params.agentId?.trim() || childSession.agentId || "main";
@@ -195,13 +188,14 @@ export async function initializeAcpSubAgent(
     }
 
     // Mark sub-agent as failed
-    ctx.subAgentRegistry.complete(childKey, {
+    await ctx.detachedRunRegistry.completeByChildKey(childKey, {
       status: "failed",
       error: message,
     });
     await ctx.sessionManager.setStatus(childKey, "failed");
 
     return {
+      runId: spawnResult.runId,
       childKey,
       sessionId: spawnResult.sessionId,
       status: "error",
@@ -221,7 +215,7 @@ export async function sessionsAcpSpawn(
   params: SessionsAcpSpawnParams,
   spawnSubAgentFn: (
     sessionManager: SessionManager,
-    subAgentRegistry: SubAgentRegistry,
+    detachedRunRegistry: DetachedRunRegistry,
     options: {
       parentKey: string;
       agentId?: string;
@@ -233,8 +227,19 @@ export async function sessionsAcpSpawn(
     },
   ) => Promise<SpawnResult>,
 ): Promise<SpawnResult> {
+  const validationError = validateAcpSpawnRequest(ctx.config, params);
+  if (validationError) {
+    return {
+      runId: "",
+      childKey: "",
+      sessionId: "",
+      status: "rejected",
+      error: validationError,
+    };
+  }
+
   // First, spawn a regular sub-agent
-  const spawnResult = await spawnSubAgentFn(ctx.sessionManager, ctx.subAgentRegistry, {
+  const spawnResult = await spawnSubAgentFn(ctx.sessionManager, ctx.detachedRunRegistry, {
     parentKey: ctx.currentSessionKey,
     agentId: params.agentId,
     model: params.model,

@@ -12,7 +12,7 @@ describe("scheduleContinuation tool", () => {
 
   const mockSubAgentRegistry = {
     listByParent: () => [],
-  } as unknown as SessionToolsContext["subAgentRegistry"];
+  } as unknown as SessionToolsContext["detachedRunRegistry"];
 
   beforeEach(() => {
     continuationRegistry.clearAll();
@@ -25,7 +25,7 @@ describe("scheduleContinuation tool", () => {
   it("schedules a continuation request", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-1",
     };
 
@@ -46,7 +46,7 @@ describe("scheduleContinuation tool", () => {
   it("schedules a continuation with delay", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-2",
     };
 
@@ -67,7 +67,7 @@ describe("scheduleContinuation tool", () => {
   it("marks long delayed continuation for job escalation", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-2b",
       config: {
         runtime: {
@@ -93,7 +93,7 @@ describe("scheduleContinuation tool", () => {
   it("schedules a continuation with context", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-3",
     };
 
@@ -116,7 +116,7 @@ describe("scheduleContinuation tool", () => {
   it("schedules multiple continuations in sequence", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-4",
     };
 
@@ -132,7 +132,7 @@ describe("scheduleContinuation tool", () => {
   it("rejects delayed heartbeat-style continuation loops", async () => {
     const ctx: SessionToolsContext = {
       sessionManager: mockSessionManager,
-      subAgentRegistry: mockSubAgentRegistry,
+      detachedRunRegistry: mockSubAgentRegistry,
       currentSessionKey: "test-session-5",
     };
 

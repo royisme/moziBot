@@ -1,13 +1,14 @@
 import { logger } from "../../../logger";
 import type { MessageHandler } from "../message-handler";
 
-export interface AnnounceParams {
+export interface DetachedRunAnnouncementParams {
   runId: string;
   childKey: string;
   parentKey: string;
   task: string;
   label?: string;
-  status: "completed" | "failed" | "timeout";
+  kind?: "subagent" | "acp";
+  status: "completed" | "failed" | "timeout" | "aborted";
   result?: string;
   error?: string;
   startedAt?: number;
@@ -35,12 +36,14 @@ function buildStatusLabel(status: string, error?: string): string {
       return `failed: ${error || "unknown error"}`;
     case "timeout":
       return "timed out";
+    case "aborted":
+      return error ? `was cancelled: ${error}` : "was cancelled";
     default:
       return "finished with unknown status";
   }
 }
 
-export function buildTriggerMessage(params: AnnounceParams): string {
+export function buildDetachedRunTriggerMessage(params: DetachedRunAnnouncementParams): string {
   const taskLabel = params.label || params.task || "background task";
   const statusLabel = buildStatusLabel(params.status, params.error);
   const duration = formatDuration(params.startedAt, params.endedAt);
@@ -66,28 +69,31 @@ export function injectMessageHandler(handler: MessageHandler): void {
   messageHandlerRef = handler;
 }
 
-export async function announceSubagentResult(params: AnnounceParams): Promise<boolean> {
+export async function announceDetachedRunResult(
+  params: DetachedRunAnnouncementParams,
+): Promise<boolean> {
   if (!messageHandlerRef) {
     logger.warn("MessageHandler not injected, skipping announce");
     return false;
   }
 
-  const triggerMessage = buildTriggerMessage(params);
+  const triggerMessage = buildDetachedRunTriggerMessage(params);
 
   try {
     await messageHandlerRef.handleInternalMessage({
       sessionKey: params.parentKey,
       content: triggerMessage,
-      source: "subagent-announce",
+      source: "detached-run-announce",
       metadata: {
-        subagentRunId: params.runId,
-        subagentChildKey: params.childKey,
-        subagentStatus: params.status,
+        taskKind: params.kind ?? "subagent",
+        detachedRunId: params.runId,
+        detachedChildKey: params.childKey,
+        detachedStatus: params.status,
       },
     });
     return true;
   } catch (err) {
-    logger.error({ err, runId: params.runId }, "Failed to announce subagent result");
+    logger.error({ err, runId: params.runId }, "Failed to announce detached run result");
     return false;
   }
 }

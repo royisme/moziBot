@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "../../../logger";
 import type { SessionManager } from "./manager";
-import type { EnhancedSubAgentRegistry } from "./subagent-registry";
+import type { DetachedRunRegistry } from "./subagent-registry";
 
-export { EnhancedSubAgentRegistry as SubAgentRegistry } from "./subagent-registry";
+export { DetachedRunRegistry } from "./subagent-registry";
 
 export interface SpawnOptions {
   parentKey: string;
@@ -27,7 +27,7 @@ export interface SpawnResult {
 
 export async function spawnSubAgent(
   sessionManager: SessionManager,
-  registry: EnhancedSubAgentRegistry,
+  registry: DetachedRunRegistry,
   options: SpawnOptions,
 ): Promise<SpawnResult> {
   try {

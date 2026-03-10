@@ -28,7 +28,7 @@ import { MessageHandler } from "./message-handler";
 import { ReminderRunner } from "./reminders/runner";
 import { routeContextToOutboundMessage } from "./routing/route-context";
 import { SessionManager } from "./sessions/manager";
-import { SubAgentRegistry as SessionSubAgentRegistry } from "./sessions/spawn";
+import { DetachedRunRegistry as SessionDetachedRunRegistry } from "./sessions/spawn";
 import { injectMessageHandler } from "./sessions/subagent-announce";
 import type { RuntimeHostOptions, RuntimeStatus } from "./types";
 
@@ -38,7 +38,7 @@ export class RuntimeHost {
   private configManager: ConfigManager;
   private health: HealthCheck;
   private sessionManager: SessionManager;
-  private subAgentRegistry: SessionSubAgentRegistry;
+  private detachedRunRegistry: SessionDetachedRunRegistry;
   private channelRegistry: ChannelRegistry;
   private runtimeKernel: RuntimeKernel | null = null;
   private messageHandler: MessageHandler | null = null;
@@ -83,7 +83,7 @@ export class RuntimeHost {
     this.configManager = new ConfigManager();
     this.health = new HealthCheck();
     this.sessionManager = new SessionManager();
-    this.subAgentRegistry = new SessionSubAgentRegistry(path.join(process.cwd(), "data"));
+    this.detachedRunRegistry = new SessionDetachedRunRegistry(path.join(process.cwd(), "data"));
     this.channelRegistry = new ChannelRegistry();
 
     this.configManager.on("change", (config) => {
@@ -235,7 +235,7 @@ export class RuntimeHost {
     } else {
       this.messageHandler = new MessageHandler(config, {
         sessionManager: this.sessionManager,
-        subAgentRegistry: this.subAgentRegistry,
+        detachedRunRegistry: this.detachedRunRegistry,
         runtimeControl: {
           getStatus: () => this.getStatus(),
           restart: async () => {
@@ -245,7 +245,7 @@ export class RuntimeHost {
       });
       injectMessageHandler(this.messageHandler);
       await this.messageHandler.initExtensions();
-      await this.subAgentRegistry.reconcileOrphanedRuns();
+      await this.detachedRunRegistry.reconcileOrphanedRuns();
       logger.info("MessageHandler initialized");
     }
 

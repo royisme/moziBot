@@ -15,6 +15,13 @@ import type {
   AcpRuntimeSessionMode,
   AcpRuntimeStatus,
 } from "../runtime/types";
+
+export type AcpNormalizedTerminal = {
+  terminal: "completed" | "failed" | "aborted" | "timeout";
+  reason?: string;
+  error?: Error;
+  errorCode?: string;
+};
 import type { SessionAcpIdentity, AcpSessionRuntimeOptions, SessionAcpMeta } from "../types";
 
 export type AcpSessionResolution =
@@ -50,6 +57,7 @@ export type AcpRunTurnInput = {
   requestId: string;
   signal?: AbortSignal;
   onEvent?: (event: AcpRuntimeEvent) => Promise<void> | void;
+  onTerminal?: (terminal: AcpNormalizedTerminal) => Promise<void> | void;
 };
 
 export type AcpCloseSessionInput = {

@@ -1,7 +1,9 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { SessionManager } from "../../runtime/host/sessions/manager";
-import { SubAgentRegistry } from "../../runtime/host/sessions/spawn";
+import { DetachedRunRegistry } from "../../runtime/host/sessions/spawn";
 import { closeDb, initDb } from "../../storage/db";
 import {
   reminderCancel,
@@ -28,7 +30,8 @@ function cleanupTestDb() {
 
 describe("Reminder tools", () => {
   let sessionManager: SessionManager;
-  let subAgentRegistry: SubAgentRegistry;
+  let detachedRunRegistry: DetachedRunRegistry;
+  let registryDir: string;
   let ctx: SessionToolsContext;
 
   beforeEach(async () => {
@@ -36,7 +39,8 @@ describe("Reminder tools", () => {
     initDb(TEST_DB);
 
     sessionManager = new SessionManager();
-    subAgentRegistry = new SubAgentRegistry();
+    registryDir = mkdtempSync(path.join(os.tmpdir(), "reminder-tools-subagents-"));
+    detachedRunRegistry = new DetachedRunRegistry(registryDir);
     const currentSessionKey = "agent:mozi:telegram:dm:user1";
     await sessionManager.getOrCreate(currentSessionKey, {
       channel: "telegram",
@@ -47,12 +51,14 @@ describe("Reminder tools", () => {
 
     ctx = {
       sessionManager,
-      subAgentRegistry,
+      detachedRunRegistry,
       currentSessionKey,
     };
   });
 
   afterEach(() => {
+    detachedRunRegistry.shutdown();
+    rmSync(registryDir, { recursive: true, force: true });
     closeDb();
     cleanupTestDb();
   });
@@ -129,7 +135,7 @@ describe("Reminder tools", () => {
     });
     const otherCtx: SessionToolsContext = {
       sessionManager,
-      subAgentRegistry,
+      detachedRunRegistry,
       currentSessionKey: otherSession,
     };
 

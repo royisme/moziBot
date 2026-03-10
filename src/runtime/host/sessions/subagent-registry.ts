@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { logger } from "../../../logger";
-import { announceSubagentResult } from "./subagent-announce";
+import { RUN_TERMINAL_STATES } from "../message-handler/services/run-lifecycle-registry";
+import { announceDetachedRunResult } from "./subagent-announce";
 
-export type SubAgentRunStatus =
+export type DetachedRunStatus =
   | "accepted"
   | "started"
   | "streaming"
@@ -12,14 +13,15 @@ export type SubAgentRunStatus =
   | "aborted"
   | "timeout";
 
-export interface SubAgentRunRecord {
+export interface DetachedRunRecord {
   runId: string;
+  kind: "subagent" | "acp";
   childKey: string;
   parentKey: string;
   task: string;
   label?: string;
   cleanup: "delete" | "keep";
-  status: SubAgentRunStatus;
+  status: DetachedRunStatus;
   createdAt: number;
   startedAt?: number;
   endedAt?: number;
@@ -29,8 +31,8 @@ export interface SubAgentRunRecord {
   timeoutSeconds?: number;
 }
 
-export class EnhancedSubAgentRegistry {
-  private runs: Map<string, SubAgentRunRecord> = new Map();
+export class DetachedRunRegistry {
+  private runs: Map<string, DetachedRunRecord> = new Map();
   private persistPath: string;
   private sweepInterval: NodeJS.Timeout | null = null;
 
@@ -41,13 +43,15 @@ export class EnhancedSubAgentRegistry {
   }
 
   register(
-    run: Omit<SubAgentRunRecord, "createdAt" | "status"> & {
+    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind"> & {
+      kind?: "subagent" | "acp";
       createdAt?: number;
-      status?: SubAgentRunStatus;
+      status?: DetachedRunStatus;
     },
   ): void {
-    const record: SubAgentRunRecord = {
+    const record: DetachedRunRecord = {
       ...run,
+      kind: run.kind ?? "subagent",
       createdAt: run.createdAt ?? Date.now(),
       status: run.status ?? "accepted",
     };
@@ -55,31 +59,31 @@ export class EnhancedSubAgentRegistry {
     this.persist();
   }
 
-  get(runId: string): SubAgentRunRecord | undefined {
+  get(runId: string): DetachedRunRecord | undefined {
     return this.runs.get(runId);
   }
 
-  getByChildKey(childKey: string): SubAgentRunRecord | undefined {
+  getByChildKey(childKey: string): DetachedRunRecord | undefined {
     return [...this.runs.values()].find((r) => r.childKey === childKey);
   }
 
-  listByParent(parentKey: string): SubAgentRunRecord[] {
+  listByParent(parentKey: string): DetachedRunRecord[] {
     return [...this.runs.values()]
       .filter((r) => r.parentKey === parentKey)
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  listAll(): SubAgentRunRecord[] {
+  listAll(): DetachedRunRecord[] {
     return [...this.runs.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  listActiveByParent(parentKey: string): SubAgentRunRecord[] {
+  listActiveByParent(parentKey: string): DetachedRunRecord[] {
     return this.listByParent(parentKey).filter(
       (r) => !["completed", "failed", "aborted", "timeout"].includes(r.status),
     );
   }
 
-  update(runId: string, changes: Partial<SubAgentRunRecord>): SubAgentRunRecord | undefined {
+  update(runId: string, changes: Partial<DetachedRunRecord>): DetachedRunRecord | undefined {
     const run = this.runs.get(runId);
     if (!run) {
       return undefined;
@@ -89,11 +93,11 @@ export class EnhancedSubAgentRegistry {
     return run;
   }
 
-  markStarted(runId: string, startedAt = Date.now()): SubAgentRunRecord | undefined {
+  markStarted(runId: string, startedAt = Date.now()): DetachedRunRecord | undefined {
     return this.update(runId, { status: "started", startedAt });
   }
 
-  markStreaming(runId: string, startedAt?: number): SubAgentRunRecord | undefined {
+  markStreaming(runId: string, startedAt?: number): DetachedRunRecord | undefined {
     return this.update(runId, {
       status: "streaming",
       ...(startedAt ? { startedAt } : {}),
@@ -106,20 +110,26 @@ export class EnhancedSubAgentRegistry {
     result?: string;
     error?: string;
     endedAt?: number;
-  }): Promise<SubAgentRunRecord | undefined> {
+  }): Promise<DetachedRunRecord | undefined> {
     const run = this.runs.get(params.runId);
     if (!run) {
       return undefined;
     }
-    if (run.announced || ["completed", "failed", "aborted", "timeout"].includes(run.status)) {
+    if (run.announced || RUN_TERMINAL_STATES.includes(run.status as (typeof RUN_TERMINAL_STATES)[number])) {
       return run;
     }
 
+    const previous = { ...run };
     run.status = params.status;
     run.result = params.result;
     run.error = params.error;
     run.endedAt = params.endedAt ?? Date.now();
-    this.persist();
+    try {
+      this.persist();
+    } catch (error) {
+      Object.assign(run, previous);
+      throw error;
+    }
 
     await this.triggerAnnounce(run);
     return run;
@@ -140,43 +150,47 @@ export class EnhancedSubAgentRegistry {
     await this.setTerminal({ runId: run.runId, ...result });
   }
 
-  private async triggerAnnounce(run: SubAgentRunRecord): Promise<void> {
+  private async triggerAnnounce(run: DetachedRunRecord): Promise<void> {
     if (run.announced) {
       return;
     }
 
-    if (!["completed", "failed", "timeout", "aborted"].includes(run.status)) {
+    if (!RUN_TERMINAL_STATES.includes(run.status as (typeof RUN_TERMINAL_STATES)[number])) {
       return;
     }
 
-    const shouldAnnounce = run.status !== "aborted";
-    if (shouldAnnounce) {
-      try {
-        const announced = await announceSubagentResult({
-          runId: run.runId,
-          childKey: run.childKey,
-          parentKey: run.parentKey,
-          task: run.task,
-          label: run.label,
-          status:
-            run.status === "completed"
-              ? "completed"
-              : run.status === "timeout"
-                ? "timeout"
-                : "failed",
-          result: run.result,
-          error: run.error,
-          startedAt: run.startedAt,
-          endedAt: run.endedAt,
-        });
-        if (!announced) {
-          return;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error({ err: message, runId: run.runId }, "Failed to announce subagent result");
+    const status =
+      run.status === "completed" ||
+      run.status === "failed" ||
+      run.status === "timeout" ||
+      run.status === "aborted"
+        ? run.status
+        : undefined;
+    if (!status) {
+      return;
+    }
+
+    try {
+      const announced = await announceDetachedRunResult({
+        runId: run.runId,
+        childKey: run.childKey,
+        parentKey: run.parentKey,
+        task: run.task,
+        label: run.label,
+        kind: run.kind,
+        status,
+        result: run.result,
+        error: run.error,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt,
+      });
+      if (!announced) {
         return;
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err: message, runId: run.runId }, "Failed to announce detached run result");
+      return;
     }
 
     run.announced = true;
@@ -189,14 +203,9 @@ export class EnhancedSubAgentRegistry {
   }
 
   private persist(): void {
-    try {
-      fs.mkdirSync(path.dirname(this.persistPath), { recursive: true });
-      const data = Object.fromEntries(this.runs);
-      fs.writeFileSync(this.persistPath, JSON.stringify(data, null, 2));
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.warn({ err: message }, "Failed to persist subagent registry");
-    }
+    fs.mkdirSync(path.dirname(this.persistPath), { recursive: true });
+    const data = Object.fromEntries(this.runs);
+    fs.writeFileSync(this.persistPath, JSON.stringify(data, null, 2));
   }
 
   private restore(): void {
@@ -206,11 +215,22 @@ export class EnhancedSubAgentRegistry {
       }
       const data = JSON.parse(fs.readFileSync(this.persistPath, "utf-8"));
       for (const [id, record] of Object.entries(data)) {
-        this.runs.set(id, record as SubAgentRunRecord);
+        const restored = record as Partial<DetachedRunRecord>;
+        this.runs.set(id, {
+          ...restored,
+          runId: restored.runId ?? id,
+          kind: restored.kind ?? "subagent",
+          childKey: restored.childKey ?? "",
+          parentKey: restored.parentKey ?? "",
+          task: restored.task ?? "",
+          cleanup: restored.cleanup ?? "keep",
+          status: restored.status ?? "accepted",
+          createdAt: restored.createdAt ?? Date.now(),
+        } as DetachedRunRecord);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.warn({ err: message }, "Failed to restore subagent registry");
+      logger.warn({ err: message }, "Failed to restore detached run registry");
     }
   }
 
@@ -233,14 +253,26 @@ export class EnhancedSubAgentRegistry {
   }
 
   async reconcileOrphanedRuns(): Promise<void> {
+    const pendingAnnouncementRuns = [...this.runs.values()].filter(
+      (run) => !run.announced && RUN_TERMINAL_STATES.includes(run.status as any),
+    );
+
+    for (const run of pendingAnnouncementRuns) {
+      logger.warn(
+        { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
+        "Retrying pending detached task completion announcement after host restart",
+      );
+      await this.triggerAnnounce(run);
+    }
+
     const orphanedRuns = [...this.runs.values()].filter(
-      (run) => !run.announced && ["accepted", "started", "streaming"].includes(run.status),
+      (run) => !run.announced && !RUN_TERMINAL_STATES.includes(run.status as any),
     );
 
     for (const run of orphanedRuns) {
       logger.warn(
-        { runId: run.runId, childKey: run.childKey, status: run.status },
-        "Marking orphaned subagent run as failed after host restart",
+        { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
+        "Marking orphaned detached task run as failed after host restart",
       );
       await this.setTerminal({
         runId: run.runId,
