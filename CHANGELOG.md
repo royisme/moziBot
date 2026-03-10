@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - N/A
 
+## [2.0.0] - 2026-03-10
+
+### Changes
+
+- add ignore (17499c6)
+- feat: expose subagent run status and inspection (14d8b65)
+- add ignore (8b89cf1)
+- test: add unit tests for runtime channel capabilities delegation (568a1db)
+- fix: use real channel plugin for capability context (c1f4cd3)
+- fix: use real channel plugin for capability context (fc67427)
+- docs: add ACP detached runtime upgrade spec (95d5cfa)
+- feat: generalize subagent to neutral detached-run abstraction (Phase 3) (69a619f)
+- feat: add channel-aware action dispatch pipeline (7ef500c)
+- feat: integrate real ACPX runtime lifecycle (e38c3e2)
+- fix ACPX bootstrap follow-ups (31ecec8)
+- docs: document doctor commands and validation hooks (f23078e)
+
+### Fixes
+
+- N/A
+
 ## [1.3.0] - 2026-02-26
 
 ### Changes
