@@ -29,6 +29,7 @@ import {
 } from "./interaction-lifecycle";
 import { rememberLastRoute as rememberLastRouteService } from "./message-router";
 import { resolveSessionMetadata, resolveSessionTimestamps } from "./orchestrator-session";
+import type { FallbackInfo } from "./prompt-runner";
 import { buildPromptText, buildRawTextWithTranscription } from "./prompt-text";
 import { dispatchReply } from "./reply-dispatcher";
 import { shouldSuppressHeartbeatReply, shouldSuppressSilentReply } from "./reply-finalizer";
@@ -186,6 +187,10 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
         listActions: (
           context?: import("../../../adapters/channels/types").ChannelActionQueryContext,
         ) => channel.listActions?.(context) ?? [],
+        supportsThinkingStream:
+          channel.id === "localDesktop" ||
+          (channel.id === "telegram" &&
+            (channel as { config?: { streamMode?: string } }).config?.streamMode === "full"),
       } as {
         id: string;
         send: (peerId: string, message: Parameters<ChannelPlugin["send"]>[1]) => Promise<string>;
@@ -193,6 +198,7 @@ function buildInboundDeps(params: OrchestratorDepsBuilderParams): InboundDeps {
         listActions?: (
           context?: import("../../../adapters/channels/types").ChannelActionQueryContext,
         ) => import("../../../adapters/channels/types").ChannelActionSpec[];
+        supportsThinkingStream?: boolean;
         editMessage?: (messageId: string, peerId: string, text: string) => Promise<void>;
       };
 
@@ -357,18 +363,12 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         ingestPlan: ingestPlan as DeliveryPlan | null | undefined,
       });
     },
-    ensureChannelContext: async ({
-      sessionKey,
-      agentId,
-      message,
-      channel: targetChannel,
-      promptModeOverride,
-    }) => {
+    ensureChannelContext: async ({ sessionKey, agentId, message, promptModeOverride }) => {
       await agentManager.ensureChannelContext({
         sessionKey,
         agentId,
         message: message as InboundMessage,
-        channel: targetChannel,
+        channel,
         promptModeOverride,
       });
     },
@@ -419,6 +419,22 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
       onStream,
       onFallback,
       abortSignal,
+    }: {
+      sessionKey: string;
+      agentId: string;
+      text: string;
+      images?: ImageContent[];
+      traceId?: string;
+      onStream?: (event: {
+        type: "text_delta" | "tool_start" | "tool_end" | "agent_end";
+        delta?: string;
+        toolName?: string;
+        toolCallId?: string;
+        isError?: boolean;
+        fullText?: string;
+      }) => void | Promise<void>;
+      onFallback?: (info: FallbackInfo) => Promise<void> | void;
+      abortSignal?: AbortSignal;
     }) => {
       await runPromptWithFallback({
         sessionKey,
@@ -427,7 +443,11 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
         images,
         traceId,
         onStream,
-        onFallback,
+        onFallback: onFallback
+          ? async (info) => {
+              await onFallback(info as FallbackInfo);
+            }
+          : undefined,
         abortSignal,
       });
     },

@@ -154,3 +154,10 @@ For more information, read the Bun API docs in `node_modules/bun-types/docs/**.m
 - 一次只改一个变量，改完验证，再继续下一步
 - 依赖关系明确时，先检查前置条件再执行后续步骤
 - 不可逆或高影响操作（删除、重构大范围代码）执行前主动说明并确认
+
+### 本仓库排障经验
+
+- `message-handler` 中 `deps.getChannel()` 返回的是 bridge，不保证是完整 `ChannelPlugin`；凡是需要 `getCapabilities()` 或 plugin-specific config 的路径，优先闭包使用真实 channel plugin，不要把 bridge 传给 `agentManager.ensureChannelContext`
+- 给 `ChannelDispatcherBridge` 新增能力字段时，优先抽象成 typed capability（如 `supportsThinkingStream`），不要在 flow 层直接读取 plugin-specific `config`
+- 定位 channel 能力问题时，先看 `src/runtime/adapters/channels/*/plugin.ts` 的 `getCapabilities()`；`send_media` 是否可用以这里的 `supportedActions` 为准
+- 使用 context-mode 跑测试或类型检查时，命令先 `cd` 到仓库根目录，再执行 `pnpm` / `vitest` / `tsc`

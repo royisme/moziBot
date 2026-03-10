@@ -115,7 +115,6 @@ export interface OrchestratorDeps {
     sessionKey: string;
     agentId: string;
     message: unknown;
-    channel: ChannelPlugin;
     promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }): Promise<void>;
   startTypingIndicator(params: {
@@ -141,7 +140,7 @@ export interface OrchestratorDeps {
     images?: ImageContent[];
     traceId?: string;
     onStream?: StreamingCallback;
-    onFallback?: (info: FallbackInfo) => Promise<void>;
+    onFallback?: (info: FallbackInfo) => Promise<void> | void;
     abortSignal?: AbortSignal;
   }): Promise<void>;
   maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
@@ -173,6 +172,7 @@ export interface ChannelDispatcherBridge {
   readonly listActions?: (
     context?: import("../../adapters/channels/types").ChannelActionQueryContext,
   ) => import("../../adapters/channels/types").ChannelActionSpec[];
+  readonly supportsThinkingStream?: boolean;
   readonly editMessage?: (messageId: string, peerId: string, text: string) => Promise<void>;
   readonly send: (peerId: string, message: OutboundMessage) => Promise<string>;
 }

@@ -85,7 +85,6 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     sessionKey: string;
     agentId: string;
     message: unknown;
-    channel: ReturnType<typeof deps.getChannel>;
     promptModeOverride?: "main" | "reset-greeting" | "subagent-minimal";
   }) => deps.ensureChannelContext(params);
   const resolveReasoningLevel = (params: {
@@ -147,7 +146,6 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     sessionKey,
     agentId,
     message: payload,
-    channel: getChannel(payload),
   });
 
   state.stopTyping = await startTyping({ sessionKey, agentId, peerId });
@@ -193,11 +191,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
 
   // Check if channel supports streaming reasoning display
   // localDesktop always supports, Telegram supports when streamMode === "full"
-  let channelSupportsThinkingStream = channel.id === "localDesktop";
-  if (channel.id === "telegram") {
-    const telegramConfig = (channel as { config?: { streamMode?: string } }).config;
-    channelSupportsThinkingStream = telegramConfig?.streamMode === "full";
-  }
+  const channelSupportsThinkingStream = channel.supportsThinkingStream === true;
 
   const shouldShowThinking = channelSupportsThinkingStream && reasoningLevel === "stream";
   const streamingReasoningFilter = shouldShowThinking ? null : new StreamingReasoningFilter();

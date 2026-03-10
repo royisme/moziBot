@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChannelActionName } from "../../../adapters/channels/types";
 import type { MessageTurnContext, OrchestratorDeps, PreparedPromptBundle } from "../contract";
 import { runExecutionFlow } from "./execution-flow";
 
@@ -21,6 +22,30 @@ const hookMocks = vi.hoisted(() => ({
 vi.mock("../../../hooks", () => ({
   getRuntimeHookRunner: () => hookMocks.runner,
 }));
+
+function createBridgeChannel(
+  overrides: Partial<
+    OrchestratorDeps["getChannel"] extends (...args: never[]) => infer R ? R : never
+  > = {},
+) {
+  const supportedActions: ChannelActionName[] = ["send_text", "send_media", "reply"];
+  return {
+    id: "telegram",
+    send: vi.fn(async () => "out"),
+    supportsThinkingStream: false,
+    getCapabilities: () => ({
+      media: true,
+      polls: false,
+      reactions: true,
+      threads: true,
+      editMessage: false,
+      deleteMessage: false,
+      implicitCurrentTarget: true,
+      supportedActions,
+    }),
+    ...overrides,
+  };
+}
 
 function createDeps(): OrchestratorDeps & {
   __loggerInfoMock: ReturnType<typeof vi.fn>;
@@ -59,7 +84,7 @@ function createDeps(): OrchestratorDeps & {
     getCommandHandlerMap: vi.fn(
       () => ({}) as OrchestratorDeps["getCommandHandlerMap"] extends () => infer R ? R : never,
     ),
-    getChannel: vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") })),
+    getChannel: vi.fn(() => createBridgeChannel()),
     dispatchExtensionCommand: vi.fn(async () => false),
     interruptSession: vi.fn(async () => false),
     performSessionReset: vi.fn(async () => {}),
@@ -133,16 +158,53 @@ function createBundle(): PreparedPromptBundle {
 }
 
 describe("runExecutionFlow", () => {
+  it("uses the real channel plugin for prompt channel context setup", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const bridgeChannel = createBridgeChannel();
+    deps.getChannel = vi.fn(() => bridgeChannel);
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(deps.ensureChannelContext.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        sessionKey: "agent:mozi:telegram:dm:chat-1",
+        agentId: "mozi",
+        message: ctx.payload,
+      }),
+    );
+    expect(
+      (deps.ensureChannelContext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0],
+    ).not.toHaveProperty("channel", bridgeChannel);
+  });
+
+  it("preserves telegram thinking stream support from the bridge", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const createStreamingBuffer = vi.spyOn(deps, "createStreamingBuffer");
+
+    deps.getChannel = vi.fn(() =>
+      createBridgeChannel({
+        supportsThinkingStream: true,
+        editMessage: vi.fn(async () => {}),
+      }),
+    );
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(createStreamingBuffer).toHaveBeenCalledTimes(1);
+  });
+
   it("uses timeout-specific fallback copy for streaming flows", async () => {
     const ctx = createContext();
     const deps = createDeps();
     const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
-    deps.getChannel = vi.fn(() => ({
-      id: "telegram",
-      send: vi.fn(async () => "out"),
-      editMessage: vi.fn(async () => {}),
-    }));
+    deps.getChannel = vi.fn(() =>
+      createBridgeChannel({
+        editMessage: vi.fn(async () => {}),
+      }),
+    );
     deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
       await onFallback?.({
         fromModel: "quotio/gemini-3-flash-preview",
@@ -169,7 +231,7 @@ describe("runExecutionFlow", () => {
     const deps = createDeps();
     const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
-    deps.getChannel = vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") }));
+    deps.getChannel = vi.fn(() => createBridgeChannel());
     deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
       await onFallback?.({
         fromModel: "quotio/gemini-3-flash-preview",
@@ -196,7 +258,7 @@ describe("runExecutionFlow", () => {
     const deps = createDeps();
     const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
-    deps.getChannel = vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") }));
+    deps.getChannel = vi.fn(() => createBridgeChannel());
     deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
       await onFallback?.({
         fromModel: "quotio/gemini-3-flash-preview",
