@@ -10,6 +10,7 @@ import { ProviderRegistry } from "./provider-registry";
 import type { ModelSpec } from "./types";
 
 const MAX_CONCURRENT_SUBAGENTS = 2;
+const DEFAULT_DETACHED_SUBAGENT_TIMEOUT_SECONDS = 300;
 
 type SubagentRunParams = {
   parentSessionKey: string;
@@ -183,14 +184,14 @@ export class SubagentRegistry {
 
       const detachedRunId = spawnResult.runId;
       const timeoutSeconds =
-        this.hostRuntime.detachedRunRegistry.get(detachedRunId)?.timeoutSeconds;
+        this.hostRuntime.detachedRunRegistry.get(detachedRunId)?.timeoutSeconds ??
+        params.timeoutSeconds ??
+        DEFAULT_DETACHED_SUBAGENT_TIMEOUT_SECONDS;
       const parentDepth = this.getSpawnDepth(params.parentSessionKey);
       this.setSpawnDepth(spawnResult.childKey, parentDepth + 1);
       this.activeDetachedRuns.set(detachedRunId, params.parentSessionKey);
 
-      const subagentPromptMode = params.agentId
-        ? this.agentManager.resolveSubagentPromptMode(params.parentAgentId)
-        : "full";
+      const subagentPromptMode = this.agentManager.resolveSubagentPromptMode(params.parentAgentId);
 
       await this.hostRuntime.startDetachedPromptRun({
         runId: detachedRunId,

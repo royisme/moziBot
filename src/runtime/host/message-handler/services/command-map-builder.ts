@@ -37,6 +37,8 @@ import {
   performSessionReset,
 } from "./session-control-command";
 import { handleSkillsCommand as handleSkillsCommandService } from "./skills-command";
+import { handleTasksCommand as handleTasksCommandService } from "./tasks-command";
+import { TasksControlPlane } from "./tasks-control-plane";
 
 const RESET_GREETING_TIMEOUT_MS = 12_000;
 
@@ -47,6 +49,9 @@ export function buildCommandHandlerMap(params: {
   agentManager: AgentManager;
   modelRegistry: ModelRegistry;
   config: MoziConfig;
+  sessionManager?: import("../../sessions/manager").SessionManager;
+  detachedRunRegistry?: import("../../sessions/spawn").DetachedRunRegistry;
+  runLifecycleRegistry?: import("./run-lifecycle-registry").RunLifecycleRegistry;
   runtimeControl?: {
     getStatus?: () => { running: boolean; pid: number | null; uptime: number };
     restart?: () => Promise<void> | void;
@@ -92,6 +97,9 @@ export function buildCommandHandlerMap(params: {
     agentManager,
     modelRegistry,
     config,
+    sessionManager,
+    detachedRunRegistry,
+    runLifecycleRegistry,
     runtimeControl,
     logger,
     getVersion,
@@ -341,6 +349,19 @@ export function buildCommandHandlerMap(params: {
           peerId,
           agentManager,
           modelRegistry,
+        });
+      },
+      onTasks: async ({ sessionKey, args, channel: msgChannel, peerId }) => {
+        if (!sessionManager || !detachedRunRegistry) {
+          await msgChannel.send(peerId, { text: "Task controls are unavailable in this runtime." });
+          return;
+        }
+        await handleTasksCommandService({
+          sessionKey,
+          args,
+          channel: msgChannel,
+          peerId,
+          controlPlane: new TasksControlPlane(detachedRunRegistry, runLifecycleRegistry),
         });
       },
       onSkills: async ({ agentId, channel: msgChannel, peerId }) => {

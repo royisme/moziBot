@@ -31,6 +31,7 @@ export interface MessageCommandRegistryDeps {
     message: InboundMessage;
   }): Promise<void>;
   onModels(params: { sessionKey: string; agentId: string; peerId: string }): Promise<void>;
+  onTasks(params: { sessionKey: string; peerId: string; args: string }): Promise<void>;
   onSkills(params: { agentId: string; peerId: string }): Promise<void>;
   onSwitch(params: {
     sessionKey: string;
@@ -91,7 +92,7 @@ export interface MessageCommandRegistryDeps {
 }
 
 const HELP_TEXT =
-  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/skills List available skills\n/switch alias|provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]\n/acp spawn [backend] Spawn ACP session\n/acp status <session> Show ACP session status\n/acp cancel <session> Cancel ACP session\n/acp list List ACP sessions";
+  "Available commands:\n/status View status\n/whoami View identity information\n/new Start new session\n/reset Reset session\n/models List available models\n/tasks List and manage detached tasks\n/skills List available skills\n/switch alias|provider/model Switch model\n/stop Interrupt active run\n/compact Compact session context\n/context View context details\n/prompt_digest View prompt digest\n/restart Restart runtime\n/heartbeat [status|on|off] Heartbeat control\n/reminders Reminder management\n/setAuth set KEY=VALUE [--scope=...]\n/unsetAuth KEY [--scope=...]\n/listAuth [--scope=...]\n/checkAuth KEY [--scope=...]\n/acp spawn [backend] Spawn ACP session\n/acp status <session> Show ACP session status\n/acp cancel <session> Cancel ACP session\n/acp list List ACP sessions";
 
 export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps): CommandHandlerMap {
   const withInbound = (ctx: CommandDispatchContext): InboundMessage =>
@@ -135,6 +136,9 @@ export function buildMessageCommandHandlerMap(deps: MessageCommandRegistryDeps):
     },
     models: async (ctx) => {
       await deps.onModels({ sessionKey: ctx.sessionKey, agentId: ctx.agentId, peerId: ctx.peerId });
+    },
+    tasks: async (ctx, args) => {
+      await deps.onTasks({ sessionKey: ctx.sessionKey, peerId: ctx.peerId, args });
     },
     skill: async (ctx) => {
       await deps.onSkills({ agentId: ctx.agentId, peerId: ctx.peerId });

@@ -195,6 +195,155 @@ describe("SubagentRegistry", () => {
     ).rejects.toThrow("Max subagent spawn depth (2) reached");
   });
 
+  it("uses resolved prompt mode for detached self subagents when agentId is omitted", async () => {
+    const registryDir = mkdtempSync(path.join(os.tmpdir(), "subagent-runtime-test-"));
+    const startDetachedPromptRun = vi
+      .fn<HostSubagentRuntime["startDetachedPromptRun"]>()
+      .mockResolvedValue({ runId: "run-self" });
+
+    const registry = new SubagentRegistry(
+      {
+        get: () => ({ id: "quotio/gemini-3-flash-preview" }),
+      } as never,
+      {
+        resolveApiKey: () => "test-key",
+      } as never,
+      {
+        getAgentEntry: () => ({ subagents: { allow: ["worker"] } }),
+        resolveSubagentPromptMode: () => "minimal",
+      } as never,
+      {
+        sessionManager: {
+          get: vi.fn(() => ({
+            key: "parent-1",
+            agentId: "mozi",
+            channel: "telegram",
+            peerId: "user-1",
+            peerType: "dm",
+            status: "idle",
+            createdAt: new Date(),
+            lastActiveAt: new Date(),
+          })),
+          getOrCreate: vi.fn(async (key: string, defaults: Record<string, unknown>) => ({
+            key,
+            agentId: (defaults.agentId as string) ?? "mozi",
+            channel: (defaults.channel as string) ?? "subagent",
+            peerId: (defaults.peerId as string) ?? "peer",
+            peerType: (defaults.peerType as "dm" | "group") ?? "dm",
+            status: (defaults.status as string) ?? "idle",
+            parentKey: defaults.parentKey as string | undefined,
+            metadata: defaults.metadata,
+            createdAt: new Date(),
+            lastActiveAt: new Date(),
+          })),
+        } as never,
+        detachedRunRegistry: new SessionDetachedRunRegistry(registryDir),
+        startDetachedPromptRun,
+        isDetachedRunActive: vi.fn(() => true),
+      },
+    );
+
+    try {
+      await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        prompt: "self task",
+      });
+
+      expect(startDetachedPromptRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "mozi",
+          promptMode: "subagent-minimal",
+        }),
+      );
+    } finally {
+      (
+        registry as unknown as { hostRuntime?: HostSubagentRuntime }
+      ).hostRuntime?.detachedRunRegistry.shutdown();
+      rmSync(registryDir, { recursive: true, force: true });
+    }
+  });
+
+  it("applies default detached timeout and preserves explicit timeout overrides", async () => {
+    const registryDir = mkdtempSync(path.join(os.tmpdir(), "subagent-runtime-test-"));
+    const detachedRunRegistry = new SessionDetachedRunRegistry(registryDir);
+    const startDetachedPromptRun = vi
+      .fn<HostSubagentRuntime["startDetachedPromptRun"]>()
+      .mockResolvedValueOnce({ runId: "run-default" })
+      .mockResolvedValueOnce({ runId: "run-explicit" });
+
+    const sessionManager = {
+      get: vi.fn(() => ({
+        key: "parent-1",
+        agentId: "mozi",
+        channel: "telegram",
+        peerId: "user-1",
+        peerType: "dm",
+        status: "idle",
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      })),
+      getOrCreate: vi.fn(async (key: string, defaults: Record<string, unknown>) => ({
+        key,
+        agentId: (defaults.agentId as string) ?? "worker",
+        channel: (defaults.channel as string) ?? "subagent",
+        peerId: (defaults.peerId as string) ?? "peer",
+        peerType: (defaults.peerType as "dm" | "group") ?? "dm",
+        status: (defaults.status as string) ?? "idle",
+        parentKey: defaults.parentKey as string | undefined,
+        metadata: defaults.metadata,
+        createdAt: new Date(),
+        lastActiveAt: new Date(),
+      })),
+    };
+
+    const registry = new SubagentRegistry(
+      {
+        get: () => ({ id: "quotio/gemini-3-flash-preview" }),
+      } as never,
+      {
+        resolveApiKey: () => "test-key",
+      } as never,
+      {
+        getAgentEntry: () => ({ subagents: { allow: ["worker"] } }),
+        resolveSubagentPromptMode: () => "minimal",
+      } as never,
+      {
+        sessionManager: sessionManager as never,
+        detachedRunRegistry,
+        startDetachedPromptRun,
+        isDetachedRunActive: vi.fn(() => true),
+      },
+    );
+
+    try {
+      await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        agentId: "worker",
+        prompt: "default timeout task",
+      });
+
+      await registry.spawn({
+        parentSessionKey: "parent-1",
+        parentAgentId: "mozi",
+        agentId: "worker",
+        prompt: "explicit timeout task",
+        timeoutSeconds: 42,
+      });
+
+      expect(startDetachedPromptRun.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ timeoutSeconds: 300 }),
+      );
+      expect(startDetachedPromptRun.mock.calls[1]?.[0]).toEqual(
+        expect.objectContaining({ timeoutSeconds: 42 }),
+      );
+    } finally {
+      detachedRunRegistry.shutdown();
+      rmSync(registryDir, { recursive: true, force: true });
+    }
+  });
+
   it("removes only the failed detached run from active tracking", async () => {
     const registryDir = mkdtempSync(path.join(os.tmpdir(), "subagent-runtime-test-"));
     const sessionManager = {

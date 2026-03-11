@@ -40,6 +40,12 @@ export function createMessageCommandHandlerMap(params: {
       channel: ChannelPlugin;
       peerId: string;
     }) => Promise<void>;
+    onTasks: (params: {
+      sessionKey: string;
+      args: string;
+      channel: ChannelPlugin;
+      peerId: string;
+    }) => Promise<void>;
     onSkills: (params: {
       agentId: string;
       channel: ChannelPlugin;
@@ -142,6 +148,9 @@ export function createMessageCommandHandlerMap(params: {
     },
     onModels: async ({ sessionKey, agentId, peerId }) => {
       await deps.onModels({ sessionKey, agentId, channel, peerId });
+    },
+    onTasks: async ({ sessionKey, peerId, args }) => {
+      await deps.onTasks({ sessionKey, args, channel, peerId });
     },
     onSkills: async ({ agentId, peerId }) => {
       await deps.onSkills({ agentId, channel, peerId });

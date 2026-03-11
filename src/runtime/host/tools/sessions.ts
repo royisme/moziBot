@@ -21,6 +21,8 @@ import {
   subagentStatus,
   subagentStatusDescription,
   subagentStatusSchema,
+  subagentStop,
+  subagentStopSchema,
   sessionsHistory,
   sessionsHistorySchema,
   sessionsList,
@@ -158,6 +160,17 @@ export function createSessionTools(ctx: SessionToolsContext): AgentTool[] {
       schema: subagentListSchema,
       ctx,
       execute: subagentList,
+    }),
+    createZodTool({
+      name: "subagent_stop",
+      label: "Subagent Stop",
+      description: "Stop a detached subagent run for the current parent session",
+      parameters: Type.Object({
+        runId: Type.String({ minLength: 1 }),
+      }),
+      schema: subagentStopSchema,
+      ctx,
+      execute: subagentStop,
     }),
     createZodTool({
       name: "schedule_continuation",

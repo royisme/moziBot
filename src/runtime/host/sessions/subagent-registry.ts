@@ -83,6 +83,9 @@ export interface DetachedRunRecord {
   lastDeliveryError?: string;
   // Terminal summary (for delivery)
   terminalSummary?: string;
+  abortRequestedAt?: number;
+  abortRequestedBy?: string;
+  staleDetectedAt?: number;
 }
 
 // Extended registration options with lifecycle fields
@@ -434,6 +437,19 @@ export class DetachedRunRegistry {
     return run;
   }
 
+  markAbortRequested(runId: string, requestedBy: string, requestedAt = Date.now()): DetachedRunRecord | undefined {
+    return this.update(runId, {
+      abortRequestedAt: requestedAt,
+      abortRequestedBy: requestedBy,
+    });
+  }
+
+  markStaleDetected(runId: string, detectedAt = Date.now()): DetachedRunRecord | undefined {
+    return this.update(runId, {
+      staleDetectedAt: detectedAt,
+    });
+  }
+
   markStarted(runId: string, startedAt = Date.now()): DetachedRunRecord | undefined {
     const run = this.transitionTo(runId, "started", { timestamp: startedAt });
     if (run) {
@@ -771,11 +787,20 @@ export class DetachedRunRegistry {
     this.sweepInterval.unref?.();
   }
 
-  async reconcileOrphanedRuns(): Promise<void> {
+  async reconcileOrphanedRuns(options?: {
+    parentKey?: string;
+    isRunActive?: (runId: string) => boolean;
+    requestedBy?: string;
+  }): Promise<{ retried: number; reconciled: number; runIds: string[] }> {
     const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+    const scopedRuns = [...this.runs.values()].filter((run) =>
+      options?.parentKey ? run.parentKey === options.parentKey : true,
+    );
+    let retried = 0;
+    let reconciled = 0;
+    const runIds: string[] = [];
 
-    // Retry terminal runs that haven't been delivered
-    const pendingAnnouncementRuns = [...this.runs.values()].filter(
+    const pendingAnnouncementRuns = scopedRuns.filter(
       (run) =>
         !run.announced &&
         terminalPhases.includes(run.status) &&
@@ -787,7 +812,6 @@ export class DetachedRunRegistry {
         { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
         "Retrying pending detached task completion announcement after host restart",
       );
-      // Mark delivery as pending for retry
       if (run.terminalDelivery) {
         run.terminalDelivery.status = "pending";
         run.terminalDelivery.attemptCount += 1;
@@ -796,24 +820,54 @@ export class DetachedRunRegistry {
         run,
         run.status as "completed" | "failed" | "aborted" | "timeout",
       );
+      retried += 1;
+      runIds.push(run.runId);
     }
 
-    // Handle orphaned non-terminal runs
-    const orphanedRuns = [...this.runs.values()].filter(
-      (run) => !run.announced && !terminalPhases.includes(run.status),
-    );
+    const orphanedRuns = scopedRuns.filter((run) => {
+      if (run.announced || terminalPhases.includes(run.status)) {
+        return false;
+      }
+      if (!options?.isRunActive) {
+        return true;
+      }
+      return !options.isRunActive(run.runId);
+    });
 
     for (const run of orphanedRuns) {
-      logger.warn(
-        { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
-        "Marking orphaned detached task run as failed after host restart",
-      );
-      await this.setTerminal({
-        runId: run.runId,
-        status: "failed",
-        error: "Host restarted while run was in progress",
-      });
+      const now = Date.now();
+      run.staleDetectedAt = now;
+      if (options?.requestedBy) {
+        run.abortRequestedAt = now;
+        run.abortRequestedBy = options.requestedBy;
+      }
+      this.persist();
+      if (options?.isRunActive) {
+        logger.warn(
+          { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
+          "Marking detached task run as aborted after stale runtime handle detection",
+        );
+        await this.setTerminal({
+          runId: run.runId,
+          status: "aborted",
+          error: "Reconciled orphaned run: no active runtime handle",
+        });
+      } else {
+        logger.warn(
+          { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
+          "Marking orphaned detached task run as failed after host restart",
+        );
+        await this.setTerminal({
+          runId: run.runId,
+          status: "failed",
+          error: "Host restarted while run was in progress",
+        });
+      }
+      reconciled += 1;
+      runIds.push(run.runId);
     }
+
+    return { retried, reconciled, runIds };
   }
 
   /**

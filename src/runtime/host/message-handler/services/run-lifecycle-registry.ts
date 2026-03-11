@@ -52,6 +52,10 @@ export class RunLifecycleRegistry {
   private readonly byRunId = new Map<string, RunLifecycleEntry>();
   private readonly runBySession = new Map<string, string>();
 
+  listRuns(): RunLifecycleEntry[] {
+    return [...this.byRunId.values()];
+  }
+
   constructor(private readonly listeners: RunLifecycleListeners = {}) {}
 
   createRun(params: {

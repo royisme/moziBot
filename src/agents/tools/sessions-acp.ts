@@ -112,6 +112,8 @@ export async function initializeAcpSubAgent(
       sessionId: "",
       status: "error",
       error: "Spawned child session was not found",
+      isUserVisible: spawnResult.isUserVisible,
+      ackDelivered: spawnResult.ackDelivered,
     };
   }
 
@@ -200,6 +202,8 @@ export async function initializeAcpSubAgent(
       sessionId: spawnResult.sessionId,
       status: "error",
       error: message,
+      isUserVisible: spawnResult.isUserVisible,
+      ackDelivered: spawnResult.ackDelivered,
     };
   }
 }
@@ -235,6 +239,8 @@ export async function sessionsAcpSpawn(
       sessionId: "",
       status: "rejected",
       error: validationError,
+      isUserVisible: false,
+      ackDelivered: false,
     };
   }
 

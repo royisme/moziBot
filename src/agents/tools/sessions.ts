@@ -10,6 +10,8 @@ import type { MoziConfig } from "../../config/schema";
 import { isAcpDispatchEnabledByPolicy, isAcpEnabledByPolicy } from "../../config/schema/acp-policy";
 import { continuationRegistry } from "../../runtime/core/continuation";
 import type { ContinuationRequest } from "../../runtime/core/contracts";
+import type { RunLifecycleRegistry } from "../../runtime/host/message-handler/services/run-lifecycle-registry";
+import { TasksControlPlane } from "../../runtime/host/message-handler/services/tasks-control-plane";
 import type { SessionManager } from "../../runtime/host/sessions/manager";
 import type { SpawnResult, DetachedRunRegistry } from "../../runtime/host/sessions/spawn";
 import { spawnSubAgent } from "../../runtime/host/sessions/spawn";
@@ -22,6 +24,7 @@ export interface SessionToolsContext {
   detachedRunRegistry: DetachedRunRegistry;
   currentSessionKey: string;
   config?: MoziConfig;
+  runLifecycleRegistry?: RunLifecycleRegistry;
 }
 
 export interface SessionInfo {
@@ -164,6 +167,8 @@ async function initializeAcpSubAgent(
         sessionId: "",
         status: "rejected",
         error: "ACP is disabled by policy.",
+        isUserVisible: spawnResult.isUserVisible,
+        ackDelivered: spawnResult.ackDelivered,
       };
     }
     if (!isAcpDispatchEnabledByPolicy(config)) {
@@ -173,6 +178,8 @@ async function initializeAcpSubAgent(
         sessionId: "",
         status: "rejected",
         error: "ACP dispatch is disabled by policy.",
+        isUserVisible: spawnResult.isUserVisible,
+        ackDelivered: spawnResult.ackDelivered,
       };
     }
   }
@@ -186,6 +193,8 @@ async function initializeAcpSubAgent(
       sessionId: "",
       status: "error",
       error: "Spawned child session was not found",
+      isUserVisible: spawnResult.isUserVisible,
+      ackDelivered: spawnResult.ackDelivered,
     };
   }
 
@@ -198,6 +207,8 @@ async function initializeAcpSubAgent(
       sessionId: "",
       status: "rejected",
       error: "ACP backend is required (set acp.backend or pass acp.backend).",
+      isUserVisible: spawnResult.isUserVisible,
+      ackDelivered: spawnResult.ackDelivered,
     };
   }
 
@@ -278,6 +289,8 @@ async function initializeAcpSubAgent(
       sessionId: spawnResult.sessionId,
       status: "error",
       error: message,
+      isUserVisible: spawnResult.isUserVisible,
+      ackDelivered: spawnResult.ackDelivered,
     };
   }
 }
@@ -327,6 +340,27 @@ export async function subagentList(
 
 export const subagentStatusDescription = sessionsStatusDescription;
 export const subagentListDescription = sessionsStatusDescription;
+
+export const subagentStopSchema = z.object({
+  runId: z.string(),
+});
+
+export async function subagentStop(
+  ctx: SessionToolsContext,
+  params: z.infer<typeof subagentStopSchema>,
+): Promise<{
+  success: boolean;
+  message: string;
+  run?: Awaited<ReturnType<TasksControlPlane["getDetail"]>>;
+}> {
+  const controlPlane = new TasksControlPlane(ctx.detachedRunRegistry, ctx.runLifecycleRegistry);
+  const result = await controlPlane.stop(params.runId, ctx.currentSessionKey, "agent");
+  return {
+    success: result.ok,
+    message: result.message,
+    run: result.run,
+  };
+}
 
 export const scheduleContinuationSchema = z.object({
   prompt: z.string().min(1),

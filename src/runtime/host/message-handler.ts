@@ -251,6 +251,7 @@ export class MessageHandler {
             detachedRunRegistry: deps.detachedRunRegistry,
             currentSessionKey: params.sessionKey,
             config: this.config,
+            runLifecycleRegistry: this.runLifecycle,
           }),
           ...createBrowserTools({
             getConfig: () => this.config,
@@ -699,6 +700,9 @@ export class MessageHandler {
       agentManager: this.agentManager,
       modelRegistry: this.modelRegistry,
       config: this.config,
+      sessionManager: this.hostSessionManager,
+      detachedRunRegistry: this.hostDetachedRunRegistry,
+      runLifecycleRegistry: this.runLifecycle,
       runtimeControl: this.runtimeControl,
       logger,
       getVersion: () => this.getVersion(),
