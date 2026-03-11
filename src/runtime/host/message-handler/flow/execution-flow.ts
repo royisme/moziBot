@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { DeliveryPlan } from "../../../../multimodal/capabilities";
 import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provider-media";
 import { getRuntimeHookRunner } from "../../../hooks";
-import { renderAssistantReply } from "../../reply-utils";
+import { checkSilentReplyAllowed, renderAssistantReply } from "../../reply-utils";
 import type { DeliveryContext } from "../../routing/types";
 import type { ExecutionFlow } from "../contract";
 import type { FallbackInfo } from "../services/prompt-runner";
@@ -119,7 +119,30 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       const hasNonTextInput = Boolean(
         ingestPlanArtifact?.acceptedInput?.some((p) => p.modality && p.modality !== "text"),
       );
-      return deps.shouldSuppressSilentReply(text, { forceReply: hasNonTextInput });
+      const promptAllowsSilent = deps.shouldSuppressSilentReply(text, {
+        forceReply: hasNonTextInput,
+      });
+
+      // Lifecycle-aware guard: enforce runtime-level check for user-visible async work
+      // This prevents NO_REPLY from black-holing accepted user-visible detached work
+      if (promptAllowsSilent && sessionKey) {
+        const lifecycleCheck = checkSilentReplyAllowed(sessionKey);
+        if (!lifecycleCheck.allowed) {
+          logger.info(
+            {
+              traceId: ctx.traceId,
+              sessionKey,
+              agentId,
+              pendingRuns: lifecycleCheck.pendingRunIds,
+              reason: lifecycleCheck.reason,
+            },
+            "Blocking NO_REPLY: user-visible async work pending acknowledgement",
+          );
+          return false; // Override prompt silence - force a reply
+        }
+      }
+
+      return promptAllowsSilent;
     };
     const isHeartbeatOk = (raw: unknown, text: string) =>
       deps.shouldSuppressHeartbeatReply(raw, text);
@@ -161,8 +184,6 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     });
 
     const channel = getChannel(payload);
-    deps.registerSessionContext?.(sessionKey, { channel, peerId });
-    const supportsStreaming = typeof channel.editMessage === "function";
     const routeFromState =
       state.route &&
       typeof state.route === "object" &&
@@ -175,6 +196,8 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
             peerId,
             peerType: "dm" as const,
           };
+    deps.registerSessionContext?.(sessionKey, { channel, peerId, route: routeFromState });
+    const supportsStreaming = typeof channel.editMessage === "function";
     const baseDelivery: DeliveryContext = {
       route: routeFromState,
       traceId: ctx.traceId,

@@ -185,6 +185,9 @@ describe("DetachedRunRegistry", () => {
         cleanup: "keep",
       });
 
+      // Wait for async accepted phase announcement from register
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
       await registry.setTerminal({
         runId: "run-event-aborted",
         status: "aborted",
@@ -195,7 +198,8 @@ describe("DetachedRunRegistry", () => {
       const run = registry.get("run-event-aborted");
       expect(run?.status).toBe("aborted");
       expect(run?.announced).toBe(true);
-      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      // Should have 2 calls: one for accepted (from register) and one for aborted
+      expect(handleInternalMessage).toHaveBeenCalledTimes(2);
       expect(handleInternalMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionKey: "parent-event",

@@ -877,14 +877,36 @@ export class AgentManager {
 
   registerSessionContext(
     sessionKey: string,
-    ctx: { channel: ChannelDispatcherBridge; peerId: string },
+    ctx: {
+      channel: ChannelDispatcherBridge;
+      peerId: string;
+      route?: {
+        channelId: string;
+        peerId: string;
+        peerType: "dm" | "group" | "channel";
+        accountId?: string;
+        threadId?: string;
+        replyToId?: string;
+      };
+    },
   ): void {
     this.sessionContexts.set(sessionKey, ctx);
   }
 
-  getSessionContext(
-    sessionKey: string,
-  ): { channel: ChannelDispatcherBridge; peerId: string } | undefined {
+  getSessionContext(sessionKey: string):
+    | {
+        channel: ChannelDispatcherBridge;
+        peerId: string;
+        route?: {
+          channelId: string;
+          peerId: string;
+          peerType: "dm" | "group" | "channel";
+          accountId?: string;
+          threadId?: string;
+          replyToId?: string;
+        };
+      }
+    | undefined {
     return this.sessionContexts.get(sessionKey);
   }
 

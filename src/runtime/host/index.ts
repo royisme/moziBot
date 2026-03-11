@@ -26,7 +26,9 @@ import { Lifecycle } from "./lifecycle";
 import { resolveLocalDesktopDecision } from "./local-desktop-mode";
 import { MessageHandler } from "./message-handler";
 import { ReminderRunner } from "./reminders/runner";
+import { injectPendingAckChecker } from "./reply-utils";
 import { routeContextToOutboundMessage } from "./routing/route-context";
+import { injectDirectDeliveryDeps } from "./sessions/async-task-delivery";
 import { SessionManager } from "./sessions/manager";
 import { DetachedRunRegistry as SessionDetachedRunRegistry } from "./sessions/spawn";
 import { injectMessageHandler } from "./sessions/subagent-announce";
@@ -244,6 +246,19 @@ export class RuntimeHost {
         },
       });
       injectMessageHandler(this.messageHandler);
+      // Inject direct delivery dependencies for guaranteed lifecycle notification
+      injectDirectDeliveryDeps({
+        getChannel: (sessionKey) =>
+          this.messageHandler?.getAgentManager().getSessionContext(sessionKey)?.channel,
+        getPeerId: (sessionKey) =>
+          this.messageHandler?.getAgentManager().getSessionContext(sessionKey)?.peerId,
+        getRoute: (sessionKey) =>
+          this.messageHandler?.getAgentManager().getSessionContext(sessionKey)?.route,
+      });
+      // Inject pending ack checker for lifecycle-aware NO_REPLY suppression guard
+      injectPendingAckChecker((parentKey: string) => {
+        return this.detachedRunRegistry.getPendingUserVisibleAck(parentKey);
+      });
       await this.messageHandler.initExtensions();
       await this.detachedRunRegistry.reconcileOrphanedRuns();
       logger.info("MessageHandler initialized");

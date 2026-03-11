@@ -1,5 +1,6 @@
 import { logger } from "../../../logger";
 import type { MessageHandler } from "../message-handler";
+import { deliverGuaranteedLifecycleNotification } from "./async-task-delivery";
 import type { DetachedRunStatus } from "./subagent-registry";
 
 export type DetachedRunAnnouncementStatus =
@@ -123,25 +124,61 @@ export async function announceDetachedRun(
     return false;
   }
 
-  const triggerMessage = buildDetachedRunTriggerMessage(params);
+  // Build the fallback (summarization) function
+  const fallbackAnnounce = async (): Promise<boolean> => {
+    const triggerMessage = buildDetachedRunTriggerMessage(params);
+    try {
+      await messageHandlerRef!.handleInternalMessage({
+        sessionKey: params.parentKey,
+        content: triggerMessage,
+        source: "detached-run-announce",
+        metadata: {
+          taskKind: params.kind ?? "subagent",
+          detachedRunId: params.runId,
+          detachedChildKey: params.childKey,
+          detachedStatus: params.status,
+        },
+      });
+      return true;
+    } catch (err) {
+      logger.error({ err, runId: params.runId }, "Fallback announce failed");
+      return false;
+    }
+  };
 
-  try {
-    await messageHandlerRef.handleInternalMessage({
-      sessionKey: params.parentKey,
-      content: triggerMessage,
-      source: "detached-run-announce",
-      metadata: {
-        taskKind: params.kind ?? "subagent",
-        detachedRunId: params.runId,
-        detachedChildKey: params.childKey,
-        detachedStatus: params.status,
-      },
-    });
-    return true;
-  } catch (err) {
-    logger.error({ err, runId: params.runId }, "Failed to announce detached run");
-    return false;
+  // Use guaranteed delivery path - direct delivery first, then fallback
+  const taskLabel = params.label || params.task || "background task";
+  const result = await deliverGuaranteedLifecycleNotification({
+    sessionKey: params.parentKey,
+    taskLabel,
+    phase: params.status,
+    startedAt: params.startedAt,
+    endedAt: params.endedAt,
+    error: params.error,
+    fallbackAnnounce,
+  });
+
+  // Log delivery outcome for debugging/evidence
+  if (result.delivered) {
+    if (result.usedFallback) {
+      logger.info(
+        { runId: params.runId, status: params.status },
+        "Lifecycle notification delivered via fallback (summarization)",
+      );
+    } else {
+      logger.info(
+        { runId: params.runId, status: params.status, messageId: result.messageId },
+        "Lifecycle notification delivered directly to user",
+      );
+    }
+  } else {
+    logger.warn(
+      { runId: params.runId, status: params.status },
+      "Lifecycle notification delivery failed - no message sent",
+    );
   }
+
+  return result.delivered;
 }
 
 // Keep backwards compatibility alias

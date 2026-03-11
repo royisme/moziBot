@@ -1,4 +1,78 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { checkSilentReplyAllowed, injectPendingAckChecker } from "./reply-utils";
+
+describe("reply-utils - Lifecycle-aware silent reply guard", () => {
+  beforeEach(() => {
+    injectPendingAckChecker(null);
+  });
+
+  afterEach(() => {
+    injectPendingAckChecker(null);
+  });
+
+  describe("checkSilentReplyAllowed", () => {
+    it("should allow silent reply when no checker is injected (backwards compatibility)", () => {
+      const result = checkSilentReplyAllowed("some-session");
+      expect(result.allowed).toBe(true);
+      expect(result.hasPendingUserVisible).toBe(false);
+    });
+
+    it("should block silent reply when user-visible work is pending", () => {
+      // Inject a checker that returns pending user-visible work
+      injectPendingAckChecker((parentKey: string) => {
+        if (parentKey === "parent-1") {
+          return {
+            hasPendingUserVisible: true,
+            pendingRunIds: ["run-1", "run-2"],
+          };
+        }
+        return { hasPendingUserVisible: false, pendingRunIds: [] };
+      });
+
+      const result = checkSilentReplyAllowed("parent-1");
+      expect(result.allowed).toBe(false);
+      expect(result.hasPendingUserVisible).toBe(true);
+      expect(result.pendingRunIds).toEqual(["run-1", "run-2"]);
+      expect(result.reason).toContain("Cannot end with NO_REPLY");
+    });
+
+    it("should allow silent reply when no pending user-visible work", () => {
+      injectPendingAckChecker(() => {
+        return { hasPendingUserVisible: false, pendingRunIds: [] };
+      });
+
+      const result = checkSilentReplyAllowed("parent-1");
+      expect(result.allowed).toBe(true);
+      expect(result.hasPendingUserVisible).toBe(false);
+    });
+
+    it("should allow silent reply for sessions with only internal_silent work", () => {
+      injectPendingAckChecker(() => {
+        // Even if there are runs, they're all internal_silent
+        return { hasPendingUserVisible: false, pendingRunIds: [] };
+      });
+
+      const result = checkSilentReplyAllowed("parent-1");
+      expect(result.allowed).toBe(true);
+    });
+
+    it("should return correct reason when blocking", () => {
+      injectPendingAckChecker(() => {
+        return {
+          hasPendingUserVisible: true,
+          pendingRunIds: ["run-1"],
+        };
+      });
+
+      const result = checkSilentReplyAllowed("parent-1");
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toBe(
+        "Cannot end with NO_REPLY: 1 user-visible async task(s) pending acknowledgement",
+      );
+    });
+  });
+});
+
 import {
   extractAssistantText,
   getAssistantFailureReason,

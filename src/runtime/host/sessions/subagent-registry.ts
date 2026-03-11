@@ -14,8 +14,35 @@ export type DetachedRunStatus =
   | "aborted"
   | "timeout";
 
+// Lifecycle phase type for async tasks
+export type LifecyclePhase = DetachedRunStatus;
+
+// Visibility policy for async tasks
+export type VisibilityPolicy = "user_visible" | "internal_silent";
+
+// Delivery phase status
+export type DeliveryStatus = "none" | "pending" | "queued" | "sending" | "delivered" | "failed";
+
 // Track which phases have been announced for deduplication
 export type AnnouncedPhases = Record<DetachedRunStatus, boolean>;
+
+// Delivery state for a specific phase (ack or terminal)
+export interface DeliveryPhaseState {
+  status: DeliveryStatus;
+  deliveryEvidenceId?: string;
+  queuedAt?: number;
+  deliveredAt?: number;
+  attemptCount: number;
+  lastError?: string;
+}
+
+// Default delivery phase state (none = not applicable for this phase yet)
+export function createDefaultDeliveryState(): DeliveryPhaseState {
+  return {
+    status: "none",
+    attemptCount: 0,
+  };
+}
 
 export interface DetachedRunRecord {
   runId: string;
@@ -34,6 +61,47 @@ export interface DetachedRunRecord {
   announced?: boolean;
   announcedPhases?: AnnouncedPhases;
   timeoutSeconds?: number;
+  // === Async Task Lifecycle extensions ===
+  // Visibility policy - explicit user-facing vs internal
+  visibilityPolicy?: VisibilityPolicy;
+  // Origin metadata for delivery tracking
+  originSessionKey?: string;
+  originMessageId?: string;
+  originChannelId?: string;
+  originPeerId?: string;
+  originThreadId?: string;
+  // Delivery state tracking
+  ackDelivery?: DeliveryPhaseState;
+  terminalDelivery?: DeliveryPhaseState;
+  // Phase that is pending delivery (distinct from lastDeliveredPhase which is authoritative)
+  pendingDeliveryPhase?: LifecyclePhase;
+  // Last phase that was actually delivered (authoritative)
+  lastDeliveredPhase?: LifecyclePhase;
+  // Retry metadata
+  retryCount?: number;
+  nextRetryAt?: number;
+  lastDeliveryError?: string;
+  // Terminal summary (for delivery)
+  terminalSummary?: string;
+}
+
+// Extended registration options with lifecycle fields
+export interface DetachedRunRegistrationOptions {
+  runId: string;
+  kind: "subagent" | "acp";
+  childKey: string;
+  parentKey: string;
+  task: string;
+  label?: string;
+  cleanup: "delete" | "keep";
+  timeoutSeconds?: number;
+  // Lifecycle extensions
+  visibilityPolicy: VisibilityPolicy;
+  originSessionKey?: string;
+  originMessageId?: string;
+  originChannelId?: string;
+  originPeerId?: string;
+  originThreadId?: string;
 }
 
 export class DetachedRunRegistry {
@@ -48,7 +116,7 @@ export class DetachedRunRegistry {
   }
 
   register(
-    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind" | "announcedPhases"> & {
+    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind" | "announcedPhases" | "ackDelivery" | "terminalDelivery"> & {
       kind?: "subagent" | "acp";
       createdAt?: number;
       status?: DetachedRunStatus;
@@ -68,6 +136,12 @@ export class DetachedRunRegistry {
         aborted: false,
         timeout: false,
       },
+      // Initialize delivery state for authoritative lifecycle tracking
+      // ackDelivery starts as pending (needs initial ack delivery)
+      ackDelivery: { ...createDefaultDeliveryState(), status: "pending" },
+      // terminalDelivery starts as "none" - not applicable until terminal
+      terminalDelivery: createDefaultDeliveryState(),
+      retryCount: 0,
     };
     this.runs.set(record.runId, record);
     this.persist();
@@ -76,6 +150,248 @@ export class DetachedRunRegistry {
     this.triggerPhaseAnnounce(record, "accepted").catch((err) => {
       logger.error({ err, runId: record.runId }, "Failed to announce accepted phase");
     });
+  }
+
+  // === Lifecycle Phase Transition Methods ===
+
+  /**
+   * Validates if a lifecycle transition is allowed.
+   * Returns true if the transition is valid.
+   */
+  canTransition(fromPhase: LifecyclePhase, toPhase: LifecyclePhase): boolean {
+    const terminalPhases: LifecyclePhase[] = ["completed", "failed", "timeout", "aborted"];
+
+    // Terminal phases cannot transition
+    if (terminalPhases.includes(fromPhase)) {
+      return false;
+    }
+
+    // Valid transitions (including self-transition for idempotency)
+    const validTransitions: Record<LifecyclePhase, LifecyclePhase[]> = {
+      accepted: ["accepted", "started", "streaming", "completed", "failed", "timeout", "aborted"],
+      started: ["started", "streaming", "completed", "failed", "timeout", "aborted"],
+      streaming: ["streaming", "completed", "failed", "timeout", "aborted"],
+      completed: ["completed"],
+      failed: ["failed"],
+      timeout: ["timeout"],
+      aborted: ["aborted"],
+    };
+
+    return validTransitions[fromPhase]?.includes(toPhase) ?? false;
+  }
+
+  /**
+   * Transition to a new lifecycle phase with validation.
+   * Returns the updated record or undefined if transition is invalid.
+   */
+  transitionTo(
+    runId: string,
+    newPhase: LifecyclePhase,
+    options?: {
+      result?: string;
+      error?: string;
+      timestamp?: number;
+    },
+  ): DetachedRunRecord | undefined {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return undefined;
+    }
+
+    if (!this.canTransition(run.status, newPhase)) {
+      logger.warn(
+        { runId, currentPhase: run.status, requestedPhase: newPhase },
+        "Invalid lifecycle transition attempted",
+      );
+      return undefined;
+    }
+
+    const now = options?.timestamp ?? Date.now();
+    const isTerminal = ["completed", "failed", "timeout", "aborted"].includes(newPhase);
+
+    // Update record based on phase
+    if (newPhase === "started") {
+      run.status = "started";
+      run.startedAt = now;
+    } else if (newPhase === "streaming") {
+      run.status = "streaming";
+      if (!run.startedAt) {
+        run.startedAt = now;
+      }
+    } else if (isTerminal) {
+      run.status = newPhase as DetachedRunStatus;
+      run.endedAt = options?.timestamp ?? now;
+      run.result = options?.result;
+      run.error = options?.error;
+    } else {
+      run.status = newPhase as DetachedRunStatus;
+    }
+
+    // Update delivery state based on phase
+    if (newPhase === "accepted") {
+      if (run.ackDelivery) {
+        run.ackDelivery.status = "pending";
+      }
+    } else if (isTerminal) {
+      if (run.terminalDelivery) {
+        run.terminalDelivery.status = "pending";
+      }
+      // Track phase pending delivery (not yet delivered)
+      run.pendingDeliveryPhase = newPhase;
+      // Note: lastDeliveredPhase is only updated after actual delivery
+    }
+
+    this.persist();
+    return run;
+  }
+
+  /**
+   * Check if a phase has already been delivered (for dedupe).
+   */
+  isPhaseDelivered(runId: string, phase: LifecyclePhase): boolean {
+    const run = this.runs.get(runId);
+    if (!run || !run.announcedPhases) {
+      return false;
+    }
+    return run.announcedPhases[phase as DetachedRunStatus] ?? false;
+  }
+
+  /**
+   * Mark a phase as delivered (for dedupe tracking).
+   */
+  markPhaseDelivered(runId: string, phase: LifecyclePhase): void {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return;
+    }
+    if (!run.announcedPhases) {
+      run.announcedPhases = {
+        accepted: false,
+        started: false,
+        streaming: false,
+        completed: false,
+        failed: false,
+        aborted: false,
+        timeout: false,
+      };
+    }
+    run.announcedPhases[phase as DetachedRunStatus] = true;
+    run.lastDeliveredPhase = phase;
+    this.persist();
+  }
+
+  /**
+   * Update delivery state for ack or terminal phase.
+   */
+  updateDeliveryState(
+    runId: string,
+    phase: "ack" | "terminal",
+    state: Partial<DeliveryPhaseState>,
+  ): void {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return;
+    }
+
+    const deliveryState = phase === "ack" ? run.ackDelivery : run.terminalDelivery;
+    if (deliveryState) {
+      Object.assign(deliveryState, state);
+      if (state.status === "delivered" && !deliveryState.deliveredAt) {
+        deliveryState.deliveredAt = Date.now();
+      }
+      if (state.status === "queued" && !deliveryState.queuedAt) {
+        deliveryState.queuedAt = Date.now();
+      }
+    }
+
+    this.persist();
+  }
+
+  /**
+   * Get delivery state for a phase.
+   */
+  getDeliveryState(
+    runId: string,
+    phase: "ack" | "terminal",
+  ): DeliveryPhaseState | undefined {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return undefined;
+    }
+    return phase === "ack" ? run.ackDelivery : run.terminalDelivery;
+  }
+
+  /**
+   * Check if a run is user-visible based on visibility policy.
+   */
+  isUserVisible(runId: string): boolean {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return false;
+    }
+    // Default to user_visible if not explicitly set
+    return run.visibilityPolicy !== "internal_silent";
+  }
+
+  /**
+   * Set visibility policy for a run.
+   */
+  setVisibilityPolicy(runId: string, policy: VisibilityPolicy): void {
+    const run = this.runs.get(runId);
+    if (run) {
+      run.visibilityPolicy = policy;
+      this.persist();
+    }
+  }
+
+  /**
+   * Check if any user-visible accepted work is pending acknowledgement for a parent session.
+   * This is used to determine if NO_REPLY should be suppressed in the parent turn.
+   *
+   * Returns: { hasPendingUserVisible: boolean, pendingRunIds: string[] }
+   */
+  getPendingUserVisibleAck(parentKey: string): { hasPendingUserVisible: boolean; pendingRunIds: string[] } {
+    const runs = this.listByParent(parentKey);
+    const pending: string[] = [];
+
+    for (const run of runs) {
+      if (run.visibilityPolicy === "internal_silent") {
+        continue;
+      }
+
+      const ackDelivered = run.ackDelivery?.status === "delivered";
+      const terminalDelivered = run.terminalDelivery?.status === "delivered";
+      const isTerminal = ["completed", "failed", "timeout", "aborted"].includes(run.status);
+
+      if (!ackDelivered || (isTerminal && !terminalDelivered)) {
+        pending.push(run.runId);
+      }
+    }
+
+    return {
+      hasPendingUserVisible: pending.length > 0,
+      pendingRunIds: pending,
+    };
+  }
+
+  /**
+   * Check if a specific run needs acknowledgement delivery.
+   */
+  needsAckDelivery(runId: string): boolean {
+    const run = this.runs.get(runId);
+    if (!run) {
+      return false;
+    }
+    // Check if it's user-visible and ack hasn't been delivered
+    return run.visibilityPolicy !== "internal_silent" && run.ackDelivery?.status !== "delivered";
+  }
+
+  /**
+   * Check if acknowledgement is satisfied (delivered) for a run.
+   */
+  isAckDelivered(runId: string): boolean {
+    const run = this.runs.get(runId);
+    return run?.ackDelivery?.status === "delivered";
   }
 
   get(runId: string): DetachedRunRecord | undefined {
@@ -119,7 +435,7 @@ export class DetachedRunRegistry {
   }
 
   markStarted(runId: string, startedAt = Date.now()): DetachedRunRecord | undefined {
-    const run = this.update(runId, { status: "started", startedAt });
+    const run = this.transitionTo(runId, "started", { timestamp: startedAt });
     if (run) {
       this.triggerPhaseAnnounce(run, "started").catch((err) => {
         logger.error({ err, runId }, "Failed to announce started phase");
@@ -129,9 +445,8 @@ export class DetachedRunRegistry {
   }
 
   markStreaming(runId: string, startedAt?: number): DetachedRunRecord | undefined {
-    const run = this.update(runId, {
-      status: "streaming",
-      ...(startedAt ? { startedAt } : {}),
+    const run = this.transitionTo(runId, "streaming", {
+      timestamp: startedAt ?? Date.now(),
     });
     if (run) {
       this.triggerPhaseAnnounce(run, "streaming").catch((err) => {
@@ -167,6 +482,15 @@ export class DetachedRunRegistry {
     }
 
     phases[phase] = true;
+
+    // Update delivery state to delivered after successful announce
+    if (phase === "accepted" && run.ackDelivery) {
+      run.ackDelivery.status = "delivered";
+      run.ackDelivery.deliveredAt = Date.now();
+    }
+    // Update lastDeliveredPhase after successful delivery
+    run.lastDeliveredPhase = phase;
+
     this.persist();
   }
 
@@ -184,18 +508,42 @@ export class DetachedRunRegistry {
     const terminalStatus = params.status;
     const phases = run.announcedPhases;
     if (phases && phases[terminalStatus]) {
-      return run; // Already announced this terminal phase
+      return run; // Already announced this terminal phase - still update delivery state
     }
 
-    const previous = { ...run };
+    // Save previous state for rollback
+    const previousStatus = run.status;
+    const previousResult = run.result;
+    const previousError = run.error;
+    const previousEndedAt = run.endedAt;
+    const previousTerminalDelivery = run.terminalDelivery ? { ...run.terminalDelivery } : undefined;
+    const previousLastDeliveredPhase = run.lastDeliveredPhase;
+
+    // Update the run state
     run.status = params.status;
     run.result = params.result;
     run.error = params.error;
     run.endedAt = params.endedAt ?? Date.now();
+
+    // Update terminal delivery state to pending
+    if (run.terminalDelivery) {
+      run.terminalDelivery.status = "pending";
+    }
+    // Track phase pending delivery (not yet delivered)
+    run.pendingDeliveryPhase = terminalStatus;
+    // Note: lastDeliveredPhase is only updated after actual delivery in triggerAnnounce
+
+    // Persist with rollback on failure
     try {
       this.persist();
     } catch (error) {
-      Object.assign(run, previous);
+      // Restore previous state on persistence failure
+      run.status = previousStatus;
+      run.result = previousResult;
+      run.error = previousError;
+      run.endedAt = previousEndedAt;
+      run.terminalDelivery = previousTerminalDelivery;
+      run.lastDeliveredPhase = previousLastDeliveredPhase;
       throw error;
     }
 
@@ -267,6 +615,17 @@ export class DetachedRunRegistry {
       run.announcedPhases[terminalStatus] = true;
     }
     run.announced = true;
+
+    // Update delivery state to delivered (authoritative)
+    if (run.terminalDelivery) {
+      run.terminalDelivery.status = "delivered";
+      run.terminalDelivery.deliveredAt = Date.now();
+    }
+    // Update lastDeliveredPhase to reflect actual delivery (authoritative)
+    run.lastDeliveredPhase = terminalStatus;
+    // Clear pending delivery phase
+    run.pendingDeliveryPhase = undefined;
+
     this.persist();
 
     if (run.cleanup === "delete") {
@@ -289,6 +648,10 @@ export class DetachedRunRegistry {
       const data = JSON.parse(fs.readFileSync(this.persistPath, "utf-8"));
       for (const [id, record] of Object.entries(data)) {
         const restored = record as Partial<DetachedRunRecord>;
+        // Ensure delivery state is initialized for records restored from older format
+        const ackDelivery = restored.ackDelivery ?? createDefaultDeliveryState();
+        const terminalDelivery = restored.terminalDelivery ?? createDefaultDeliveryState();
+
         this.runs.set(id, {
           ...restored,
           runId: restored.runId ?? id,
@@ -299,12 +662,95 @@ export class DetachedRunRegistry {
           cleanup: restored.cleanup ?? "keep",
           status: restored.status ?? "accepted",
           createdAt: restored.createdAt ?? Date.now(),
+          // Ensure lifecycle extensions are present
+          visibilityPolicy: restored.visibilityPolicy,
+          ackDelivery,
+          terminalDelivery,
+          retryCount: restored.retryCount ?? 0,
+          // Ensure announcedPhases exists
+          announcedPhases: restored.announcedPhases ?? {
+            accepted: false,
+            started: false,
+            streaming: false,
+            completed: false,
+            failed: false,
+            aborted: false,
+            timeout: false,
+          },
         } as DetachedRunRecord);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.warn({ err: message }, "Failed to restore detached run registry");
     }
+  }
+
+  /**
+   * Serialize all runs to JSON for external persistence.
+   */
+  serialize(): Record<string, DetachedRunRecord> {
+    return Object.fromEntries(this.runs);
+  }
+
+  /**
+   * Restore runs from serialized data (for advanced recovery scenarios).
+   */
+  restoreFromSerialized(data: Record<string, DetachedRunRecord>): void {
+    for (const [id, record] of Object.entries(data)) {
+      // Ensure delivery state is initialized
+      if (!record.ackDelivery) {
+        record.ackDelivery = createDefaultDeliveryState();
+      }
+      if (!record.terminalDelivery) {
+        record.terminalDelivery = createDefaultDeliveryState();
+      }
+      if (!record.announcedPhases) {
+        record.announcedPhases = {
+          accepted: false,
+          started: false,
+          streaming: false,
+          completed: false,
+          failed: false,
+          aborted: false,
+          timeout: false,
+        };
+      }
+      this.runs.set(id, record);
+    }
+    this.persist();
+  }
+
+  /**
+   * Get all runs with pending delivery (for replay).
+   * Note: terminal delivery only counts as pending for terminal runs.
+   */
+  getRunsWithPendingDelivery(): DetachedRunRecord[] {
+    const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+    return [...this.runs.values()].filter((run) => {
+      const ackPending = run.ackDelivery?.status === "pending" || run.ackDelivery?.status === "queued";
+      // Only count terminal delivery as pending for actual terminal runs
+      const isTerminal = terminalPhases.includes(run.status);
+      const terminalPending = isTerminal && (
+        run.terminalDelivery?.status === "pending" ||
+        run.terminalDelivery?.status === "queued" ||
+        run.terminalDelivery?.status === "failed"
+      );
+      return ackPending || terminalPending;
+    });
+  }
+
+  /**
+   * Get terminal runs that haven't been delivered yet (for replay).
+   */
+  getUndeliveredTerminalRuns(): DetachedRunRecord[] {
+    const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+    return [...this.runs.values()].filter((run) => {
+      if (!terminalPhases.includes(run.status)) {
+        return false;
+      }
+      // Check if terminal delivery is not delivered
+      return run.terminalDelivery?.status !== "delivered";
+    });
   }
 
   private startSweeper(): void {
@@ -326,8 +772,14 @@ export class DetachedRunRegistry {
   }
 
   async reconcileOrphanedRuns(): Promise<void> {
+    const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+
+    // Retry terminal runs that haven't been delivered
     const pendingAnnouncementRuns = [...this.runs.values()].filter(
-      (run) => !run.announced && RUN_TERMINAL_STATES.includes(run.status as any),
+      (run) =>
+        !run.announced &&
+        terminalPhases.includes(run.status) &&
+        run.terminalDelivery?.status !== "delivered",
     );
 
     for (const run of pendingAnnouncementRuns) {
@@ -335,14 +787,20 @@ export class DetachedRunRegistry {
         { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
         "Retrying pending detached task completion announcement after host restart",
       );
+      // Mark delivery as pending for retry
+      if (run.terminalDelivery) {
+        run.terminalDelivery.status = "pending";
+        run.terminalDelivery.attemptCount += 1;
+      }
       await this.triggerAnnounce(
         run,
         run.status as "completed" | "failed" | "aborted" | "timeout",
       );
     }
 
+    // Handle orphaned non-terminal runs
     const orphanedRuns = [...this.runs.values()].filter(
-      (run) => !run.announced && !RUN_TERMINAL_STATES.includes(run.status as any),
+      (run) => !run.announced && !terminalPhases.includes(run.status),
     );
 
     for (const run of orphanedRuns) {
@@ -356,6 +814,95 @@ export class DetachedRunRegistry {
         error: "Host restarted while run was in progress",
       });
     }
+  }
+
+  /**
+   * Validate that no user-visible task reaches terminal state without delivery evidence.
+   * This is a critical invariant: every terminal user-visible task must have either:
+   * - delivered terminal delivery, OR
+   * - pending/queued/failed terminal delivery (meaning it's queued for retry)
+   *
+   * Returns validation result with any violations found.
+   */
+  validateNoBlackHoleTasks(): {
+    isValid: boolean;
+    violations: Array<{
+      runId: string;
+      status: string;
+      visibilityPolicy: string;
+      terminalDeliveryStatus: string | undefined;
+      issue: string;
+    }>;
+  } {
+    const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+    const violations: Array<{
+      runId: string;
+      status: string;
+      visibilityPolicy: string;
+      terminalDeliveryStatus: string | undefined;
+      issue: string;
+    }> = [];
+
+    for (const run of this.runs.values()) {
+      // Only check terminal user-visible runs
+      if (!terminalPhases.includes(run.status)) {
+        continue;
+      }
+
+      if (run.visibilityPolicy === "internal_silent") {
+        continue; // Internal tasks don't need user delivery
+      }
+
+      const terminalStatus = run.terminalDelivery?.status;
+
+      // Violation: terminal run without any delivery evidence
+      if (!terminalStatus || terminalStatus === "none") {
+        violations.push({
+          runId: run.runId,
+          status: run.status,
+          visibilityPolicy: run.visibilityPolicy ?? "user_visible",
+          terminalDeliveryStatus: terminalStatus,
+          issue: "Terminal user-visible task has no delivery state",
+        });
+      }
+      // Violation: terminal run that was attempted but not delivered and not pending retry
+      else if (terminalStatus !== "delivered" && terminalStatus !== "pending" && terminalStatus !== "queued") {
+        violations.push({
+          runId: run.runId,
+          status: run.status,
+          visibilityPolicy: run.visibilityPolicy ?? "user_visible",
+          terminalDeliveryStatus: terminalStatus,
+          issue: `Terminal user-visible task has terminal delivery status: ${terminalStatus}`,
+        });
+      }
+    }
+
+    return {
+      isValid: violations.length === 0,
+      violations,
+    };
+  }
+
+  /**
+   * Get all runs that need replay on restart (pending ack or undelivered terminal).
+   * This helps with startup reconciliation diagnostics.
+   */
+  getRunsNeedingReplay(): {
+    pendingAck: DetachedRunRecord[];
+    undeliveredTerminal: DetachedRunRecord[];
+  } {
+    const pendingAck = this.getRunsWithPendingDelivery().filter((run) => {
+      // For active runs, check if ack is pending
+      const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
+      return !terminalPhases.includes(run.status) && run.ackDelivery?.status === "pending";
+    });
+
+    const undeliveredTerminal = this.getUndeliveredTerminalRuns();
+
+    return {
+      pendingAck,
+      undeliveredTerminal,
+    };
   }
 
   shutdown(): void {

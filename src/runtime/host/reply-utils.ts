@@ -1,6 +1,75 @@
 export const SILENT_REPLY_TOKEN = "NO_REPLY";
 
+/**
+ * Result of checking if silent reply is allowed given the lifecycle state.
+ */
+export type SilentReplyCheckResult = {
+  /** Whether silent reply is allowed (no user-visible pending work) */
+  allowed: boolean;
+  /** Whether there is pending user-visible async work that needs acknowledgement */
+  hasPendingUserVisible: boolean;
+  /** Run IDs of pending user-visible work */
+  pendingRunIds: string[];
+  /** Human-readable reason if silent reply is not allowed */
+  reason?: string;
+};
+
 export type ReplyToolCallMode = "off" | "summary";
+
+/**
+ * Function type for checking pending user-visible async work.
+ * Used to implement the lifecycle-aware suppression guard.
+ */
+export type PendingAckChecker = (parentKey: string) => {
+  hasPendingUserVisible: boolean;
+  pendingRunIds: string[];
+};
+
+let pendingAckChecker: PendingAckChecker | null = null;
+
+/**
+ * Inject the function to check for pending user-visible async work.
+ * This should be set by the runtime when initializing the message handler.
+ */
+export function injectPendingAckChecker(checker: PendingAckChecker | null): void {
+  pendingAckChecker = checker;
+}
+
+/**
+ * Check if silent reply (NO_REPLY) is allowed given the current lifecycle state.
+ * This enforces the rule that a parent turn cannot silently end with NO_REPLY
+ * after accepting user-visible detached work unless acknowledgement is already delivered.
+ *
+ * @param sessionKey - The parent session key to check for pending work
+ * @returns SilentReplyCheckResult indicating whether silent reply is allowed
+ */
+export function checkSilentReplyAllowed(sessionKey: string): SilentReplyCheckResult {
+  // If no checker is injected, allow silent reply (backwards compatibility)
+  if (!pendingAckChecker) {
+    return {
+      allowed: true,
+      hasPendingUserVisible: false,
+      pendingRunIds: [],
+    };
+  }
+
+  const result = pendingAckChecker(sessionKey);
+
+  if (result.hasPendingUserVisible) {
+    return {
+      allowed: false,
+      hasPendingUserVisible: true,
+      pendingRunIds: result.pendingRunIds,
+      reason: `Cannot end with NO_REPLY: ${result.pendingRunIds.length} user-visible async task(s) pending acknowledgement`,
+    };
+  }
+
+  return {
+    allowed: true,
+    hasPendingUserVisible: false,
+    pendingRunIds: [],
+  };
+}
 
 export type ReplyRenderOptions = {
   showThinking?: boolean;

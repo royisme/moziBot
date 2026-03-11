@@ -14,6 +14,8 @@ export interface SpawnOptions {
   cleanup: "delete" | "keep";
   timeoutSeconds?: number;
   runId?: string;
+  /** Visibility policy: defaults to "user_visible" for user-originated detached work */
+  visibilityPolicy?: "user_visible" | "internal_silent";
 }
 
 export interface SpawnResult {
@@ -22,6 +24,10 @@ export interface SpawnResult {
   sessionId: string;
   status: "accepted" | "rejected" | "error";
   error?: string;
+  /** Whether the spawned task is user-visible (owes the user an acknowledgement) */
+  isUserVisible: boolean;
+  /** Whether the acceptance acknowledgement has been delivered/scheduled */
+  ackDelivered: boolean;
 }
 
 
@@ -39,6 +45,8 @@ export async function spawnSubAgent(
         sessionId: "",
         status: "rejected",
         error: "Parent session not found",
+        isUserVisible: false,
+        ackDelivered: false,
       };
     }
 
@@ -49,6 +57,8 @@ export async function spawnSubAgent(
         sessionId: "",
         status: "rejected",
         error: "Nested subagent spawning is not allowed",
+        isUserVisible: false,
+        ackDelivered: false,
       };
     }
 
@@ -82,15 +92,23 @@ export async function spawnSubAgent(
       cleanup: options.cleanup,
       status: "accepted",
       timeoutSeconds: options.timeoutSeconds,
+      visibilityPolicy: options.visibilityPolicy ?? "user_visible",
     });
 
     logger.info({ runId, childKey, parentKey: options.parentKey }, "Spawned subagent session");
+
+    // Check if the task is user-visible and if ack was delivered
+    const isUserVisible = options.visibilityPolicy !== "internal_silent";
+    const runRecord = registry.get(runId);
+    const ackDelivered = runRecord?.ackDelivery?.status === "delivered";
 
     return {
       runId,
       childKey,
       sessionId: childKey,
       status: "accepted",
+      isUserVisible,
+      ackDelivered,
     };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -101,6 +119,8 @@ export async function spawnSubAgent(
       sessionId: "",
       status: "error",
       error: message,
+      isUserVisible: false,
+      ackDelivered: false,
     };
   }
 }

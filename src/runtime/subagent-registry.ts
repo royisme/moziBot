@@ -18,6 +18,8 @@ type SubagentRunParams = {
   agentId?: string;
   model?: string;
   timeoutSeconds?: number;
+  /** Visibility policy for the spawned task. Defaults to user_visible for user-originated work */
+  visibilityPolicy?: "user_visible" | "internal_silent";
 };
 
 export interface SubagentSpawnResult {
@@ -169,6 +171,7 @@ export class SubagentRegistry {
           task: params.prompt,
           cleanup: "keep",
           timeoutSeconds: params.timeoutSeconds,
+          visibilityPolicy: params.visibilityPolicy ?? "user_visible",
         },
       );
       runId = spawnResult.runId;

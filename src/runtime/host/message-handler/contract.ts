@@ -153,7 +153,11 @@ export interface OrchestratorDeps {
   }): Promise<string>;
   registerSessionContext?(
     sessionKey: string,
-    ctx: { channel: ChannelDispatcherBridge; peerId: string },
+    ctx: {
+      channel: ChannelDispatcherBridge;
+      peerId: string;
+      route?: DeliveryContext["route"];
+    },
   ): void;
   clearSessionContext?(sessionKey: string): void;
 
