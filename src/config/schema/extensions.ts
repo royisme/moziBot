@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+export const WebFetchExtensionConfigSchema = z
+  .object({
+    firecrawlApiKeyEnv: z.string().optional(),
+    firecrawlBaseUrl: z.string().optional(),
+    timeout: z.number().int().min(1000).max(60000).optional(),
+    maxResponseBytes: z.number().int().min(10000).max(5000000).optional(),
+    maxRedirects: z.number().int().min(0).max(10).optional(),
+    maxChars: z.number().int().min(100).max(100000).optional(),
+  })
+  .strict();
+
 /**
  * Per-extension entry configuration.
  * `config` is extension-owned and validated by the extension's own schema at load time.
@@ -8,6 +19,13 @@ export const ExtensionEntrySchema = z
   .object({
     enabled: z.boolean().optional(),
     config: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+export const WebFetchExtensionEntrySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    config: WebFetchExtensionConfigSchema.optional(),
   })
   .strict();
 
@@ -70,7 +88,12 @@ export const ExtensionsConfigSchema = z
       .strict()
       .optional(),
     /** Per-extension entries keyed by extension ID. */
-    entries: z.record(z.string(), ExtensionEntrySchema).optional(),
+    entries: z
+      .object({
+        "web-fetch": WebFetchExtensionEntrySchema.optional(),
+      })
+      .catchall(ExtensionEntrySchema)
+      .optional(),
     /** Install records keyed by extension ID. */
     installs: z.record(z.string(), ExtensionInstallRecordSchema).optional(),
     /** MCP servers keyed by server ID. Standard MCP config format. */

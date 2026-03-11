@@ -118,6 +118,46 @@ describe("Extensions schema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts explicit web-fetch extension config", () => {
+    const result = MoziConfigSchema.safeParse({
+      extensions: {
+        entries: {
+          "web-fetch": {
+            enabled: true,
+            config: {
+              firecrawlApiKeyEnv: "FIRECRAWL_API_KEY",
+              firecrawlBaseUrl: "https://api.firecrawl.dev",
+              timeout: 15000,
+              maxResponseBytes: 2000000,
+              maxRedirects: 5,
+              maxChars: 50000,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown keys in explicit web-fetch extension config", () => {
+    const result = MoziConfigSchema.safeParse({
+      extensions: {
+        entries: {
+          "web-fetch": {
+            enabled: true,
+            config: {
+              firecrawlApiKeyEnv: "FIRECRAWL_API_KEY",
+              unexpected: true,
+            },
+          },
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("accepts extension capability policy settings", () => {
     const result = MoziConfigSchema.safeParse({
       extensions: {
