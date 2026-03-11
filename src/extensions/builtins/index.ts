@@ -3,4 +3,5 @@
 import "./brave-search";
 import "./groq-transcription";
 import "./openclaw-memory-recall";
+import "./web-fetch";
 import "./web-tavily";

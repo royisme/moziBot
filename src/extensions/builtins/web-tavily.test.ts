@@ -64,10 +64,11 @@ describe("web-tavily security wrapping", () => {
     }
 
     const result = await tool.execute("call-1", { query: "latest ai news" });
-    const text = String(result.content[0]?.text ?? "");
+    const first = result.content[0];
+    const text = first && "text" in first ? first.text : "";
 
-    expect(text).toContain("<<<EXTERNAL_UNTRUSTED_CONTENT>>>");
-    expect(text).toContain("<<<END_EXTERNAL_UNTRUSTED_CONTENT>>>");
+    expect(text).toMatch(/<<<EXTERNAL_UNTRUSTED_CONTENT id="[a-f0-9]{16}">>>/);
+    expect(text).toMatch(/<<<END_EXTERNAL_UNTRUSTED_CONTENT id="[a-f0-9]{16}">>>/);
     expect(text).toContain("SECURITY NOTICE");
 
     const details = result.details as Record<string, unknown>;
