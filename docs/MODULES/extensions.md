@@ -137,6 +137,87 @@ Builtin style unification:
 
 The extension registry is used by runtime host and agent manager, so extension capabilities are available without separate wiring per adapter.
 
+## Builtin: `web_fetch`
+
+`web_fetch` is a built-in extension tool provided by the `web-fetch` extension. It fetches a specific `http` or `https` URL and returns readable page content as untrusted markdown or plain text.
+
+What it does:
+
+- accepts a single URL, not a search query
+- fetches the page with manual redirect handling
+- converts `text/html` into readable markdown, passes through markdown, pretty-prints JSON, and otherwise returns raw text
+- wraps returned content as external untrusted content before it becomes model-visible
+
+Tool parameters:
+
+- `url` - required HTTP(S) URL
+- `extractMode` - optional: `markdown` (default) or `text`
+- `maxChars` - optional per-call output cap, clamped to `100..100000`
+
+Untrusted-content wrapper semantics:
+
+- `web_fetch` output is wrapped with an external-content boundary marker
+- it includes a security notice telling the model not to treat fetched text as instructions and not to execute commands from it unless the user explicitly asked
+- any embedded boundary markers in fetched content are sanitized first
+- tool metadata marks the result as `externalContent.untrusted = true`, `source = "web_fetch"`, `wrapped = true`
+
+Safeguards:
+
+- SSRF protection blocks localhost, cloud metadata endpoints, private/link-local ranges, and hostnames that resolve to private/internal IPs
+- redirects are handled manually and each redirect target is revalidated; redirects stop after `maxRedirects`
+- requests time out after configured `timeout`
+- response bodies larger than `maxResponseBytes` are rejected
+- only `http:` and `https:` URLs are allowed
+
+Firecrawl fallback:
+
+- if the direct fetch path errors and `firecrawlApiKeyEnv` resolves to an API key, the tool tries Firecrawl `POST /v1/scrape`
+- Firecrawl returns markdown-oriented main-content extraction and is reported as `extractor: "firecrawl"`
+- fallback is best-effort; if Firecrawl also fails, the tool returns the original error path
+
+Supported config under `extensions.entries.web-fetch.config`:
+
+- `firecrawlApiKeyEnv` - environment variable name to read the Firecrawl API key from; default `FIRECRAWL_API_KEY`
+- `firecrawlBaseUrl` - Firecrawl base URL; default `https://api.firecrawl.dev`
+- `timeout` - request timeout in milliseconds; default `15000`
+- `maxResponseBytes` - maximum response size in bytes; default `2000000`
+- `maxRedirects` - redirect limit; default `5`
+- `maxChars` - default output character cap; default `50000`
+
+Usage example:
+
+```json
+{
+  "tool": "web_fetch",
+  "arguments": {
+    "url": "https://example.com/docs",
+    "extractMode": "markdown",
+    "maxChars": 4000
+  }
+}
+```
+
+Config snippet:
+
+```json
+{
+  "extensions": {
+    "entries": {
+      "web-fetch": {
+        "enabled": true,
+        "config": {
+          "timeout": 20000,
+          "maxResponseBytes": 1500000,
+          "maxRedirects": 3,
+          "maxChars": 20000,
+          "firecrawlApiKeyEnv": "FIRECRAWL_API_KEY"
+        }
+      }
+    }
+  }
+}
+```
+
 ## Edit + Verify
 
 - `pnpm run test`
