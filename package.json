@@ -1,6 +1,6 @@
 {
   "name": "@royisme/mozi-bot",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Personal AI coding agent that runs securely in containers",
   "homepage": "https://github.com/royisme/moziBot#readme",
   "bugs": {
@@ -50,6 +50,7 @@
     "prepack": "pnpm run build:full",
     "release": "bash scripts/release.sh",
     "release:check": "pnpm tsx scripts/release-check.ts",
+    "release:prep": "bash scripts/release.sh",
     "schema:check": "pnpm run schema:config && git diff --exit-code schema/config.schema.json",
     "schema:config": "pnpm tsx scripts/generate-config-schema.ts",
     "start": "tsx src/index.ts",

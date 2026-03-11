@@ -20,7 +20,7 @@ else
   RANGE="HEAD"
 fi
 
-COMMITS=$(git log $RANGE --no-merges --pretty=format:"- %s (%h)")
+COMMITS=$(git log "$RANGE" --no-merges --pretty=format:"- %s (%h)")
 if [[ -z "$COMMITS" ]]; then
   COMMITS="- No changes recorded."
 fi
