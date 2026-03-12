@@ -114,8 +114,24 @@ export const runCommandFlow: CommandFlow = async (ctx, deps) => {
       return "handled";
     }
 
+    // Command not found - send helpful feedback
     const rawText = typeof state.text === "string" ? state.text : "";
     if (rawText.trim().startsWith("/")) {
+      const unknownCmd = rawCommand.name;
+      const helpText =
+        `Unknown command: ${unknownCmd}\n\n` +
+        "Available commands:\n" +
+        "/status - View status\n" +
+        "/whoami - View identity\n" +
+        "/new - Start new session\n" +
+        "/reset - Reset session\n" +
+        "/models - List models\n" +
+        "/tasks - Manage detached tasks\n" +
+        "/skills - List skills\n" +
+        "/switch - Switch model\n" +
+        "/stop - Interrupt run\n" +
+        "/help - Show all commands";
+      await channel.send(peerId, { text: helpText });
       return "handled";
     }
 
