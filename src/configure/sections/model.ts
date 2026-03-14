@@ -1,5 +1,6 @@
 import { ModelApiSchema, ModelDefinitionSchema } from "../../config/schema/models";
-import { composeProvider, type ComposedProvider } from "../../runtime/providers/contracts";
+import { composeResolvedProvider } from "../../runtime/providers/composition";
+import type { ResolvedProvider } from "../../runtime/types";
 import { getProviderFlow, type ProviderFlow } from "../provider-flows";
 import type { ConfigureSection, SectionResult, WizardContext } from "../types";
 
@@ -25,9 +26,9 @@ function ensureAliases(ctx: WizardContext): Record<string, string> {
   return ctx.config.models.aliases;
 }
 
-function getConfiguredProviders(ctx: WizardContext): Array<[string, ComposedProvider]> {
+function getConfiguredProviders(ctx: WizardContext): Array<[string, ResolvedProvider]> {
   return Object.entries(ctx.config.models?.providers ?? {}).map(
-    ([id, provider]: [string, ProviderConfig]) => [id, composeProvider(id, provider)],
+    ([id, provider]: [string, ProviderConfig]) => [id, composeResolvedProvider(id, provider)],
   );
 }
 
@@ -106,7 +107,7 @@ function upsertModel(provider: ProviderConfig, definition: ModelDefinition): voi
   }
 }
 
-async function selectProvider(ctx: WizardContext): Promise<[string, ComposedProvider] | undefined> {
+async function selectProvider(ctx: WizardContext): Promise<[string, ResolvedProvider] | undefined> {
   const providers = getConfiguredProviders(ctx);
   if (providers.length === 0) {
     ctx.ui.note("No providers are configured yet. Configure a provider first.", "Models");
@@ -134,7 +135,7 @@ async function promptModelId(
   ctx: WizardContext,
   providerId: string,
   flow?: ProviderFlow,
-  provider?: ComposedProvider,
+  provider?: ResolvedProvider,
 ): Promise<string> {
   const knownModels: KnownModelChoice[] = provider?.models?.map(toKnownModelChoice) ?? [];
   if (ctx.nonInteractive) {

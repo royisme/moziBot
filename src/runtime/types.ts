@@ -22,6 +22,8 @@ export type ModelCompatConfig = {
   requiresOpenAiAnthropicToolPayload?: boolean;
 };
 
+export type ProviderTransportKind = "openai-compat" | "native-sdk" | "cli-backend";
+
 export type ProviderContract = {
   id: string;
   canonicalApi?: ModelApi;
@@ -31,6 +33,7 @@ export type ProviderContract = {
   authModes?: ModelProviderAuthMode[];
   apiEnvVar?: string;
   catalog?: ModelDefinition[];
+  transportKind?: ProviderTransportKind;
 };
 
 export type ProviderConfig = {
@@ -43,7 +46,11 @@ export type ProviderConfig = {
   headers?: Record<string, string>;
   authHeader?: boolean;
   models?: ModelDefinition[];
-  contract?: ProviderContract;
+  transportKind?: ProviderTransportKind;
+};
+
+export type ResolvedProvider = ProviderConfig & {
+  transportKind: ProviderTransportKind;
 };
 
 export type ModelDefinition = {

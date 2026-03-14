@@ -3,11 +3,11 @@ import { AuthProfileStoreAdapter } from "./auth-profiles";
 import { readClaudeCliCredentials, readCodexCliCredentials } from "./cli-credentials";
 import { PROVIDER_ENV_API_KEY_CANDIDATES } from "./provider-env-vars";
 import { normalizeProviderIdForAuth } from "./provider-normalization";
-import type { ProviderConfig } from "./types";
+import type { ResolvedProvider } from "./types";
 
 export type ResolveApiKeyForProviderParams = {
   providerId: string;
-  provider?: ProviderConfig;
+  provider?: ResolvedProvider;
   env?: NodeJS.ProcessEnv;
   authProfiles?: AuthProfileStoreAdapter;
 };
@@ -21,15 +21,15 @@ export type ResolvedProviderAuth =
 
 function resolveEnvApiKeyForProvider(
   providerId: string,
-  provider: ProviderConfig | undefined,
   env: NodeJS.ProcessEnv,
 ): string | undefined {
   const normalizedProviderId = normalizeProviderIdForAuth(providerId);
   const candidates = PROVIDER_ENV_API_KEY_CANDIDATES[normalizedProviderId] ?? [];
   const envKeys = new Set<string>(candidates);
 
-  if (provider?.contract?.apiEnvVar) {
-    envKeys.add(provider.contract.apiEnvVar);
+  const configuredEnvVar = PROVIDER_ENV_API_KEY_CANDIDATES[normalizedProviderId]?.[0];
+  if (configuredEnvVar) {
+    envKeys.add(configuredEnvVar);
   }
 
   for (const envKey of envKeys) {
@@ -57,7 +57,7 @@ export function resolveProviderAuth({
     }
   }
 
-  const envApiKey = resolveEnvApiKeyForProvider(providerId, provider, env);
+  const envApiKey = resolveEnvApiKeyForProvider(providerId, env);
   if (envApiKey) {
     return { source: "env", apiKey: envApiKey };
   }

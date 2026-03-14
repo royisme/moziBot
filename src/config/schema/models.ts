@@ -64,12 +64,15 @@ export const ModelDefinitionSchema = z
   })
   .strict();
 
+export const ProviderTransportKindSchema = z.enum(["openai-compat", "native-sdk", "cli-backend"]);
+
 export const ModelProviderSchema = z
   .object({
     baseUrl: z.string().optional(),
     apiKey: SecretInputSchema.optional(),
     auth: ModelProviderAuthModeSchema.optional(),
     api: ModelApiSchema.optional(),
+    transportKind: ProviderTransportKindSchema.optional(),
     injectNumCtxForOpenAICompat: z.boolean().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     authHeader: z.boolean().optional(),

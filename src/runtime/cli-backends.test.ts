@@ -6,8 +6,18 @@ describe("cli backends", () => {
   it("exposes default cli models", () => {
     const models = listCliBackendModels({} as MoziConfig);
     const refs = models.map((m) => `${m.provider}/${m.id}`);
+    expect(refs).toContain("google-gemini-cli/gemini-2.5-flash");
     expect(refs).toContain("claude-cli/opus-4.6");
     expect(refs).toContain("codex-cli/gpt-5.2-codex");
+  });
+
+  it("includes Gemini CLI defaults", () => {
+    const models = listCliBackendModels({} as MoziConfig);
+    const gemini = models.find(
+      (m) => m.provider === "google-gemini-cli" && m.id === "gemini-2.5-flash",
+    );
+    expect(gemini?.api).toBe("cli-backend");
+    expect(gemini?.baseUrl).toBe("cli://local");
   });
 
   it("allows overrides via config", () => {

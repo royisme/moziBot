@@ -4,7 +4,7 @@ import { listCliBackendModels } from "./cli-backends";
 import { normalizeProviderId } from "./provider-normalization";
 import { ProviderRegistry } from "./provider-registry";
 import { applyCodexSparkFallback } from "./providers/compatibility";
-import type { ModelDefinition, ModelRef, ModelSpec, ProviderConfig } from "./types";
+import type { ModelDefinition, ModelRef, ModelSpec, ResolvedProvider } from "./types";
 
 export class ModelRegistry {
   private config: MoziConfig;
@@ -54,7 +54,7 @@ export class ModelRegistry {
     }
   }
 
-  private buildSpec(provider: ProviderConfig, model: ModelDefinition): ModelSpec {
+  private buildSpec(provider: ResolvedProvider, model: ModelDefinition): ModelSpec {
     const api = model.api || provider.api || "openai-responses";
     const resolvedProviderHeaders = Object.fromEntries(
       Object.entries(provider.headers ?? {}).flatMap(([key, value]) => {

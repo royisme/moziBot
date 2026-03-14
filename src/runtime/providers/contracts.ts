@@ -1,11 +1,6 @@
-import type { MoziConfig } from "../../config";
 import { PROVIDER_ENV_API_KEY_CANDIDATES } from "../provider-env-vars";
-import { normalizeProviderId, normalizeProviderIdForAuth } from "../provider-normalization";
-import type { ModelDefinition, ProviderConfig, ProviderContract } from "../types";
-
-export type ComposedProvider = ProviderConfig & {
-  contract?: ProviderContract;
-};
+import { normalizeProviderIdForAuth } from "../provider-normalization";
+import type { ModelDefinition, ProviderContract } from "../types";
 
 type ProviderContractSeed = Omit<ProviderContract, "apiEnvVar">;
 
@@ -136,6 +131,7 @@ const PROVIDER_CONTRACT_SEEDS: Record<string, ProviderContractSeed> = {
     canonicalBaseUrl: "https://generativelanguage.googleapis.com",
     auth: "api-key",
     authModes: ["api-key"],
+    transportKind: "native-sdk",
     catalog: [
       {
         id: "gemini-2.5-pro",
@@ -456,61 +452,4 @@ export function findProvidersByEnvVar(envVar: string): string[] {
     .filter((contract) => contract.apiEnvVar === normalized)
     .map((contract) => contract.id)
     .toSorted((left, right) => left.localeCompare(right));
-}
-
-function mergeModel(base: ModelDefinition | undefined, override: ModelDefinition): ModelDefinition {
-  return {
-    id: override.id,
-    name: override.name,
-    api: override.api ?? base?.api,
-    reasoning: override.reasoning ?? base?.reasoning,
-    input: override.input ?? base?.input,
-    cost: { ...base?.cost, ...override.cost },
-    contextWindow: override.contextWindow ?? base?.contextWindow,
-    maxTokens: override.maxTokens ?? base?.maxTokens,
-    headers: { ...base?.headers, ...override.headers },
-    compat: { ...base?.compat, ...override.compat },
-  };
-}
-
-function composeModels(
-  contract: ProviderContract | undefined,
-  configured: ModelDefinition[],
-): ModelDefinition[] {
-  const contractById = new Map<string, ModelDefinition>(
-    (contract?.catalog ?? []).map((model: ModelDefinition) => [model.id, model]),
-  );
-  return configured.map((model: ModelDefinition) => mergeModel(contractById.get(model.id), model));
-}
-
-export function composeProvider(
-  id: string,
-  entry: NonNullable<NonNullable<MoziConfig["models"]>["providers"]>[string],
-): ComposedProvider {
-  const normalizedId = normalizeProviderId(id);
-  const contract = getProviderContract(normalizedId);
-  const configuredModels: ModelDefinition[] = (entry.models ?? []).map((m: ModelDefinition) => ({
-    id: m.id,
-    name: m.name,
-    api: m.api,
-    reasoning: m.reasoning,
-    input: m.input,
-    cost: m.cost,
-    contextWindow: m.contextWindow,
-    maxTokens: m.maxTokens,
-    headers: m.headers,
-    compat: m.compat,
-  }));
-
-  return {
-    id: normalizedId,
-    api: entry.api ?? contract?.canonicalApi,
-    auth: entry.auth ?? contract?.auth,
-    baseUrl: entry.baseUrl ?? contract?.canonicalBaseUrl,
-    apiKey: entry.apiKey,
-    headers: { ...contract?.canonicalHeaders, ...entry.headers },
-    authHeader: entry.authHeader,
-    models: composeModels(contract, configuredModels),
-    contract,
-  };
 }

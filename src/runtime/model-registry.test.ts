@@ -67,6 +67,21 @@ describe("ModelRegistry", () => {
       },
     });
     expect(providers.get("google")?.baseUrl).toBe("https://generativelanguage.googleapis.com");
+    expect(providers.get("google")?.transportKind).toBe("native-sdk");
+  });
+
+  it("classifies Gemini CLI providers as cli-backend transport", () => {
+    const providers = new ProviderRegistry({
+      models: {
+        providers: {
+          "google-gemini-cli": {
+            api: "cli-backend",
+            models: [{ id: "gemini-2.5-flash", name: "gemini-2.5-flash" }],
+          },
+        },
+      },
+    });
+    expect(providers.get("google-gemini-cli")?.transportKind).toBe("cli-backend");
   });
 
   it("keeps canonical google baseUrl even when configure persists no baseUrl override", () => {

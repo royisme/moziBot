@@ -1,25 +1,25 @@
 import type { MoziConfig } from "../config";
 import { resolveApiKeyForProvider } from "./provider-auth";
 import { normalizeProviderId } from "./provider-normalization";
-import { composeProvider } from "./providers/contracts";
-import type { ProviderConfig } from "./types";
+import { composeResolvedProvider } from "./providers/composition";
+import type { ResolvedProvider } from "./types";
 
 export class ProviderRegistry {
-  private providers: Map<string, ProviderConfig> = new Map();
+  private providers: Map<string, ResolvedProvider> = new Map();
 
   constructor(config: MoziConfig) {
     const entries = config.models?.providers ?? {};
     for (const [id, entry] of Object.entries(entries)) {
       const normalizedId = normalizeProviderId(id);
-      this.providers.set(normalizedId, composeProvider(normalizedId, entry));
+      this.providers.set(normalizedId, composeResolvedProvider(normalizedId, entry));
     }
   }
 
-  get(id: string): ProviderConfig | undefined {
+  get(id: string): ResolvedProvider | undefined {
     return this.providers.get(normalizeProviderId(id));
   }
 
-  list(): ProviderConfig[] {
+  list(): ResolvedProvider[] {
     return Array.from(this.providers.values());
   }
 

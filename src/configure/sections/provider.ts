@@ -1,5 +1,6 @@
 import { ModelProviderSchema } from "../../config/schema/models";
-import { composeProvider, getProviderContract } from "../../runtime/providers/contracts";
+import { composeResolvedProvider } from "../../runtime/providers/composition";
+import { getProviderContract } from "../../runtime/providers/contracts";
 import {
   getProviderFlow,
   PROVIDER_FLOWS,
@@ -44,7 +45,7 @@ function getProviderRecord(ctx: WizardContext): ProviderRecord {
 }
 
 function formatProviderLabel(id: string, config: ProviderConfig): string {
-  const composed = composeProvider(id, config);
+  const composed = composeResolvedProvider(id, config);
   const parts = [id];
   if (config.baseUrl) {
     parts.push(`${config.baseUrl} (override)`);

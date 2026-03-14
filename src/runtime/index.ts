@@ -20,4 +20,12 @@ export type {
   AgentJobStatus,
   CreateAgentJobInput,
 } from "./jobs";
-export type { ModelSpec, ModelRef, SessionState } from "./types";
+export type {
+  ModelSpec,
+  ModelRef,
+  SessionState,
+  ProviderContract,
+  ProviderConfig,
+  ProviderTransportKind,
+  ResolvedProvider,
+} from "./types";

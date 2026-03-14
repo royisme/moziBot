@@ -15,7 +15,6 @@ import { type ExtensionRegistry } from "../extensions";
 import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
 import { getProcessRegistry } from "../process";
-import { resolveSecretInput } from "../storage/secrets/resolve";
 import { createTapeStore, createTapeService, buildMessagesFromTape } from "../tape/integration.js";
 import type { TapeMessage } from "../tape/tape-context.js";
 import type { TapeService } from "../tape/tape-service.js";
@@ -79,15 +78,18 @@ import { loadExternalHooks } from "./hooks/external-loader";
 import type { ChannelDispatcherBridge } from "./host/message-handler/contract";
 import { buildCurrentChannelContextFromInbound } from "./host/message-handler/services/current-channel-context";
 import { ModelRegistry } from "./model-registry";
-import { resolveProviderAuth } from "./provider-auth";
 import { ProviderRegistry } from "./provider-registry";
+import {
+  normalizePiInputCapabilities,
+  registerConfiguredPiProviders,
+} from "./providers/pi-registration";
 import { createSandboxBoundary } from "./sandbox/config";
 import { SandboxService } from "./sandbox/service";
 import { type SandboxConfig, type SandboxProbeResult } from "./sandbox/types";
 import { VibeboxExecutor } from "./sandbox/vibebox-executor";
 import { SessionStore } from "./session-store";
 import type { SubagentRegistry } from "./subagent-registry";
-import type { ModelDefinition, ModelSpec } from "./types";
+import type { ModelSpec } from "./types";
 
 export type { AgentEntry };
 
@@ -108,27 +110,12 @@ type AgentSkillSummary = {
   description: string | undefined;
 };
 
-type PiProviderRegistration = {
-  api: Api;
-  models: ModelDefinition[];
-};
-
 export type AgentSkillsInventory = {
   enabled: AgentSkillSummary[];
   loadedButDisabled: AgentSkillSummary[];
   missingConfigured: string[];
   allowlistActive: boolean;
 };
-
-function normalizePiInputCapabilities(
-  input: Array<"text" | "image" | "audio" | "video" | "file"> | undefined,
-): Array<"text" | "image"> {
-  const supported = input ?? ["text"];
-  const normalized = supported.filter(
-    (item): item is "text" | "image" => item === "text" || item === "image",
-  );
-  return normalized.length > 0 ? normalized : ["text"];
-}
 
 function isAgentEntry(value: unknown): value is AgentEntry {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -319,104 +306,6 @@ export class AgentManager {
     return path.join(baseDir, "pi-agent");
   }
 
-  private resolvePiProviderRegistration(providerId: string): PiProviderRegistration | null {
-    const provider = this.providerRegistry.get(providerId);
-    if (!provider?.baseUrl) {
-      return null;
-    }
-
-    const models = provider.models ?? [];
-    if (models.length === 0) {
-      return null;
-    }
-
-    const modelApis = [...new Set(models.map((model) => model.api).filter(Boolean))];
-    const providerApi = provider.api ?? modelApis[0];
-    if (!providerApi) {
-      logger.debug({ providerId }, "Skipping PI provider registration without API");
-      return null;
-    }
-
-    const incompatibleModels = models.filter((model) => model.api && model.api !== providerApi);
-    if (incompatibleModels.length > 0) {
-      logger.warn(
-        {
-          providerId,
-          providerApi,
-          incompatibleModels: incompatibleModels.map((model) => ({ id: model.id, api: model.api })),
-        },
-        "Skipping models with API mismatch during PI provider registration",
-      );
-    }
-
-    const compatibleModels = models.filter((model) => !model.api || model.api === providerApi);
-    if (compatibleModels.length === 0) {
-      logger.warn(
-        { providerId, providerApi },
-        "Skipping PI provider registration without compatible models",
-      );
-      return null;
-    }
-
-    return {
-      api: providerApi,
-      models: compatibleModels,
-    };
-  }
-
-  private registerConfiguredPiProviders(registry: PiCodingModelRegistry): void {
-    for (const provider of this.providerRegistry.list()) {
-      const registration = this.resolvePiProviderRegistration(provider.id);
-      if (!registration || !provider.baseUrl) {
-        continue;
-      }
-
-      const resolvedProviderAuth = resolveProviderAuth({
-        providerId: provider.id,
-        provider,
-        authProfiles: new AuthProfileStoreAdapter(),
-      });
-      const resolvedApiKey = resolvedProviderAuth?.apiKey;
-      const resolvedProviderHeaders = Object.fromEntries(
-        Object.entries(provider.headers ?? {}).flatMap(([key, value]) => {
-          const resolved = resolveSecretInput(value, process.env);
-          return resolved ? [[key, resolved] as const] : [];
-        }),
-      );
-      registry.registerProvider(provider.id, {
-        api: registration.api,
-        baseUrl: provider.baseUrl,
-        apiKey: resolvedApiKey,
-        headers: resolvedProviderHeaders,
-        ...(registration.api === "openai-codex-responses"
-          ? {
-              streamSimple: createCodexDefaultTransportWrapper(undefined, {
-                authProfiles:
-                  resolvedProviderAuth?.source === "auth-profile"
-                    ? new AuthProfileStoreAdapter()
-                    : undefined,
-                profileId:
-                  resolvedProviderAuth?.source === "auth-profile"
-                    ? resolvedProviderAuth.profileId
-                    : undefined,
-              }),
-            }
-          : {}),
-        models: registration.models.map((model) => ({
-          id: model.id,
-          name: model.name ?? model.id,
-          api: model.api ?? registration.api,
-          reasoning: model.reasoning ?? false,
-          input: normalizePiInputCapabilities(model.input),
-          contextWindow: model.contextWindow ?? 128000,
-          maxTokens: model.maxTokens ?? 8192,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          headers: { ...resolvedProviderHeaders, ...model.headers },
-        })),
-      });
-    }
-  }
-
   private registerCliBackendProviders(registry: PiCodingModelRegistry): void {
     const cliProviders = listCliBackendModelDefinitions(this.config);
     for (const entry of cliProviders) {
@@ -443,7 +332,12 @@ export class AgentManager {
     const agentDir = this.resolvePiAgentDir();
     const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
     const registry = new PiCodingModelRegistry(authStorage, undefined);
-    this.registerConfiguredPiProviders(registry);
+    registerConfiguredPiProviders({
+      registry,
+      providers: this.providerRegistry.list(),
+      authProfiles: new AuthProfileStoreAdapter(),
+      createCodexDefaultTransportWrapper,
+    });
     this.registerCliBackendProviders(registry);
     return registry;
   }

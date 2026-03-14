@@ -29,6 +29,7 @@ export type CliBackendConfig = {
   output?: CliBackendOutput;
   resumeOutput?: CliBackendOutput;
   input?: CliBackendInput;
+  promptArg?: string;
   modelArg?: string;
   modelAliases?: Record<string, string>;
   sessionArg?: string;
@@ -47,6 +48,21 @@ export type CliBackendConfig = {
 type CliBackendMap = Record<string, CliBackendConfig>;
 
 const DEFAULT_CLI_BACKENDS: CliBackendMap = {
+  "google-gemini-cli": {
+    command: "gemini",
+    args: ["-o", "json"],
+    resumeArgs: ["-o", "json", "--resume", "{sessionId}"],
+    output: "json",
+    resumeOutput: "json",
+    input: "arg",
+    promptArg: "-p",
+    modelArg: "-m",
+    sessionMode: "existing",
+    sessionIdFields: ["session_id", "conversation_id", "thread_id"],
+    serialize: true,
+    maxPromptArgChars: 12000,
+    models: ["gemini-2.5-pro", "gemini-2.5-flash"],
+  },
   "claude-cli": {
     command: "claude",
     args: ["-p", "--output-format", "json", "--dangerously-skip-permissions"],
@@ -548,7 +564,11 @@ async function executeCli(params: {
     (inputMode === "arg" && maxPromptArgChars > 0 && finalPrompt.length > maxPromptArgChars);
 
   if (!useStdin) {
-    args.push(finalPrompt);
+    if (backend.promptArg) {
+      args.push(backend.promptArg, finalPrompt);
+    } else {
+      args.push(finalPrompt);
+    }
   }
 
   const cwd = detectWorkspaceFromSystemPrompt(context.systemPrompt) || process.cwd();
