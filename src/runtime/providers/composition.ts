@@ -88,7 +88,7 @@ export function composeResolvedProvider(
     id: normalizedId,
     api: entry.api ?? contract?.canonicalApi,
     auth: entry.auth ?? contract?.auth,
-    baseUrl: entry.baseUrl ?? contract?.canonicalBaseUrl,
+    baseUrl: entry.baseUrl ?? (contract?.nativeSdk ? undefined : contract?.canonicalBaseUrl),
     apiKey: entry.apiKey,
     injectNumCtxForOpenAICompat: entry.injectNumCtxForOpenAICompat,
     headers: { ...contract?.canonicalHeaders, ...entry.headers },

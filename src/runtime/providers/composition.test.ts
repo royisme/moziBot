@@ -24,7 +24,8 @@ describe("composeResolvedProvider", () => {
     const provider = composeResolvedProvider("google", googleProvider);
     expect(provider.transportKind).toBe("native-sdk");
     expect(provider.api).toBe("google-generative-ai");
-    expect(provider.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
+    // baseUrl is undefined for native SDK providers to prevent incorrect Pi registration
+    expect(provider.baseUrl).toBeUndefined();
   });
 
   it("preserves explicit transportKind override", () => {

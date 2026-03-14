@@ -29,6 +29,7 @@ export type ProviderContract = {
   canonicalApi?: ModelApi;
   canonicalBaseUrl?: string;
   canonicalHeaders?: Record<string, string>;
+  nativeSdk?: true;
   auth?: ModelProviderAuthMode;
   authModes?: ModelProviderAuthMode[];
   apiEnvVar?: string;

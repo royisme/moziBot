@@ -55,7 +55,7 @@ describe("ModelRegistry", () => {
     expect(spec?.api).toBe("google-generative-ai");
   });
 
-  it("uses canonical google baseUrl from provider composition when omitted in config", () => {
+  it("omits canonical google baseUrl from provider composition when omitted in config (native SDK)", () => {
     const providers = new ProviderRegistry({
       models: {
         providers: {
@@ -66,9 +66,7 @@ describe("ModelRegistry", () => {
         },
       },
     });
-    expect(providers.get("google")?.baseUrl).toBe(
-      "https://generativelanguage.googleapis.com/v1beta",
-    );
+    expect(providers.get("google")?.baseUrl).toBeUndefined();
     expect(providers.get("google")?.transportKind).toBe("native-sdk");
   });
 
@@ -86,7 +84,7 @@ describe("ModelRegistry", () => {
     expect(providers.get("google-gemini-cli")?.transportKind).toBe("cli-backend");
   });
 
-  it("keeps canonical google baseUrl even when configure persists no baseUrl override", () => {
+  it("keeps baseUrl undefined even when configure persists no baseUrl override (native SDK)", () => {
     const providers = new ProviderRegistry({
       models: {
         providers: {
@@ -96,9 +94,7 @@ describe("ModelRegistry", () => {
         },
       },
     });
-    expect(providers.get("google")?.baseUrl).toBe(
-      "https://generativelanguage.googleapis.com/v1beta",
-    );
+    expect(providers.get("google")?.baseUrl).toBeUndefined();
   });
 
   it("preserves configured non-default google baseUrl override", () => {
