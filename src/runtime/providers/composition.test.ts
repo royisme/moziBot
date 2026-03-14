@@ -24,7 +24,7 @@ describe("composeResolvedProvider", () => {
     const provider = composeResolvedProvider("google", googleProvider);
     expect(provider.transportKind).toBe("native-sdk");
     expect(provider.api).toBe("google-generative-ai");
-    expect(provider.baseUrl).toBe("https://generativelanguage.googleapis.com");
+    expect(provider.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta");
   });
 
   it("preserves explicit transportKind override", () => {

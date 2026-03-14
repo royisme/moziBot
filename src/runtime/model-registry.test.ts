@@ -66,7 +66,9 @@ describe("ModelRegistry", () => {
         },
       },
     });
-    expect(providers.get("google")?.baseUrl).toBe("https://generativelanguage.googleapis.com");
+    expect(providers.get("google")?.baseUrl).toBe(
+      "https://generativelanguage.googleapis.com/v1beta",
+    );
     expect(providers.get("google")?.transportKind).toBe("native-sdk");
   });
 
@@ -94,7 +96,9 @@ describe("ModelRegistry", () => {
         },
       },
     });
-    expect(providers.get("google")?.baseUrl).toBe("https://generativelanguage.googleapis.com");
+    expect(providers.get("google")?.baseUrl).toBe(
+      "https://generativelanguage.googleapis.com/v1beta",
+    );
   });
 
   it("preserves configured non-default google baseUrl override", () => {

@@ -128,7 +128,7 @@ const PROVIDER_CONTRACT_SEEDS: Record<string, ProviderContractSeed> = {
   google: {
     id: "google",
     canonicalApi: "google-generative-ai",
-    canonicalBaseUrl: "https://generativelanguage.googleapis.com",
+    canonicalBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
     auth: "api-key",
     authModes: ["api-key"],
     transportKind: "native-sdk",
