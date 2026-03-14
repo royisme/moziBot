@@ -5,7 +5,7 @@ import type { CronJob, Schedule } from "./types";
 
 export class CronScheduler {
   private jobs: Map<string, CronJob> = new Map();
-  private timers: Map<string, Timer> = new Map();
+  private timers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private handler?: (job: CronJob) => Promise<void>;
   private channelRegistry?: ChannelRegistry;
 
@@ -86,7 +86,10 @@ export class CronScheduler {
         });
         return interval.next().toDate();
       } catch (err) {
-        logger.error(`Failed to parse cron expression: ${schedule.expr}`, err);
+        logger.error(
+          { expr: schedule.expr, error: err instanceof Error ? err.message : String(err) },
+          "Failed to parse cron expression",
+        );
         return undefined;
       }
     }
@@ -148,7 +151,10 @@ export class CronScheduler {
           await this.handler(job);
         }
       } catch (err) {
-        logger.error(`Error running cron job ${job.id}:`, err);
+        logger.error(
+          { jobId: job.id, error: err instanceof Error ? err.message : String(err) },
+          "Error running cron job",
+        );
       }
 
       // Reschedule if it's recurring

@@ -118,22 +118,22 @@ describe("manager.utils", () => {
 
   describe("resolveRuntimeIdleTtlMs", () => {
     it("should convert minutes to milliseconds", () => {
-      const cfg = { acp: { runtime: { ttlMinutes: 5 } } } as unknown as MoziConfig;
+      const cfg = { acp: { runtime: { ttlMinutes: 5 } } } as MoziConfig;
       expect(resolveRuntimeIdleTtlMs(cfg)).toBe(5 * 60 * 1000);
     });
 
     it("should return 0 for undefined ttlMinutes", () => {
-      const cfg = {} as unknown as MoziConfig;
+      const cfg = {} as MoziConfig;
       expect(resolveRuntimeIdleTtlMs(cfg)).toBe(0);
     });
 
     it("should return 0 for invalid ttlMinutes", () => {
-      expect(
-        resolveRuntimeIdleTtlMs({ acp: { runtime: { ttlMinutes: -1 } } } as unknown as MoziConfig),
-      ).toBe(0);
-      expect(
-        resolveRuntimeIdleTtlMs({ acp: { runtime: { ttlMinutes: 0 } } } as unknown as MoziConfig),
-      ).toBe(0);
+      expect(resolveRuntimeIdleTtlMs({ acp: { runtime: { ttlMinutes: -1 } } } as MoziConfig)).toBe(
+        0,
+      );
+      expect(resolveRuntimeIdleTtlMs({ acp: { runtime: { ttlMinutes: 0 } } } as MoziConfig)).toBe(
+        0,
+      );
       expect(
         resolveRuntimeIdleTtlMs({
           acp: { runtime: { ttlMinutes: "invalid" } },
@@ -142,7 +142,7 @@ describe("manager.utils", () => {
     });
 
     it("should round fractional minutes", () => {
-      const cfg = { acp: { runtime: { ttlMinutes: 1.5 } } } as unknown as MoziConfig;
+      const cfg = { acp: { runtime: { ttlMinutes: 1.5 } } } as MoziConfig;
       expect(resolveRuntimeIdleTtlMs(cfg)).toBe(90 * 1000);
     });
   });
@@ -169,7 +169,7 @@ describe("manager.utils", () => {
         state: "idle",
         lastActivityAt: Date.now(),
         backendSessionId: "backend-123",
-      } as unknown as MoziConfig;
+      } as unknown as SessionAcpMeta;
       expect(hasLegacyAcpIdentityProjection(meta)).toBe(true);
     });
 
@@ -182,7 +182,7 @@ describe("manager.utils", () => {
         state: "idle",
         lastActivityAt: Date.now(),
         agentSessionId: "agent-456",
-      } as unknown as MoziConfig;
+      } as unknown as SessionAcpMeta;
       expect(hasLegacyAcpIdentityProjection(meta)).toBe(true);
     });
 
@@ -195,7 +195,7 @@ describe("manager.utils", () => {
         state: "idle",
         lastActivityAt: Date.now(),
         sessionIdsProvisional: ["id1", "id2"],
-      } as unknown as MoziConfig;
+      } as unknown as SessionAcpMeta;
       expect(hasLegacyAcpIdentityProjection(meta)).toBe(true);
     });
   });

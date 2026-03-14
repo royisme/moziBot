@@ -177,7 +177,21 @@ export class AcpClientSession {
    * Lists available sessions.
    */
   async listSessions(cwd?: string): Promise<AcpSessionListEntry[]> {
-    const result = await this.transport.connection.unstable_listSessions({
+    type ListableConnection = typeof this.transport.connection & {
+      unstable_listSessions?: (input: { cwd: string }) => Promise<{
+        sessions: Array<{
+          sessionId: string;
+          title?: string | null;
+        }>;
+      }>;
+    };
+
+    const connection = this.transport.connection as ListableConnection;
+    if (!connection.unstable_listSessions) {
+      return [];
+    }
+
+    const result = await connection.unstable_listSessions({
       cwd: cwd ?? process.cwd(),
     });
 

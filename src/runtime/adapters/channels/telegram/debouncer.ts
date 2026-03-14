@@ -17,7 +17,9 @@ export class MediaGroupDebouncer {
     const existing = this.pending.get(groupId);
 
     if (existing) {
-      clearTimeout(existing.timer);
+      if (existing.timer) {
+        clearTimeout(existing.timer);
+      }
       existing.messages.push(message);
     } else {
       this.pending.set(groupId, { messages: [message], timer: null });

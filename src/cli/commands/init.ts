@@ -4,10 +4,14 @@ import path from "node:path";
 import { confirm, input, select } from "@inquirer/prompts";
 import pc from "picocolors";
 import { resolveTemplatesDir } from "../../agents/templates";
+import { getProviderFlow } from "../../configure/provider-flows";
+import { getProviderContract } from "../../runtime/providers/contracts";
+import { createSecretManager } from "../../storage/secrets/manager";
 
 const DEFAULT_BASE_DIR = path.join(os.homedir(), ".mozi");
 const DEFAULT_HOME = path.join(DEFAULT_BASE_DIR, "agents", "main", "home");
 const DEFAULT_WORKSPACE = path.join(DEFAULT_BASE_DIR, "agents", "main", "workspace");
+const secretManager = createSecretManager();
 
 type ProviderPreset = "openai" | "anthropic" | "google" | "custom";
 type ModelApi =
@@ -15,6 +19,7 @@ type ModelApi =
   | "openai-completions"
   | "anthropic-messages"
   | "google-generative-ai";
+type BuiltinProviderPreset = Exclude<ProviderPreset, "custom">;
 type Channel = "none" | "discord" | "telegram";
 
 interface InitConfig {
@@ -38,29 +43,29 @@ type ProviderSelection = {
   envVarName: string;
 };
 
-const BUILTIN_PROVIDER_PRESETS: Record<
-  Exclude<ProviderPreset, "custom">,
-  { label: string; defaultModel: string; api: ModelApi; envVarName: string }
-> = {
-  openai: {
-    label: "OpenAI",
-    defaultModel: "gpt-4o",
-    api: "openai-responses",
-    envVarName: "OPENAI_API_KEY",
-  },
-  anthropic: {
-    label: "Anthropic",
-    defaultModel: "claude-sonnet-4-20250514",
-    api: "anthropic-messages",
-    envVarName: "ANTHROPIC_API_KEY",
-  },
-  google: {
-    label: "Google Gemini",
-    defaultModel: "gemini-2.5-flash",
-    api: "google-generative-ai",
-    envVarName: "GEMINI_API_KEY",
-  },
-};
+function getBuiltinProviderPreset(providerId: BuiltinProviderPreset): {
+  label: string;
+  defaultModel: string;
+  api: ModelApi;
+  envVarName: string;
+} {
+  const flow = getProviderFlow(providerId);
+  const contract = getProviderContract(providerId);
+  const defaultModel =
+    flow?.defaultModelSuggestions?.find((suggestion) => suggestion.alias === "default")?.modelId ??
+    flow?.knownModels?.[0]?.id;
+
+  if (!flow?.label || !contract?.canonicalApi || !contract.apiEnvVar || !defaultModel) {
+    throw new Error(`Missing built-in provider defaults for ${providerId}`);
+  }
+
+  return {
+    label: flow.label,
+    defaultModel,
+    api: contract.canonicalApi as ModelApi,
+    envVarName: contract.apiEnvVar,
+  };
+}
 
 // Home files (agent identity)
 const HOME_FILES = [
@@ -100,6 +105,10 @@ function defaultBaseUrlForApi(api: ModelApi): string {
     return "https://generativelanguage.googleapis.com/v1beta";
   }
   return "https://api.openai.com/v1";
+}
+
+function getBuiltinProviderBaseUrl(providerId: BuiltinProviderPreset): string | undefined {
+  return getProviderContract(providerId)?.canonicalBaseUrl;
 }
 
 function suggestApiKeyEnvVar(providerId: string): string {
@@ -148,16 +157,17 @@ async function promptProvider(): Promise<ProviderSelection> {
   });
 
   if (preset !== "custom") {
-    const provider = BUILTIN_PROVIDER_PRESETS[preset];
+    const provider = getBuiltinProviderPreset(preset);
     const model = await input({
       message: "Model name:",
       default: provider.defaultModel,
-      validate: (v) => (v.trim().length > 0 ? true : "Model name is required"),
+      validate: (v: string) => (v.trim().length > 0 ? true : "Model name is required"),
     });
     return {
       providerId: preset,
       providerLabel: provider.label,
       api: provider.api,
+      baseUrl: getBuiltinProviderBaseUrl(preset),
       model,
       envVarName: provider.envVarName,
     };
@@ -185,13 +195,13 @@ async function promptProvider(): Promise<ProviderSelection> {
   const baseUrl = await input({
     message: "Base URL:",
     default: defaultBaseUrlForApi(api),
-    validate: (v) => (v.trim().length > 0 ? true : "Base URL is required"),
+    validate: (v: string) => (v.trim().length > 0 ? true : "Base URL is required"),
   });
 
   const model = await input({
     message: "Model name:",
     default: "gpt-4o",
-    validate: (v) => (v.trim().length > 0 ? true : "Model name is required"),
+    validate: (v: string) => (v.trim().length > 0 ? true : "Model name is required"),
   });
 
   const envVarName = (
@@ -231,7 +241,7 @@ async function promptApiKey(params: {
 
   const apiKey = await input({
     message: `Enter your ${params.providerLabel} API key:`,
-    validate: (v) => (v.trim().length > 0 ? true : "API key is required"),
+    validate: (v: string) => (v.trim().length > 0 ? true : "API key is required"),
   });
 
   return apiKey;
@@ -267,7 +277,7 @@ async function promptChannel(): Promise<{ channel: Channel; token?: string }> {
 
   const token = await input({
     message: `Enter your ${channel} bot token:`,
-    validate: (v) => (v.trim().length > 0 ? true : "Token is required"),
+    validate: (v: string) => (v.trim().length > 0 ? true : "Token is required"),
   });
 
   return { channel, token };
@@ -285,7 +295,7 @@ function buildConfig(config: InitConfig): object {
           ...(config.baseUrl && { baseUrl: config.baseUrl }),
           apiKey: config.apiKey,
           api: config.api,
-          models: [{ id: config.model }],
+          models: [{ id: config.model, name: config.model }],
         },
       },
     },
@@ -363,35 +373,13 @@ function buildConfig(config: InitConfig): object {
   return result;
 }
 
-async function writeEnvFile(baseDir: string, envKey: string, apiKey: string) {
-  // Don't write if it's a reference to env var
+async function writeSharedSecret(envKey: string, apiKey: string) {
   if (apiKey.startsWith("${")) {
     return;
   }
 
-  const envPath = path.join(baseDir, ".env");
-  const newLine = `${envKey}=${apiKey}`;
-
-  // Read existing .env and merge (preserve other keys)
-  let existingContent = "";
-  try {
-    existingContent = await fs.readFile(envPath, "utf-8");
-  } catch {
-    // File doesn't exist, start fresh
-  }
-
-  // Parse existing and update/add the key
-  const lines = existingContent.split("\n").filter((l) => l.trim() !== "");
-  const existingIndex = lines.findIndex((l) => l.startsWith(`${envKey}=`));
-  if (existingIndex >= 0) {
-    lines[existingIndex] = newLine;
-  } else {
-    lines.push(newLine);
-  }
-
-  const content = lines.join("\n") + "\n";
-  await fs.writeFile(envPath, content, { mode: 0o600 });
-  console.log(pc.dim(`  Wrote API key to ${envPath}`));
+  await secretManager.set(envKey, apiKey);
+  console.log(pc.dim(`  Stored API key in shared Mozi secret storage (${envKey})`));
 }
 
 async function seedFiles(dir: string, files: string[], label: string) {
@@ -479,7 +467,7 @@ export async function runInitWizard(options: { reset?: boolean; nonInteractive?:
   banner();
 
   // Collect configuration
-  const defaultProvider = BUILTIN_PROVIDER_PRESETS.openai;
+  const defaultProvider = getBuiltinProviderPreset("openai");
   const provider = options.nonInteractive
     ? {
         providerId: "openai",
@@ -516,9 +504,9 @@ export async function runInitWizard(options: { reset?: boolean; nonInteractive?:
   console.log(pc.bold("\n⚙️  Setting up...\n"));
   await fs.mkdir(baseDir, { recursive: true });
 
-  // Write .env file if needed
+  // Write shared secret storage entry if needed
   if (!apiKey.startsWith("${")) {
-    await writeEnvFile(baseDir, provider.envVarName, apiKey);
+    await writeSharedSecret(provider.envVarName, apiKey);
   }
 
   // Write config

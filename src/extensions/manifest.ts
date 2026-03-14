@@ -220,7 +220,10 @@ export function validateManifest(
     tools: tools as ExtensionManifest["tools"],
     commands: commands as ExtensionManifest["commands"],
     hooks: hooks as ExtensionManifest["hooks"],
-    register: typeof obj.register === "function" ? obj.register : undefined,
+    register:
+      typeof obj.register === "function"
+        ? (obj.register as ExtensionManifest["register"])
+        : undefined,
     skillDirs: Array.isArray(obj.skillDirs)
       ? (obj.skillDirs as string[]).filter((d) => typeof d === "string")
       : undefined,

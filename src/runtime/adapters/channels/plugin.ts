@@ -77,7 +77,7 @@ export abstract class BaseChannelPlugin extends EventEmitter implements ChannelP
 
   listActions(context?: ChannelActionQueryContext): ChannelActionSpec[] {
     const supported = new Set(this.getCapabilities().supportedActions);
-    return [
+    const actions: ChannelActionSpec[] = [
       {
         name: "send_text",
         enabled: supported.has("send_text"),
@@ -93,7 +93,8 @@ export abstract class BaseChannelPlugin extends EventEmitter implements ChannelP
         enabled: supported.has("reply"),
         description: "Reply in the current conversation or thread.",
       },
-    ].filter((spec) => spec.enabled || context !== undefined);
+    ];
+    return actions.filter((spec) => spec.enabled || context !== undefined);
   }
 
   getStatus(): ChannelStatus {

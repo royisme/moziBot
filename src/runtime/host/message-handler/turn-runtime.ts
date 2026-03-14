@@ -120,12 +120,7 @@ export class MessageTurnRuntime {
       const replyText =
         ctx.state && typeof ctx.state.replyText === "string" ? ctx.state.replyText : undefined;
       const userText = ctx.state && typeof ctx.state.text === "string" ? ctx.state.text : undefined;
-      const startedAtMs =
-        typeof ctx.startTime === "number"
-          ? ctx.startTime
-          : ctx.startTime instanceof Date
-            ? ctx.startTime.getTime()
-            : Date.now();
+      const startedAtMs = typeof ctx.startTime === "number" ? ctx.startTime : Date.now();
 
       if (sessionKey && agentId) {
         const hookRunner = getRuntimeHookRunner();

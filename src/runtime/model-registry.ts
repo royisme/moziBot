@@ -1,6 +1,9 @@
 import type { MoziConfig } from "../config";
+import { resolveSecretInput } from "../storage/secrets/resolve";
 import { listCliBackendModels } from "./cli-backends";
+import { normalizeProviderId } from "./provider-normalization";
 import { ProviderRegistry } from "./provider-registry";
+import { applyCodexSparkFallback } from "./providers/compatibility";
 import type { ModelDefinition, ModelRef, ModelSpec, ProviderConfig } from "./types";
 
 export class ModelRegistry {
@@ -24,11 +27,8 @@ export class ModelRegistry {
       }
     }
 
-    // For the openai-codex provider: if gpt-5.3-codex is registered but
-    // gpt-5.3-codex-spark is not, synthesize the spark variant automatically.
-    // This mirrors the openclaw applyOpenAICodexSparkFallback pattern so users
-    // don't need to manually add the spark model to their config.
-    this.applyCodexSparkFallback();
+    // Explicit compatibility adapter for OpenClaw-aligned Codex behavior.
+    applyCodexSparkFallback(this.models);
 
     const cliModels = listCliBackendModels(this.config);
     for (const spec of cliModels) {
@@ -54,41 +54,27 @@ export class ModelRegistry {
     }
   }
 
-  private applyCodexSparkFallback() {
-    const CODEX_PROVIDER = "openai-codex";
-    const BASE_MODEL_ID = "gpt-5.3-codex";
-    const SPARK_MODEL_ID = "gpt-5.3-codex-spark";
-
-    const sparkKey = this.key(CODEX_PROVIDER, SPARK_MODEL_ID);
-    if (this.models.has(sparkKey)) {
-      // Spark model is already explicitly configured; nothing to do.
-      return;
-    }
-
-    const baseKey = this.key(CODEX_PROVIDER, BASE_MODEL_ID);
-    const baseSpec = this.models.get(baseKey);
-    if (!baseSpec) {
-      // Base model not configured; skip synthesizing spark.
-      return;
-    }
-
-    // Synthesize the spark variant from the base model spec.
-    this.models.set(sparkKey, { ...baseSpec, id: SPARK_MODEL_ID });
-  }
-
   private buildSpec(provider: ProviderConfig, model: ModelDefinition): ModelSpec {
     const api = model.api || provider.api || "openai-responses";
+    const resolvedProviderHeaders = Object.fromEntries(
+      Object.entries(provider.headers ?? {}).flatMap(([key, value]) => {
+        const resolved = resolveSecretInput(value, process.env);
+        return resolved ? [[key, resolved] as const] : [];
+      }),
+    );
     return {
       id: model.id,
       provider: provider.id,
       api,
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
-      headers: { ...provider.headers, ...model.headers },
+      headers: { ...resolvedProviderHeaders, ...model.headers },
       reasoning: model.reasoning,
       input: model.input,
+      cost: model.cost,
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
+      compat: model.compat,
     };
   }
 
@@ -105,7 +91,7 @@ export class ModelRegistry {
     if (idx === -1) {
       return null;
     }
-    const provider = trimmed.slice(0, idx).trim();
+    const provider = normalizeProviderId(trimmed.slice(0, idx));
     const model = trimmed.slice(idx + 1).trim();
     if (!provider || !model) {
       return null;

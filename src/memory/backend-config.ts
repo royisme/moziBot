@@ -165,6 +165,8 @@ const DEFAULT_CITATIONS = "auto" as const;
 const DEFAULT_QMD_INTERVAL = "5m";
 const DEFAULT_QMD_DEBOUNCE_MS = 15_000;
 const DEFAULT_QMD_TIMEOUT_MS = 4_000;
+// Keep BM25 `search` as the default to match OpenClaw and avoid requiring
+// `qmd embed` side effects unless the user explicitly opts into `vsearch`/`query`.
 const DEFAULT_QMD_SEARCH_MODE: MemoryQmdSearchMode = "search";
 const DEFAULT_QMD_EMBED_INTERVAL = "60m";
 const DEFAULT_QMD_LIMITS: ResolvedQmdLimitsConfig = {

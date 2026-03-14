@@ -1,6 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Type } from "@sinclair/typebox";
 import type { McpServerEntry } from "../../config/schema/extensions";
 import { logger } from "../../logger";
 import type { ExtensionDiagnostic, LoadedExtension } from "../types";
@@ -10,7 +11,7 @@ const DEFAULT_TIMEOUT = 30000;
 type McpToolSchema = {
   name: string;
   description?: string;
-  inputSchema?: Record<string, unknown>;
+  inputSchema?: AgentTool["parameters"];
 };
 
 type McpConnection = {
@@ -93,7 +94,11 @@ export class McpClientManager {
 
       // Discover tools
       const toolsResponse = await client.listTools();
-      const mcpTools = (toolsResponse.tools ?? []) as McpToolSchema[];
+      const mcpTools: McpToolSchema[] = (toolsResponse.tools ?? []).map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema as unknown as AgentTool["parameters"] | undefined,
+      }));
 
       logger.info(
         { mcpServerId: id, tools: mcpTools.map((t) => t.name) },
@@ -123,7 +128,7 @@ export class McpClientManager {
             name: t.name,
             label: t.name,
             description: t.description ?? "",
-            parameters: t.inputSchema ?? {},
+            parameters: t.inputSchema ?? Type.Object({}),
             execute: async () => ({ content: [], details: {} }),
           })),
         },
@@ -175,8 +180,13 @@ export class McpClientManager {
       name: mcpTool.name,
       label: mcpTool.name,
       description: mcpTool.description ?? `MCP tool from ${serverId}`,
-      parameters: mcpTool.inputSchema ?? { type: "object", properties: {} },
-      execute: async (_toolCallId: string, args: unknown) => {
+      parameters: (mcpTool.inputSchema ?? {
+        type: "object",
+        properties: {},
+      }) as AgentTool["parameters"],
+      execute: async (_toolCallId: string, args: unknown, signal, onUpdate) => {
+        void signal;
+        void onUpdate;
         try {
           const result = await client.callTool({
             name: mcpTool.name,

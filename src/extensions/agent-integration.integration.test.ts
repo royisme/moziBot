@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MoziConfig } from "../config";
 import { clearMemoryManagerCache } from "../memory";
 import { AgentManager } from "../runtime/agent-manager";
 import { ModelRegistry } from "../runtime/model-registry";
@@ -30,14 +31,14 @@ describe("AgentManager extension tools integration", () => {
   });
 
   it("includes web_search tool when extension is enabled and tool is in allowlist", async () => {
-    const config = {
+    const config: MoziConfig = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
             api: "openai-responses",
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -72,14 +73,14 @@ describe("AgentManager extension tools integration", () => {
   });
 
   it("excludes web_search tool when tool is not in allowlist", async () => {
-    const config = {
+    const config: MoziConfig = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
             api: "openai-responses",
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -113,14 +114,14 @@ describe("AgentManager extension tools integration", () => {
   });
 
   it("excludes web_search when extension is disabled", async () => {
-    const config = {
+    const config: MoziConfig = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
             api: "openai-responses",
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -154,14 +155,14 @@ describe("AgentManager extension tools integration", () => {
   });
 
   it("excludes web_search when extensions subsystem is disabled", async () => {
-    const config = {
+    const config: MoziConfig = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
             api: "openai-responses",
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -198,14 +199,14 @@ describe("AgentManager extension tools integration", () => {
     delete process.env.TAVILY_API_KEY;
 
     try {
-      const config = {
+      const config: MoziConfig = {
         paths: { baseDir, sessions: path.join(baseDir, "sessions") },
         models: {
           providers: {
             openai: {
               api: "openai-responses",
               apiKey: "test",
-              models: [{ id: "gpt-4o" }],
+              models: [{ id: "gpt-4o", name: "gpt-4o" }],
             },
           },
         },
@@ -261,14 +262,14 @@ describe("AgentManager extension tools integration", () => {
   });
 
   it("extension registry is accessible from agent manager", () => {
-    const config = {
+    const config: MoziConfig = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
             api: "openai-responses",
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },

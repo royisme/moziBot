@@ -2,12 +2,70 @@ import type {
   AssistantMessageEventStream,
   Context,
   Model,
+  StreamFunction,
   StreamOptions,
 } from "@mariozechner/pi-ai";
 import { describe, expect, it, vi } from "vitest";
-import { createCodexDefaultTransportWrapper } from "./agent-manager";
+import { createCodexDefaultTransportWrapper, inferAuthProfileFailureReason } from "./agent-manager";
+import { AuthProfileStoreAdapter } from "./auth-profiles";
+
+class InMemoryAuthSecretsRepo {
+  private rows = new Map<string, import("../storage/types").AuthSecret>();
+
+  list(params?: { scopeType?: "global" | "agent"; scopeId?: string }) {
+    const rows = Array.from(this.rows.values());
+    if (!params?.scopeType) {
+      return rows;
+    }
+    return rows.filter(
+      (row) => row.scope_type === params.scopeType && row.scope_id === (params.scopeId ?? ""),
+    );
+  }
+
+  getExact(params: { name: string; scopeType: "global" | "agent"; scopeId?: string }) {
+    return this.rows.get(`${params.scopeType}:${params.scopeId ?? ""}:${params.name}`) ?? null;
+  }
+
+  upsert(secret: {
+    name: string;
+    scopeType: "global" | "agent";
+    scopeId?: string;
+    valueCiphertext: Buffer;
+    valueNonce: Buffer;
+    createdBy?: string;
+  }) {
+    const now = new Date().toISOString();
+    this.rows.set(`${secret.scopeType}:${secret.scopeId ?? ""}:${secret.name}`, {
+      name: secret.name,
+      scope_type: secret.scopeType,
+      scope_id: secret.scopeId ?? "",
+      value_ciphertext: secret.valueCiphertext,
+      value_nonce: secret.valueNonce,
+      created_at: now,
+      updated_at: now,
+      last_used_at: null,
+      created_by: secret.createdBy ?? null,
+    });
+  }
+}
 
 describe("createCodexDefaultTransportWrapper", () => {
+  function makeProfileStore() {
+    process.env.MOZI_MASTER_KEY = Buffer.alloc(32, 3).toString("base64");
+    const store = new AuthProfileStoreAdapter(new InMemoryAuthSecretsRepo());
+    store.upsertProfile({
+      id: "openai-codex:default",
+      credential: {
+        type: "oauth",
+        provider: "openai-codex",
+        access: "profile-key",
+        refresh: "refresh",
+        expires: Date.now() + 60_000,
+      },
+    });
+    return store;
+  }
+
   function makeModel(): Model<"openai-codex-responses"> {
     return {
       id: "codex-mini-latest",
@@ -44,7 +102,7 @@ describe("createCodexDefaultTransportWrapper", () => {
       },
     );
 
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(makeModel(), makeContext(), {});
 
     expect(capturedOptions).toHaveLength(1);
@@ -64,7 +122,7 @@ describe("createCodexDefaultTransportWrapper", () => {
       },
     );
 
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(makeModel(), makeContext(), { transport: "sse" });
 
     expect(capturedOptions).toHaveLength(1);
@@ -84,7 +142,7 @@ describe("createCodexDefaultTransportWrapper", () => {
       },
     );
 
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(makeModel(), makeContext(), { transport: "websocket" });
 
     expect(capturedOptions).toHaveLength(1);
@@ -104,7 +162,7 @@ describe("createCodexDefaultTransportWrapper", () => {
       },
     );
 
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(makeModel(), makeContext(), undefined);
 
     expect(capturedOptions).toHaveLength(1);
@@ -124,7 +182,7 @@ describe("createCodexDefaultTransportWrapper", () => {
       },
     );
 
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(makeModel(), makeContext(), { temperature: 0.5, maxTokens: 1024 });
 
     expect(capturedOptions).toHaveLength(1);
@@ -150,7 +208,7 @@ describe("createCodexDefaultTransportWrapper", () => {
 
     const model = makeModel();
     const context = makeContext();
-    const wrapped = createCodexDefaultTransportWrapper(base);
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction);
     wrapped(model, context);
 
     expect(capturedModels[0]).toBe(model);
@@ -160,5 +218,46 @@ describe("createCodexDefaultTransportWrapper", () => {
   it("uses streamSimple as default when no base function is provided", () => {
     const wrapped = createCodexDefaultTransportWrapper();
     expect(typeof wrapped).toBe("function");
+  });
+
+  it("marks auth-profile success as used and good", () => {
+    const store = makeProfileStore();
+    const base = vi.fn(() => makeMockStream());
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction, {
+      authProfiles: store,
+      profileId: "openai-codex:default",
+    });
+
+    wrapped(makeModel(), makeContext());
+
+    const profile = store.getProfile("openai-codex:default");
+    expect(typeof profile?.usageStats?.lastUsed).toBe("number");
+    expect(typeof profile?.usageStats?.lastGoodAt).toBe("number");
+    expect(store.getLastGood("openai-codex")).toBe("openai-codex:default");
+  });
+
+  it("marks auth-profile failures with inferred cooldown reason", () => {
+    const store = makeProfileStore();
+    const base = vi.fn(() => {
+      throw new Error("429 rate limit exceeded");
+    });
+    const wrapped = createCodexDefaultTransportWrapper(base as unknown as StreamFunction, {
+      authProfiles: store,
+      profileId: "openai-codex:default",
+    });
+
+    expect(() => wrapped(makeModel(), makeContext())).toThrow(/rate limit/i);
+    const profile = store.getProfile("openai-codex:default");
+    expect(profile?.usageStats?.failureCounts?.rate_limit).toBe(1);
+    expect(typeof profile?.usageStats?.cooldownUntil).toBe("number");
+  });
+});
+
+describe("inferAuthProfileFailureReason", () => {
+  it("maps billing/auth/rate-limit/overloaded errors", () => {
+    expect(inferAuthProfileFailureReason(new Error("402 billing required"))).toBe("billing");
+    expect(inferAuthProfileFailureReason(new Error("401 unauthorized"))).toBe("auth_permanent");
+    expect(inferAuthProfileFailureReason(new Error("429 rate limit"))).toBe("rate_limit");
+    expect(inferAuthProfileFailureReason(new Error("503 service unavailable"))).toBe("overloaded");
   });
 });

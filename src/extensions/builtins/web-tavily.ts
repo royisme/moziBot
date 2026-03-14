@@ -76,7 +76,7 @@ async function executeWebSearch(
   _toolCallId: string,
   args: Record<string, unknown>,
   ctx: ExtensionToolContext,
-): Promise<{ content: Array<{ type: string; text: string }>; details: Record<string, unknown> }> {
+): Promise<{ content: Array<{ type: "text"; text: string }>; details: Record<string, unknown> }> {
   const config = parseConfig(ctx.extensionConfig);
 
   const query = args.query;

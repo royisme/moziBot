@@ -1,13 +1,27 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+const { readCodexCliCredentials } = vi.hoisted(() => ({
+  readCodexCliCredentials: vi.fn(),
+}));
+
+vi.mock("../runtime/cli-credentials", () => ({
+  readCodexCliCredentials,
+}));
+
 import { fetchCodexUsage } from "../commands/codex-usage";
 import type { MoziConfig } from "../config";
+import { AuthProfileStoreAdapter } from "./auth-profiles";
 import { ModelRegistry } from "./model-registry";
+import { resolveApiKeyForProvider, resolveProviderAuth } from "./provider-auth";
 import { ProviderRegistry } from "./provider-registry";
+import type { ModelDefinition } from "./types";
 
 // ---------------------------------------------------------------------------
 // Helper: build minimal MoziConfig with an openai-codex provider block
 // ---------------------------------------------------------------------------
-function createCodexConfig(models: { id: string }[] = [{ id: "gpt-5.3-codex" }]): MoziConfig {
+function createCodexConfig(
+  models: ModelDefinition[] = [{ id: "gpt-5.3-codex", name: "gpt-5.3-codex" }],
+): MoziConfig {
   return {
     models: {
       providers: {
@@ -25,11 +39,52 @@ function createCodexConfig(models: { id: string }[] = [{ id: "gpt-5.3-codex" }])
 // ---------------------------------------------------------------------------
 // 1. Provider registry: openai-codex → OPENAI_CODEX_API_KEY
 // ---------------------------------------------------------------------------
+class InMemoryAuthSecretsRepo {
+  private rows = new Map<string, import("../storage/types").AuthSecret>();
+
+  list(params?: { scopeType?: "global" | "agent"; scopeId?: string }) {
+    const rows = Array.from(this.rows.values());
+    if (!params?.scopeType) {
+      return rows;
+    }
+    return rows.filter(
+      (row) => row.scope_type === params.scopeType && row.scope_id === (params.scopeId ?? ""),
+    );
+  }
+
+  getExact(params: { name: string; scopeType: "global" | "agent"; scopeId?: string }) {
+    return this.rows.get(`${params.scopeType}:${params.scopeId ?? ""}:${params.name}`) ?? null;
+  }
+
+  upsert(secret: {
+    name: string;
+    scopeType: "global" | "agent";
+    scopeId?: string;
+    valueCiphertext: Buffer;
+    valueNonce: Buffer;
+    createdBy?: string;
+  }) {
+    const now = new Date().toISOString();
+    this.rows.set(`${secret.scopeType}:${secret.scopeId ?? ""}:${secret.name}`, {
+      name: secret.name,
+      scope_type: secret.scopeType,
+      scope_id: secret.scopeId ?? "",
+      value_ciphertext: secret.valueCiphertext,
+      value_nonce: secret.valueNonce,
+      created_at: now,
+      updated_at: now,
+      last_used_at: null,
+      created_by: secret.createdBy ?? null,
+    });
+  }
+}
+
 describe("ProviderRegistry — openai-codex env var mapping", () => {
   const envKey = "OPENAI_CODEX_API_KEY";
   let originalValue: string | undefined;
 
   beforeEach(() => {
+    process.env.MOZI_MASTER_KEY = Buffer.alloc(32, 9).toString("base64");
     originalValue = process.env[envKey];
     delete process.env[envKey];
   });
@@ -83,13 +138,99 @@ describe("ProviderRegistry — openai-codex env var mapping", () => {
     process.env[envKey] = "env-codex-key";
 
     const registry = new ProviderRegistry(createCodexConfig());
-    // createCodexConfig uses apiKey: "test-key"
     expect(registry.resolveApiKey("openai-codex")).toBe("test-key");
   });
 
   it("returns undefined for unknown provider (not in ENV_MAP)", () => {
     const registry = new ProviderRegistry(createCodexConfig());
     expect(registry.resolveApiKey("some-unknown-provider")).toBeUndefined();
+  });
+
+  it("prefers env over auth profiles and auth profiles over CLI fallback", () => {
+    readCodexCliCredentials.mockReturnValue({
+      access: "cli-codex-key",
+      refresh: "refresh",
+      expires: Date.now() + 3600_000,
+    });
+    const repo = new InMemoryAuthSecretsRepo();
+    const profiles = new AuthProfileStoreAdapter(repo);
+    profiles.upsertProfile({
+      id: "openai-codex:default",
+      credential: {
+        type: "oauth",
+        provider: "openai-codex",
+        access: "profile-codex-key",
+        refresh: "refresh",
+        expires: Date.now() + 60_000,
+      },
+    });
+
+    expect(
+      resolveApiKeyForProvider({
+        providerId: "openai-codex",
+        provider: undefined,
+        env: {},
+        authProfiles: profiles,
+      }),
+    ).toBe("profile-codex-key");
+
+    expect(
+      resolveApiKeyForProvider({
+        providerId: "openai-codex",
+        provider: undefined,
+        env: { OPENAI_CODEX_API_KEY: "env-codex-key" },
+        authProfiles: profiles,
+      }),
+    ).toBe("env-codex-key");
+  });
+
+  it("normalizes provider aliases during auth-profile resolution", () => {
+    const repo = new InMemoryAuthSecretsRepo();
+    const profiles = new AuthProfileStoreAdapter(repo);
+    profiles.upsertProfile({
+      id: "zai:default",
+      credential: {
+        type: "api_key",
+        provider: "z.ai",
+        key: "zai-profile-key",
+      },
+    });
+
+    expect(
+      resolveApiKeyForProvider({
+        providerId: "Z-AI",
+        provider: undefined,
+        env: {},
+        authProfiles: profiles,
+      }),
+    ).toBe("zai-profile-key");
+  });
+
+  it("returns auth-profile source metadata for runtime integration", () => {
+    const repo = new InMemoryAuthSecretsRepo();
+    const profiles = new AuthProfileStoreAdapter(repo);
+    profiles.upsertProfile({
+      id: "openai-codex:default",
+      credential: {
+        type: "oauth",
+        provider: "openai-codex",
+        access: "profile-codex-key",
+        expires: Date.now() + 60_000,
+      },
+    });
+
+    expect(
+      resolveProviderAuth({
+        providerId: "openai-codex",
+        provider: undefined,
+        env: {},
+        authProfiles: profiles,
+      }),
+    ).toMatchObject({
+      source: "auth-profile",
+      apiKey: "profile-codex-key",
+      profileId: "openai-codex:default",
+    });
   });
 });
 
@@ -98,7 +239,9 @@ describe("ProviderRegistry — openai-codex env var mapping", () => {
 // ---------------------------------------------------------------------------
 describe("ModelRegistry.applyCodexSparkFallback — spark model auto-synthesis", () => {
   it("synthesizes gpt-5.3-codex-spark when base model exists but spark does not", () => {
-    const registry = new ModelRegistry(createCodexConfig([{ id: "gpt-5.3-codex" }]));
+    const registry = new ModelRegistry(
+      createCodexConfig([{ id: "gpt-5.3-codex", name: "gpt-5.3-codex" }]),
+    );
 
     const spark = registry.get("openai-codex/gpt-5.3-codex-spark");
     expect(spark).toBeDefined();
@@ -107,7 +250,9 @@ describe("ModelRegistry.applyCodexSparkFallback — spark model auto-synthesis",
   });
 
   it("synthesized spark model inherits api and baseUrl from base model", () => {
-    const registry = new ModelRegistry(createCodexConfig([{ id: "gpt-5.3-codex" }]));
+    const registry = new ModelRegistry(
+      createCodexConfig([{ id: "gpt-5.3-codex", name: "gpt-5.3-codex" }]),
+    );
 
     const base = registry.get("openai-codex/gpt-5.3-codex");
     const spark = registry.get("openai-codex/gpt-5.3-codex-spark");
@@ -125,9 +270,9 @@ describe("ModelRegistry.applyCodexSparkFallback — spark model auto-synthesis",
 describe("ModelRegistry.applyCodexSparkFallback — spark not overwritten when explicit", () => {
   it("does not overwrite an explicitly configured spark model", () => {
     const config = createCodexConfig([
-      { id: "gpt-5.3-codex" },
+      { id: "gpt-5.3-codex", name: "gpt-5.3-codex" },
       // explicitly configured spark with a different api to detect overwrite
-      { id: "gpt-5.3-codex-spark" },
+      { id: "gpt-5.3-codex-spark", name: "gpt-5.3-codex-spark" },
     ]);
 
     // Inject a distinct apiKey into the explicit spark entry so we can verify
@@ -141,7 +286,10 @@ describe("ModelRegistry.applyCodexSparkFallback — spark not overwritten when e
   });
 
   it("keeps both base and explicit spark models in registry", () => {
-    const config = createCodexConfig([{ id: "gpt-5.3-codex" }, { id: "gpt-5.3-codex-spark" }]);
+    const config = createCodexConfig([
+      { id: "gpt-5.3-codex", name: "gpt-5.3-codex" },
+      { id: "gpt-5.3-codex-spark", name: "gpt-5.3-codex-spark" },
+    ]);
 
     const registry = new ModelRegistry(config);
 
@@ -162,7 +310,7 @@ describe("ModelRegistry.applyCodexSparkFallback — no-op without codex models",
             api: "openai-responses",
             baseUrl: "https://api.openai.com/v1",
             apiKey: "sk-test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -191,7 +339,7 @@ describe("ModelRegistry.applyCodexSparkFallback — no-op without codex models",
   });
 
   it("does not create spark model when codex provider only has non-base models", () => {
-    const config = createCodexConfig([{ id: "codex-mini-latest" }]);
+    const config = createCodexConfig([{ id: "codex-mini-latest", name: "codex-mini-latest" }]);
 
     const registry = new ModelRegistry(config);
     // codex-mini-latest is present but gpt-5.3-codex is not, so no spark should be synthesized
@@ -203,9 +351,13 @@ describe("ModelRegistry.applyCodexSparkFallback — no-op without codex models",
 // 5. fetchCodexUsage: handles missing credentials gracefully
 // ---------------------------------------------------------------------------
 describe("fetchCodexUsage — missing credentials", () => {
-  it("returns error snapshot when auth storage throws during creation", async () => {
-    // Point baseDir to a guaranteed-nonexistent, non-createable path so
-    // AuthStorage.create() throws (e.g. ENOENT when the auth.json doesn't exist).
+  beforeEach(() => {
+    readCodexCliCredentials.mockReset();
+  });
+
+  it("returns no-credentials snapshot when credential lookup yields nothing", async () => {
+    readCodexCliCredentials.mockReturnValue(undefined);
+
     const snapshot = await fetchCodexUsage({
       baseDir: "/nonexistent-path-that-will-never-exist-mozibot-test",
       fetchFn: vi.fn() as unknown as typeof fetch,
@@ -214,16 +366,13 @@ describe("fetchCodexUsage — missing credentials", () => {
     expect(snapshot.provider).toBe("openai-codex");
     expect(snapshot.displayName).toBe("Codex");
     expect(snapshot.windows).toHaveLength(0);
-    // Either "Auth storage not found" or "No credentials" is acceptable,
-    // depending on whether AuthStorage.create throws or succeeds with empty data.
-    expect(snapshot.error).toBeDefined();
+    expect(snapshot.error).toBe("No Codex CLI credentials");
   });
 
   it("returns 'No credentials' snapshot when fetchFn is never called", async () => {
+    readCodexCliCredentials.mockReturnValue(undefined);
     const mockFetch = vi.fn();
 
-    // Use a temp dir that exists but has no auth.json -> AuthStorage.create() may
-    // succeed with no data stored, returning "No credentials"
     const snapshot = await fetchCodexUsage({
       baseDir: "/tmp",
       fetchFn: mockFetch as unknown as typeof fetch,
@@ -241,130 +390,76 @@ describe("fetchCodexUsage — missing credentials", () => {
 // 6. fetchCodexUsage: handles HTTP errors gracefully
 // ---------------------------------------------------------------------------
 describe("fetchCodexUsage — HTTP error handling", () => {
+  beforeEach(() => {
+    readCodexCliCredentials.mockReset();
+  });
+
   it("returns 'Token expired' error on 401 response", async () => {
-    // We need valid credentials in auth.json. Since we can't easily write one,
-    // we mock the module to bypass AuthStorage and test the HTTP layer directly.
-    // We use vi.mock to stub the module that exports fetchCodexUsage's dependency.
-    // However, the cleanest approach without modifying the module is to supply
-    // a fetchFn that also mocks the module boundary. We'll use vi.mock at module
-    // level instead — but since vi.mock hoisting doesn't work inline, we test
-    // the HTTP error paths via a separate describe with vi.mock.
-    //
-    // The simplest deterministic approach: pass a fetchFn that returns 401, and
-    // mock AuthStorage.create so that it doesn't throw and returns a storage
-    // with valid credentials.
-
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-    // Build an in-memory AuthStorage with a valid OAuth credential
-    const inMemoryStorage = AuthStorage.inMemory({
-      "openai-codex": {
-        type: "oauth",
-        access: "fake-access-token",
-        refresh: "fake-refresh-token",
-        expires: Date.now() + 3600_000,
-      } as import("@mariozechner/pi-coding-agent").OAuthCredential,
+    readCodexCliCredentials.mockReturnValue({
+      access: "fake-access-token",
+      refresh: "fake-refresh-token",
+      expires: Date.now() + 3600_000,
     });
-
-    // Temporarily monkey-patch AuthStorage.create so fetchCodexUsage uses our in-memory storage
-    const originalCreate = AuthStorage.create.bind(AuthStorage);
-    AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
     } as Response);
 
-    try {
-      const snapshot = await fetchCodexUsage({
-        fetchFn: mockFetch as unknown as typeof fetch,
-      });
+    const snapshot = await fetchCodexUsage({
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
-      expect(snapshot.provider).toBe("openai-codex");
-      expect(snapshot.windows).toHaveLength(0);
-      expect(snapshot.error).toBe("Token expired");
-    } finally {
-      AuthStorage.create = originalCreate;
-    }
+    expect(snapshot.provider).toBe("openai-codex");
+    expect(snapshot.windows).toHaveLength(0);
+    expect(snapshot.error).toBe("Token expired");
   });
 
   it("returns HTTP status error on 500 response", async () => {
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-    const inMemoryStorage = AuthStorage.inMemory({
-      "openai-codex": {
-        type: "oauth",
-        access: "fake-access-token",
-        refresh: "fake-refresh-token",
-        expires: Date.now() + 3600_000,
-      } as import("@mariozechner/pi-coding-agent").OAuthCredential,
+    readCodexCliCredentials.mockReturnValue({
+      access: "fake-access-token",
+      refresh: "fake-refresh-token",
+      expires: Date.now() + 3600_000,
     });
-
-    const originalCreate = AuthStorage.create.bind(AuthStorage);
-    AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
     } as Response);
 
-    try {
-      const snapshot = await fetchCodexUsage({
-        fetchFn: mockFetch as unknown as typeof fetch,
-      });
+    const snapshot = await fetchCodexUsage({
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
-      expect(snapshot.provider).toBe("openai-codex");
-      expect(snapshot.windows).toHaveLength(0);
-      expect(snapshot.error).toBe("HTTP 500");
-    } finally {
-      AuthStorage.create = originalCreate;
-    }
+    expect(snapshot.provider).toBe("openai-codex");
+    expect(snapshot.windows).toHaveLength(0);
+    expect(snapshot.error).toBe("HTTP 500");
   });
 
   it("returns network error message when fetch throws", async () => {
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-    const inMemoryStorage = AuthStorage.inMemory({
-      "openai-codex": {
-        type: "oauth",
-        access: "fake-access-token",
-        refresh: "fake-refresh-token",
-        expires: Date.now() + 3600_000,
-      } as import("@mariozechner/pi-coding-agent").OAuthCredential,
+    readCodexCliCredentials.mockReturnValue({
+      access: "fake-access-token",
+      refresh: "fake-refresh-token",
+      expires: Date.now() + 3600_000,
     });
-
-    const originalCreate = AuthStorage.create.bind(AuthStorage);
-    AuthStorage.create = () => inMemoryStorage;
 
     const mockFetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
 
-    try {
-      const snapshot = await fetchCodexUsage({
-        fetchFn: mockFetch as unknown as typeof fetch,
-      });
+    const snapshot = await fetchCodexUsage({
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
-      expect(snapshot.provider).toBe("openai-codex");
-      expect(snapshot.windows).toHaveLength(0);
-      expect(snapshot.error).toBe("ECONNREFUSED");
-    } finally {
-      AuthStorage.create = originalCreate;
-    }
+    expect(snapshot.provider).toBe("openai-codex");
+    expect(snapshot.windows).toHaveLength(0);
+    expect(snapshot.error).toBe("ECONNREFUSED");
   });
 
   it("parses successful response and returns usage windows", async () => {
-    const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
-
-    const inMemoryStorage = AuthStorage.inMemory({
-      "openai-codex": {
-        type: "oauth",
-        access: "fake-access-token",
-        refresh: "fake-refresh-token",
-        expires: Date.now() + 3600_000,
-      } as import("@mariozechner/pi-coding-agent").OAuthCredential,
+    readCodexCliCredentials.mockReturnValue({
+      access: "fake-access-token",
+      refresh: "fake-refresh-token",
+      expires: Date.now() + 3600_000,
     });
-
-    const originalCreate = AuthStorage.create.bind(AuthStorage);
-    AuthStorage.create = () => inMemoryStorage;
 
     const responseBody = {
       rate_limit: {
@@ -387,21 +482,17 @@ describe("fetchCodexUsage — HTTP error handling", () => {
       json: () => Promise.resolve(responseBody),
     } as unknown as Response);
 
-    try {
-      const snapshot = await fetchCodexUsage({
-        fetchFn: mockFetch as unknown as typeof fetch,
-      });
+    const snapshot = await fetchCodexUsage({
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
 
-      expect(snapshot.provider).toBe("openai-codex");
-      expect(snapshot.error).toBeUndefined();
-      expect(snapshot.windows).toHaveLength(2);
-      expect(snapshot.windows[0]?.label).toBe("3h");
-      expect(snapshot.windows[0]?.usedPercent).toBe(42);
-      expect(snapshot.windows[1]?.label).toBe("Day");
-      expect(snapshot.windows[1]?.usedPercent).toBe(15);
-      expect(snapshot.plan).toBe("pro");
-    } finally {
-      AuthStorage.create = originalCreate;
-    }
+    expect(snapshot.provider).toBe("openai-codex");
+    expect(snapshot.error).toBeUndefined();
+    expect(snapshot.windows).toHaveLength(2);
+    expect(snapshot.windows[0]?.label).toBe("3h");
+    expect(snapshot.windows[0]?.usedPercent).toBe(42);
+    expect(snapshot.windows[1]?.label).toBe("Day");
+    expect(snapshot.windows[1]?.usedPercent).toBe(15);
+    expect(snapshot.plan).toBe("pro");
   });
 });

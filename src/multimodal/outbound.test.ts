@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { ChannelActionName, CurrentChannelContext } from "../runtime/adapters/channels/types";
 import { planOutboundByNegotiation } from "./outbound";
 
-const telegramContext = {
+const telegramActions: ChannelActionName[] = ["send_text", "send_media", "reply"];
+
+const telegramContext: CurrentChannelContext = {
   channelId: "telegram",
   peerId: "chat-1",
   peerType: "group" as const,
@@ -13,9 +16,9 @@ const telegramContext = {
     editMessage: true,
     deleteMessage: true,
     implicitCurrentTarget: true,
-    supportedActions: ["send_text", "send_media", "reply"],
+    supportedActions: telegramActions,
   },
-  allowedActions: ["send_text", "send_media", "reply"],
+  allowedActions: telegramActions,
   defaultTarget: { peerId: "chat-1", threadId: "topic-1", replyToId: "msg-1" },
 };
 

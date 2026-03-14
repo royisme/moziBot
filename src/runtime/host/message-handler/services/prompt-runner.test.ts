@@ -470,7 +470,13 @@ describe("runPromptWithFallback agent events", () => {
 
     expect(isPromptTimeoutError(timeoutError)).toBe(true);
     expect(classifyPromptFailoverReason(timeoutError)).toBe("timeout");
-    expect(classifyPromptFailoverReason(new Error("boom"))).toBe("error");
+    expect(classifyPromptFailoverReason(new Error("AUTH_MISSING OPENAI_API_KEY"))).toBe(
+      "provider_or_auth_unavailable",
+    );
+    expect(
+      classifyPromptFailoverReason(new Error("Provider not configured for model openai/gpt-4o")),
+    ).toBe("provider_or_auth_unavailable");
+    expect(classifyPromptFailoverReason(new Error("boom"))).toBe("execution_failure");
   });
 
   it("keeps prompt timeout distinct from manual abort errors", () => {
@@ -525,5 +531,39 @@ describe("runPromptWithFallback agent events", () => {
     );
 
     vi.useRealTimers();
+  });
+
+  it("reports provider/auth unavailable reason in fallback metadata", async () => {
+    const prompt = vi.fn(async () => {
+      throw new Error("AUTH_MISSING OPENAI_API_KEY");
+    });
+    const fallbackAgent: PromptAgent = { prompt: vi.fn(async () => {}) };
+    const agent: PromptAgent = { prompt };
+    const deps = buildDeps(agent);
+    deps.agentManager.getAgent = vi
+      .fn()
+      .mockResolvedValueOnce({ agent, modelRef: "openai/gpt-4o" })
+      .mockResolvedValueOnce({ agent: fallbackAgent, modelRef: "claude-cli/sonnet-4.5" });
+    deps.agentManager.getAgentFallbacks = vi.fn(() => ["claude-cli/sonnet-4.5"]);
+
+    const onFallback = vi.fn(async () => {});
+    await runPromptWithFallback({
+      sessionKey: "agent:mozi:dm:peer-auth-fallback",
+      agentId: "mozi",
+      text: "hello",
+      traceId: "turn:auth-fallback",
+      deps,
+      onFallback,
+      activeMap: new Map(),
+      interruptedSet: new Set(),
+    });
+
+    expect(onFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromModel: "openai/gpt-4o",
+        toModel: "claude-cli/sonnet-4.5",
+        reason: "provider_or_auth_unavailable",
+      }),
+    );
   });
 });

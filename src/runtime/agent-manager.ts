@@ -1,24 +1,21 @@
 import os from "node:os";
 import path from "node:path";
 import { type AgentTool, type ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { Api, Model, StreamFunction } from "@mariozechner/pi-ai";
+import type { Api, Context, Model, StreamFunction, StreamOptions } from "@mariozechner/pi-ai";
 import { streamSimple } from "@mariozechner/pi-ai";
 import {
-  AuthStorage as PiAuthStorage,
+  AuthStorage,
   type AgentSession,
   ModelRegistry as PiCodingModelRegistry,
 } from "@mariozechner/pi-coding-agent";
-import {
-  ensureHome,
-  loadHomeFiles,
-  buildContextFromFiles,
-  type BootstrapState,
-} from "../agents/home";
+import { type BootstrapState } from "../agents/home";
 import { SkillLoader } from "../agents/skills/loader";
 import type { MoziConfig } from "../config";
 import { type ExtensionRegistry } from "../extensions";
 import { logger } from "../logger";
 import { clearMemoryManagerCache } from "../memory";
+import { getProcessRegistry } from "../process";
+import { resolveSecretInput } from "../storage/secrets/resolve";
 import { createTapeStore, createTapeService, buildMessagesFromTape } from "../tape/integration.js";
 import type { TapeMessage } from "../tape/tape-context.js";
 import type { TapeService } from "../tape/tape-service.js";
@@ -42,7 +39,6 @@ import {
 } from "./agent-manager/context-metrics";
 import {
   createExtensionRegistry,
-  createSkillLoader,
   createSkillLoaderForContext,
   initExtensions,
   rebuildLifecycle,
@@ -70,23 +66,28 @@ import {
 } from "./agent-manager/runtime-state";
 import { applySystemPromptOverrideToSession } from "./agent-manager/system-prompt-override";
 import { resolveThinkingLevel } from "./agent-manager/thinking-resolver";
+import { AuthProfileStoreAdapter, type AuthProfileFailureReason } from "./auth-profiles";
 import {
   configureCliBackends,
   ensureCliBackendProviderRegistered,
   listCliBackendModelDefinitions,
 } from "./cli-backends";
+import { isAuthOrBillingError, isTransientError } from "./core/error-policy";
+import { ExecRuntime, type AuthResolver } from "./exec-runtime";
 import { registerRuntimeHook, unregisterRuntimeHook } from "./hooks";
 import { loadExternalHooks } from "./hooks/external-loader";
 import type { ChannelDispatcherBridge } from "./host/message-handler/contract";
 import { buildCurrentChannelContextFromInbound } from "./host/message-handler/services/current-channel-context";
 import { ModelRegistry } from "./model-registry";
+import { resolveProviderAuth } from "./provider-auth";
 import { ProviderRegistry } from "./provider-registry";
+import { createSandboxBoundary } from "./sandbox/config";
 import { SandboxService } from "./sandbox/service";
 import { type SandboxConfig, type SandboxProbeResult } from "./sandbox/types";
 import { VibeboxExecutor } from "./sandbox/vibebox-executor";
 import { SessionStore } from "./session-store";
 import type { SubagentRegistry } from "./subagent-registry";
-import type { ModelSpec } from "./types";
+import type { ModelDefinition, ModelSpec } from "./types";
 
 export type { AgentEntry };
 
@@ -104,7 +105,12 @@ export type AgentSandboxProbeReport = {
 
 type AgentSkillSummary = {
   name: string;
-  description?: string;
+  description: string | undefined;
+};
+
+type PiProviderRegistration = {
+  api: Api;
+  models: ModelDefinition[];
 };
 
 export type AgentSkillsInventory = {
@@ -124,25 +130,88 @@ function normalizePiInputCapabilities(
   return normalized.length > 0 ? normalized : ["text"];
 }
 
+function isAgentEntry(value: unknown): value is AgentEntry {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 /**
  * Creates a stream function wrapper that defaults to "auto" transport
  * (WebSocket-first, SSE fallback) for OpenAI Codex providers.
  * When transport is explicitly set in options it overrides the default.
  */
-export function createCodexDefaultTransportWrapper(baseStreamFn?: StreamFunction): StreamFunction {
+export function inferAuthProfileFailureReason(error: unknown): AuthProfileFailureReason {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "unknown";
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("402") ||
+    lower.includes("billing") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("insufficient")
+  ) {
+    return "billing";
+  }
+  if (
+    lower.includes("401") ||
+    lower.includes("403") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    lower.includes("invalid api key") ||
+    lower.includes("authentication failed")
+  ) {
+    return "auth_permanent";
+  }
+  if (lower.includes("rate limit") || lower.includes("429")) {
+    return "rate_limit";
+  }
+  if (
+    lower.includes("overloaded") ||
+    lower.includes("503") ||
+    lower.includes("service unavailable")
+  ) {
+    return "overloaded";
+  }
+  if (isAuthOrBillingError(message)) {
+    return "auth_permanent";
+  }
+  if (isTransientError(message)) {
+    return "unknown";
+  }
+  return "unknown";
+}
+
+export function createCodexDefaultTransportWrapper(
+  baseStreamFn?: StreamFunction,
+  params?: {
+    authProfiles?: AuthProfileStoreAdapter;
+    profileId?: string;
+  },
+): StreamFunction {
   const underlying = baseStreamFn ?? streamSimple;
-  return (model, context, options) =>
-    underlying(model, context, {
-      ...options,
-      transport: options?.transport ?? "auto",
-    });
+  return (model: Model<Api>, context: Context, options?: StreamOptions) => {
+    try {
+      const result = underlying(model, context, {
+        ...options,
+        transport: options?.transport ?? "auto",
+      });
+      if (params?.authProfiles && params.profileId) {
+        params.authProfiles.markUsed(params.profileId);
+        params.authProfiles.markGood(params.profileId);
+      }
+      return result;
+    } catch (error) {
+      if (params?.authProfiles && params.profileId) {
+        params.authProfiles.markFailure(params.profileId, inferAuthProfileFailureReason(error));
+      }
+      throw error;
+    }
+  };
 }
 
 export class AgentManager {
   private agents = new Map<string, AgentSession>();
   private agentModelRefs = new Map<string, string>();
   private runtimeModelOverrides = new Map<string, string>();
-  private homeContext = new Map<string, string>();
   private channelContextSessions = new Set<string>();
   private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
   private promptToolsBySession = new Map<string, string[]>();
@@ -152,7 +221,6 @@ export class AgentManager {
   private sessions: SessionStore;
   private config: MoziConfig;
   private subagents?: SubagentRegistry;
-  private skillLoader?: SkillLoader;
   private skillsIndexSynced = new Set<string>();
   private extensionRegistry: ExtensionRegistry;
   private extensionHookIds = new Set<string>();
@@ -186,7 +254,6 @@ export class AgentManager {
     this.syncExternalHooks();
     this.syncExtensionHooks();
     this.piModelRegistry = this.createPiModelRegistry();
-    this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
   }
 
   private clearExternalHooks() {
@@ -209,22 +276,28 @@ export class AgentManager {
     this.extensionHookIds.clear();
   }
 
+  private registerExtensionHook(
+    entry: ReturnType<ExtensionRegistry["collectHooks"]>[number],
+    index: number,
+  ): void {
+    const rawId = entry.hook.id?.trim();
+    const id = rawId || `extension:${entry.extensionId}:${entry.hook.hookName}:${index + 1}`;
+    const registeredId = registerRuntimeHook(entry.hook.hookName, entry.hook.handler, {
+      id,
+      priority: entry.hook.priority,
+    });
+    this.extensionHookIds.add(registeredId);
+  }
+
   private syncExtensionHooks() {
     this.clearExtensionHooks();
     const hooks = this.extensionRegistry.collectHooks();
     hooks.forEach((entry, index) => {
-      const rawId = entry.hook.id?.trim();
-      const id = rawId || `extension:${entry.extensionId}:${entry.hook.hookName}:${index + 1}`;
-      const registeredId = registerRuntimeHook(entry.hook.hookName, entry.hook.handler as never, {
-        id,
-        priority: entry.hook.priority,
-      });
-      this.extensionHookIds.add(registeredId);
+      this.registerExtensionHook(entry, index);
     });
   }
 
-  private initSkillLoader() {
-    this.skillLoader = createSkillLoader(this.config, this.extensionRegistry);
+  private clearSkillLoaderCache() {
     this.skillLoadersByWorkspace.clear();
   }
 
@@ -246,59 +319,105 @@ export class AgentManager {
     return path.join(baseDir, "pi-agent");
   }
 
-  private resolveDefaultBaseUrl(api?: string): string | undefined {
-    switch (api) {
-      case "openai-responses":
-      case "openai-chat":
-        return "https://api.openai.com/v1";
-      case "openai-codex-responses":
-        return "https://chatgpt.com/backend-api";
-      case "anthropic":
-        return "https://api.anthropic.com/v1";
-      case "google-generative-ai":
-        return "https://generativelanguage.googleapis.com/v1beta";
-      case "google-gemini-cli":
-        return "https://cloudcode-pa.googleapis.com";
-      default:
-        return undefined;
+  private resolvePiProviderRegistration(providerId: string): PiProviderRegistration | null {
+    const provider = this.providerRegistry.get(providerId);
+    if (!provider?.baseUrl) {
+      return null;
     }
+
+    const models = provider.models ?? [];
+    if (models.length === 0) {
+      return null;
+    }
+
+    const modelApis = [...new Set(models.map((model) => model.api).filter(Boolean))];
+    const providerApi = provider.api ?? modelApis[0];
+    if (!providerApi) {
+      logger.debug({ providerId }, "Skipping PI provider registration without API");
+      return null;
+    }
+
+    const incompatibleModels = models.filter((model) => model.api && model.api !== providerApi);
+    if (incompatibleModels.length > 0) {
+      logger.warn(
+        {
+          providerId,
+          providerApi,
+          incompatibleModels: incompatibleModels.map((model) => ({ id: model.id, api: model.api })),
+        },
+        "Skipping models with API mismatch during PI provider registration",
+      );
+    }
+
+    const compatibleModels = models.filter((model) => !model.api || model.api === providerApi);
+    if (compatibleModels.length === 0) {
+      logger.warn(
+        { providerId, providerApi },
+        "Skipping PI provider registration without compatible models",
+      );
+      return null;
+    }
+
+    return {
+      api: providerApi,
+      models: compatibleModels,
+    };
   }
 
-  private createPiModelRegistry(): PiCodingModelRegistry {
-    const agentDir = this.resolvePiAgentDir();
-    const authStorage = new PiAuthStorage(path.join(agentDir, "auth.json"));
-    const registry = new PiCodingModelRegistry(authStorage, undefined);
-    const providers = this.config.models?.providers || {};
-    for (const [providerName, providerConfig] of Object.entries(providers)) {
-      const models = providerConfig.models || [];
-      if (models.length === 0) {
+  private registerConfiguredPiProviders(registry: PiCodingModelRegistry): void {
+    for (const provider of this.providerRegistry.list()) {
+      const registration = this.resolvePiProviderRegistration(provider.id);
+      if (!registration || !provider.baseUrl) {
         continue;
       }
-      const baseUrl = providerConfig.baseUrl || this.resolveDefaultBaseUrl(providerConfig.api);
-      if (!baseUrl) {
-        continue;
-      }
-      registry.registerProvider(providerName, {
-        api: providerConfig.api,
-        baseUrl,
-        apiKey: providerConfig.apiKey,
-        headers: providerConfig.headers,
-        ...(providerConfig.api === "openai-codex-responses"
-          ? { streamSimple: createCodexDefaultTransportWrapper() }
+
+      const resolvedProviderAuth = resolveProviderAuth({
+        providerId: provider.id,
+        provider,
+        authProfiles: new AuthProfileStoreAdapter(),
+      });
+      const resolvedApiKey = resolvedProviderAuth?.apiKey;
+      const resolvedProviderHeaders = Object.fromEntries(
+        Object.entries(provider.headers ?? {}).flatMap(([key, value]) => {
+          const resolved = resolveSecretInput(value, process.env);
+          return resolved ? [[key, resolved] as const] : [];
+        }),
+      );
+      registry.registerProvider(provider.id, {
+        api: registration.api,
+        baseUrl: provider.baseUrl,
+        apiKey: resolvedApiKey,
+        headers: resolvedProviderHeaders,
+        ...(registration.api === "openai-codex-responses"
+          ? {
+              streamSimple: createCodexDefaultTransportWrapper(undefined, {
+                authProfiles:
+                  resolvedProviderAuth?.source === "auth-profile"
+                    ? new AuthProfileStoreAdapter()
+                    : undefined,
+                profileId:
+                  resolvedProviderAuth?.source === "auth-profile"
+                    ? resolvedProviderAuth.profileId
+                    : undefined,
+              }),
+            }
           : {}),
-        models: models.map((model) => ({
+        models: registration.models.map((model) => ({
           id: model.id,
           name: model.name ?? model.id,
-          api: model.api,
+          api: model.api ?? registration.api,
           reasoning: model.reasoning ?? false,
           input: normalizePiInputCapabilities(model.input),
           contextWindow: model.contextWindow ?? 128000,
           maxTokens: model.maxTokens ?? 8192,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          headers: model.headers,
+          headers: { ...resolvedProviderHeaders, ...model.headers },
         })),
       });
     }
+  }
+
+  private registerCliBackendProviders(registry: PiCodingModelRegistry): void {
     const cliProviders = listCliBackendModelDefinitions(this.config);
     for (const entry of cliProviders) {
       registry.registerProvider(entry.providerId, {
@@ -318,6 +437,14 @@ export class AgentManager {
         })),
       });
     }
+  }
+
+  private createPiModelRegistry(): PiCodingModelRegistry {
+    const agentDir = this.resolvePiAgentDir();
+    const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
+    const registry = new PiCodingModelRegistry(authStorage, undefined);
+    this.registerConfiguredPiProviders(registry);
+    this.registerCliBackendProviders(registry);
     return registry;
   }
 
@@ -335,13 +462,15 @@ export class AgentManager {
       config: this.config,
     });
     this.extensionRegistry = lifecycle.extensionRegistry;
-    this.skillLoader = lifecycle.skillLoader;
+    void lifecycle.skillLoader;
     this.skillLoadersByWorkspace.clear();
     this.syncExternalHooks();
     this.syncExtensionHooks();
     configureCliBackends(this.config);
     this.piModelRegistry = this.createPiModelRegistry();
     this.skillsIndexSynced.clear();
+    this.tapeStore = undefined;
+    this.tapeServices.clear();
     clearMemoryManagerCache();
 
     disposeAllRuntimeSessions({
@@ -390,7 +519,7 @@ export class AgentManager {
   async initExtensionsAsync(): Promise<void> {
     await initExtensions(this.config, this.extensionRegistry);
     this.syncExtensionHooks();
-    this.initSkillLoader();
+    this.clearSkillLoaderCache();
   }
 
   async shutdownExtensions(): Promise<void> {
@@ -414,8 +543,8 @@ export class AgentManager {
   private listAgentEntries(): Array<{ id: string; entry: AgentEntry }> {
     const agents = this.config.agents || {};
     return Object.entries(agents)
-      .filter(([key]) => key !== "defaults")
-      .map(([id, entry]) => ({ id, entry: entry as AgentEntry }));
+      .filter(([key, entry]) => key !== "defaults" && isAgentEntry(entry))
+      .map(([id, entry]) => ({ id, entry }));
   }
 
   resolveDefaultAgentId(): string {
@@ -427,10 +556,16 @@ export class AgentManager {
     return entries[0]?.id || "mozi";
   }
 
-  getAgentEntry(agentId: string) {
-    const agents = this.config.agents || {};
-    const entry = (agents as Record<string, unknown>)[agentId] as AgentEntry | undefined;
-    return entry;
+  getAgentEntry(agentId: string): AgentEntry | undefined {
+    if (agentId === "defaults") {
+      return undefined;
+    }
+    const agents = this.config.agents;
+    if (!agents || !(agentId in agents)) {
+      return undefined;
+    }
+    const candidate = agents[agentId as keyof typeof agents];
+    return isAgentEntry(candidate) ? candidate : undefined;
   }
 
   resolveSubagentPromptMode(parentAgentId: string): "minimal" | "full" {
@@ -495,7 +630,7 @@ export class AgentManager {
     const workspaceDir = resolveWorkspaceDir(this.config, agentId, entry);
     const skillLoader = this.getSkillLoaderForWorkspace(workspaceDir);
     await skillLoader.loadAll();
-    const loaded = skillLoader
+    const loaded: AgentSkillSummary[] = skillLoader
       .list()
       .map((skill) => ({ name: skill.name, description: skill.description?.trim() || undefined }))
       .toSorted((a, b) => a.name.localeCompare(b.name));
@@ -513,7 +648,7 @@ export class AgentManager {
     const loadedByName = new Map(loaded.map((skill) => [skill.name, skill]));
     const enabled = configured
       .map((name) => loadedByName.get(name))
-      .filter((skill): skill is AgentSkillSummary => Boolean(skill))
+      .filter((skill): skill is AgentSkillSummary => skill !== undefined)
       .toSorted((a, b) => a.name.localeCompare(b.name));
     const loadedButDisabled = loaded
       .filter((skill) => !configuredSet.has(skill.name))
@@ -527,18 +662,6 @@ export class AgentManager {
       missingConfigured,
       allowlistActive: true,
     };
-  }
-
-  private async getHomeContext(homeDir: string): Promise<string> {
-    const cached = this.homeContext.get(homeDir);
-    if (cached !== undefined) {
-      return cached;
-    }
-    await ensureHome(homeDir);
-    const files = await loadHomeFiles(homeDir);
-    const context = buildContextFromFiles(files);
-    this.homeContext.set(homeDir, context);
-    return context;
   }
 
   async ensureChannelContext(params: {
@@ -610,30 +733,8 @@ export class AgentManager {
     sandboxConfig?: SandboxConfig;
     allowlist?: string[];
     allowedSecrets?: string[];
-    authResolver?: import("./exec-runtime").AuthResolver;
-  }): import("./exec-runtime").ExecRuntime {
-    // Lazy import to avoid circular dependencies
-    const { getProcessRegistry } = require("../process") as {
-      getProcessRegistry: () => import("../process/process-registry").ProcessRegistry;
-    };
-    const { createSandboxBoundary } = require("./sandbox/config") as {
-      createSandboxBoundary: (
-        workspaceDir: string,
-        config?: SandboxConfig,
-        allowlist?: string[],
-      ) => import("./sandbox/config").SandboxBoundary;
-    };
-
-    const { ExecRuntime } = require("./exec-runtime") as {
-      ExecRuntime: new (
-        registry: import("../process/process-registry").ProcessRegistry,
-        boundary: import("./sandbox/config").SandboxBoundary,
-        authResolver?: import("./exec-runtime").AuthResolver,
-        allowedSecrets?: string[],
-        vibeboxExecutor?: import("./sandbox/vibebox-executor").VibeboxExecutor,
-      ) => import("./exec-runtime").ExecRuntime;
-    };
-
+    authResolver?: AuthResolver;
+  }): ExecRuntime {
     const boundary = createSandboxBoundary(
       params.workspaceDir,
       params.sandboxConfig,
@@ -642,18 +743,10 @@ export class AgentManager {
 
     const registry = getProcessRegistry();
 
-    // When the effective boundary mode is vibebox, inject a VibeboxExecutor so
-    // ExecRuntime can delegate execution to the external vibebox binary bridge.
-    let vibeboxExecutor: import("./sandbox/vibebox-executor").VibeboxExecutor | undefined;
+    let vibeboxExecutor: VibeboxExecutor | undefined;
     if (boundary.mode === "vibebox") {
-      const { VibeboxExecutor: VibeboxExecutorClass } = require("./sandbox/vibebox-executor") as {
-        VibeboxExecutor: new (params: {
-          config?: import("./sandbox/types").SandboxVibeboxConfig;
-          defaultProvider?: "off" | "apple-vm" | "docker";
-        }) => import("./sandbox/vibebox-executor").VibeboxExecutor;
-      };
       const sandboxMode = params.sandboxConfig?.mode ?? "apple-vm";
-      vibeboxExecutor = new VibeboxExecutorClass({
+      vibeboxExecutor = new VibeboxExecutor({
         config: params.sandboxConfig?.apple?.vibebox,
         defaultProvider: sandboxMode === "docker" ? "docker" : "apple-vm",
       });
@@ -726,19 +819,20 @@ export class AgentManager {
   }
 
   private buildPiModel(spec: ModelSpec): Model<Api> {
-    return {
+    const model: Model<Api> = {
       id: spec.id,
       name: spec.id,
       api: spec.api,
-      provider: spec.provider,
-      baseUrl: spec.baseUrl,
+      provider: spec.provider ?? "unknown",
+      baseUrl: spec.baseUrl ?? "",
       reasoning: spec.reasoning ?? false,
       input: normalizePiInputCapabilities(spec.input),
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: spec.contextWindow ?? 128000,
       maxTokens: spec.maxTokens ?? 8192,
       headers: spec.headers,
-    } as Model<Api>;
+    };
+    return model;
   }
 
   async getAgent(
@@ -925,6 +1019,7 @@ export class AgentManager {
     this.promptMetadataBySession.delete(sessionKey);
     this.promptToolsBySession.delete(sessionKey);
     this.sessionContexts.delete(sessionKey);
+    this.tapeServices.delete(sessionKey);
   }
 
   getSessionMetadata(sessionKey: string): Record<string, unknown> | undefined {
@@ -997,6 +1092,22 @@ export class AgentManager {
     });
   }
 
+  private ensureTapeStore(logMessage: string): TapeStore | null {
+    if (this.tapeStore) {
+      return this.tapeStore;
+    }
+
+    const homeDir = this.config.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
+
+    try {
+      this.tapeStore = createTapeStore(homeDir, homeDir);
+      return this.tapeStore;
+    } catch (err) {
+      logger.warn({ err }, logMessage);
+      return null;
+    }
+  }
+
   /**
    * Returns (or lazily creates) a TapeService for the given session.
    * Returns null if the tape store cannot be resolved (e.g. no homeDir configured).
@@ -1007,22 +1118,14 @@ export class AgentManager {
       return existing;
     }
 
-    const homeDir = this.config.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
-    const workspaceDir = os.homedir(); // workspace-agnostic store at home level
-
-    if (!this.tapeStore) {
-      try {
-        this.tapeStore = createTapeStore(homeDir, workspaceDir);
-      } catch (err) {
-        logger.warn({ err }, "TapeStore creation failed; tape dual-write disabled");
-        return null;
-      }
+    const tapeStore = this.ensureTapeStore("TapeStore creation failed; tape dual-write disabled");
+    if (!tapeStore) {
+      return null;
     }
 
     try {
-      // tapeName format: session:{sessionKey}
       const tapeName = `session:${sessionKey}`;
-      const service = createTapeService(this.tapeStore, tapeName);
+      const service = createTapeService(tapeStore, tapeName);
       this.tapeServices.set(sessionKey, service);
       return service;
     } catch (err) {
@@ -1039,19 +1142,6 @@ export class AgentManager {
    * Returns null if the store cannot be resolved (e.g. no homeDir configured).
    */
   getTapeStore(): TapeStore | null {
-    if (this.tapeStore) {
-      return this.tapeStore;
-    }
-
-    const homeDir = this.config.paths?.baseDir ?? path.join(os.homedir(), ".mozi");
-    const workspaceDir = os.homedir();
-
-    try {
-      this.tapeStore = createTapeStore(homeDir, workspaceDir);
-      return this.tapeStore;
-    } catch (err) {
-      logger.warn({ err }, "TapeStore creation failed; tape fork/merge disabled");
-      return null;
-    }
+    return this.ensureTapeStore("TapeStore creation failed; tape fork/merge disabled");
   }
 }

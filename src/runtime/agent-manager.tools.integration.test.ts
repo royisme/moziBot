@@ -2,11 +2,13 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MoziConfig } from "../config";
 import { clearMemoryManagerCache } from "../memory";
 import { AgentManager } from "./agent-manager";
 import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import { SessionStore } from "./session-store";
+import type { ModelApi } from "./types";
 
 const MODEL_REF = "openai/gpt-4o";
 
@@ -35,9 +37,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -66,9 +68,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -101,9 +103,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -157,9 +159,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -187,9 +189,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -223,9 +225,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -252,9 +254,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -281,9 +283,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -293,16 +295,16 @@ describe("AgentManager tools", () => {
           main: true,
           home: homeDir,
           workspace: workspaceDir,
-          sandbox: { mode: "off" },
+          sandbox: { mode: "off" as const },
         },
         dockerAgent: {
           main: false,
           home: homeDir,
           workspace: workspaceDir,
-          sandbox: { mode: "docker" },
+          sandbox: { mode: "docker" as const },
         },
       },
-    };
+    } satisfies MoziConfig;
 
     const manager = new AgentManager({
       config,
@@ -318,17 +320,69 @@ describe("AgentManager tools", () => {
     expect(reports[0]?.result.message).toContain("missing docker.image");
   });
 
+  it("registers provider with model-level api when provider-level api is absent", async () => {
+    const config = {
+      paths: { baseDir, sessions: path.join(baseDir, "sessions") },
+      models: {
+        providers: {
+          google: {
+            apiKey: "test",
+            models: [
+              {
+                id: "gemini-2.5-flash",
+                name: "gemini-2.5-flash",
+                api: "google-generative-ai" as const,
+              },
+            ],
+          },
+        },
+      },
+      agents: {
+        defaults: { model: "google/gemini-2.5-flash" },
+        mozi: { main: true, home: homeDir, workspace: workspaceDir },
+      },
+    };
+
+    const manager = new AgentManager({
+      config,
+      modelRegistry: new ModelRegistry(config),
+      providerRegistry: new ProviderRegistry(config),
+      sessions: new SessionStore(config),
+    });
+
+    const piModelRegistry = (
+      manager as unknown as {
+        piModelRegistry: {
+          find(provider: string, modelId: string): { api?: ModelApi; baseUrl?: string } | undefined;
+        };
+      }
+    ).piModelRegistry;
+
+    expect(piModelRegistry.find("google", "gemini-2.5-flash")).toMatchObject({
+      api: "google-generative-ai" as const,
+      baseUrl: "https://generativelanguage.googleapis.com",
+    });
+  });
+
   it("routes media input to configured vision model", async () => {
     const config = {
       paths: { baseDir, sessions: path.join(baseDir, "sessions") },
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
             models: [
-              { id: "gpt-4o", input: ["text"] },
-              { id: "gpt-4o-vision", input: ["text", "image"] },
+              {
+                id: "gpt-4o",
+                name: "gpt-4o",
+                input: ["text"] as Array<"text" | "image" | "audio" | "video" | "file">,
+              },
+              {
+                id: "gpt-4o-vision",
+                name: "gpt-4o-vision",
+                input: ["text", "image"] as Array<"text" | "image" | "audio" | "video" | "file">,
+              },
             ],
           },
         },
@@ -373,11 +427,19 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
             models: [
-              { id: "gpt-4o", input: ["text"] },
-              { id: "gpt-4o-vision", input: ["text", "image"] },
+              {
+                id: "gpt-4o",
+                name: "gpt-4o",
+                input: ["text"] as Array<"text" | "image" | "audio" | "video" | "file">,
+              },
+              {
+                id: "gpt-4o-vision",
+                name: "gpt-4o-vision",
+                input: ["text", "image"] as Array<"text" | "image" | "audio" | "video" | "file">,
+              },
             ],
           },
         },
@@ -421,9 +483,12 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
+            models: [
+              { id: "gpt-4o", name: "gpt-4o" },
+              { id: "gpt-4o-mini", name: "gpt-4o-mini" },
+            ],
           },
         },
       },
@@ -461,9 +526,13 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }, { id: "gpt-4.1-mini" }],
+            models: [
+              { id: "gpt-4o", name: "gpt-4o" },
+              { id: "gpt-4o-mini", name: "gpt-4o-mini" },
+              { id: "gpt-4.1-mini", name: "gpt-4.1-mini" },
+            ],
           },
         },
       },
@@ -511,9 +580,12 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
+            models: [
+              { id: "gpt-4o", name: "gpt-4o" },
+              { id: "gpt-4o-mini", name: "gpt-4o-mini" },
+            ],
           },
         },
       },
@@ -569,9 +641,12 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
+            models: [
+              { id: "gpt-4o", name: "gpt-4o" },
+              { id: "gpt-4o-mini", name: "gpt-4o-mini" },
+            ],
           },
         },
       },
@@ -605,9 +680,12 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }, { id: "gpt-4o-mini" }],
+            models: [
+              { id: "gpt-4o", name: "gpt-4o" },
+              { id: "gpt-4o-mini", name: "gpt-4o-mini" },
+            ],
           },
         },
       },
@@ -647,14 +725,14 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           google: {
-            api: "google-generative-ai",
+            api: "google-generative-ai" as const,
             apiKey: "test",
-            models: [{ id: "gemini-2.0-flash" }],
+            models: [{ id: "gemini-2.0-flash", name: "gemini-2.0-flash" }],
           },
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -707,15 +785,15 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           quotio: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
             baseUrl: "https://api.quotio.ai/v1",
-            models: [{ id: "gemini-3-pro-preview" }],
+            models: [{ id: "gemini-3-pro-preview", name: "gemini-3-pro-preview" }],
           },
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
         },
       },
@@ -768,9 +846,9 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           google: {
-            api: "google-generative-ai",
+            api: "google-generative-ai" as const,
             apiKey: "test",
-            models: [{ id: "gemini-2.0-flash" }],
+            models: [{ id: "gemini-2.0-flash", name: "gemini-2.0-flash" }],
           },
         },
       },
@@ -809,15 +887,15 @@ describe("AgentManager tools", () => {
       models: {
         providers: {
           openai: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
-            models: [{ id: "gpt-4o" }],
+            models: [{ id: "gpt-4o", name: "gpt-4o" }],
           },
           quotio: {
-            api: "openai-responses",
+            api: "openai-responses" as const,
             apiKey: "test",
             baseUrl: "https://api.quotio.ai/v1",
-            models: [{ id: "gemini-3-flash-preview" }],
+            models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
           },
         },
       },

@@ -15,14 +15,15 @@ function createResult(path: string, score = 0.9): MemorySearchResult {
 }
 
 function createPrimary(results: MemorySearchResult[]): MemorySearchManager {
+  const status = {
+    backend: "qmd" as const,
+    provider: "qmd",
+    custom: { qmd: {} },
+  };
   return {
     search: vi.fn(async () => results),
     readFile: vi.fn(async () => ({ text: "", path: "MEMORY.md" })),
-    status: vi.fn(() => ({
-      backend: "qmd",
-      provider: "qmd",
-      custom: { qmd: {} },
-    })),
+    status: vi.fn(() => status),
     sync: vi.fn(async () => {}),
     probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
     probeVectorAvailability: vi.fn(async () => true),
@@ -32,14 +33,15 @@ function createPrimary(results: MemorySearchResult[]): MemorySearchManager {
 
 function createFallback(params: { results: MemorySearchResult[]; ftsAvailable: boolean }) {
   const search = vi.fn(async () => params.results);
+  const status = {
+    backend: "builtin" as const,
+    provider: "builtin",
+    fts: { enabled: true, available: params.ftsAvailable },
+  };
   const manager: MemorySearchManager = {
     search,
     readFile: vi.fn(async () => ({ text: "", path: "MEMORY.md" })),
-    status: vi.fn(() => ({
-      backend: "builtin",
-      provider: "builtin",
-      fts: { enabled: true, available: params.ftsAvailable },
-    })),
+    status: vi.fn(() => status),
     sync: vi.fn(async () => {}),
     probeEmbeddingAvailability: vi.fn(async () => ({ ok: true })),
     probeVectorAvailability: vi.fn(async () => false),
@@ -64,7 +66,7 @@ describe("FallbackMemoryManager low recall fallback", () => {
 
     expect(fallbackFactory).toHaveBeenCalledTimes(1);
     expect(fallbackSearch).toHaveBeenCalledTimes(1);
-    expect(fallbackSearch.mock.calls[0]?.[0]).toBe(expanded);
+    expect(fallbackSearch).toHaveBeenCalledWith(expanded, { maxResults: 3 });
     expect(results.map((entry) => entry.path)).toEqual([
       "primary.md",
       "fallback-1.md",
@@ -87,7 +89,7 @@ describe("FallbackMemoryManager low recall fallback", () => {
     await manager.search(query, { maxResults: 3 });
 
     expect(fallbackSearch).toHaveBeenCalledTimes(1);
-    expect(fallbackSearch.mock.calls[0]?.[0]).toBe(query);
+    expect(fallbackSearch).toHaveBeenCalledWith(query, { maxResults: 3 });
   });
 
   it("skips fallback when recall meets threshold", async () => {

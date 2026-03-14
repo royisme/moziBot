@@ -7,6 +7,7 @@ export const DEFAULT_STATUS_REACTION_EMOJIS: Record<StatusReaction, string> = {
   thinking: "🤔",
   tool: "🔥",
   done: "👍",
+  degraded: "⚠️",
   error: "😱",
 };
 
@@ -30,6 +31,7 @@ export function resolveStatusReactionEmojis(
     thinking: resolveStatusReactionEmoji("thinking", overrides),
     tool: resolveStatusReactionEmoji("tool", overrides),
     done: resolveStatusReactionEmoji("done", overrides),
+    degraded: resolveStatusReactionEmoji("degraded", overrides),
     error: resolveStatusReactionEmoji("error", overrides),
   };
 }

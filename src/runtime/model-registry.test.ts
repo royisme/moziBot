@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { MoziConfig } from "../config";
 import { ModelRegistry } from "./model-registry";
+import { ProviderRegistry } from "./provider-registry";
+import { findProvidersByEnvVar } from "./providers/contracts";
 
 function createConfig(): MoziConfig {
   return {
@@ -10,7 +12,10 @@ function createConfig(): MoziConfig {
           api: "openai-responses",
           baseUrl: "https://example.invalid/v1",
           apiKey: "test-key",
-          models: [{ id: "gemini-3-flash-preview" }, { id: "gemini-3-pro-preview" }],
+          models: [
+            { id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" },
+            { id: "gemini-3-pro-preview", name: "gemini-3-pro-preview" },
+          ],
         },
       },
     },
@@ -27,6 +32,91 @@ describe("ModelRegistry", () => {
     const registry = new ModelRegistry(createConfig());
     const resolved = registry.resolve("quotio/gemini-3-flash-preview");
     expect(resolved?.ref).toBe("quotio/gemini-3-flash-preview");
+  });
+
+  it("falls back to provider api when model api is omitted", () => {
+    const registry = new ModelRegistry(createConfig());
+    const spec = registry.get("quotio/gemini-3-flash-preview");
+    expect(spec?.api).toBe("openai-responses");
+  });
+
+  it("falls back to provider contract default api when provider api is omitted", () => {
+    const registry = new ModelRegistry({
+      models: {
+        providers: {
+          google: {
+            apiKey: "test-key",
+            models: [{ id: "gemini-2.5-flash", name: "gemini-2.5-flash" }],
+          },
+        },
+      },
+    });
+    const spec = registry.get("google/gemini-2.5-flash");
+    expect(spec?.api).toBe("google-generative-ai");
+  });
+
+  it("uses canonical google baseUrl from provider composition when omitted in config", () => {
+    const providers = new ProviderRegistry({
+      models: {
+        providers: {
+          google: {
+            apiKey: "test-key",
+            models: [{ id: "gemini-2.5-flash", name: "gemini-2.5-flash" }],
+          },
+        },
+      },
+    });
+    expect(providers.get("google")?.baseUrl).toBe("https://generativelanguage.googleapis.com");
+  });
+
+  it("keeps canonical google baseUrl even when configure persists no baseUrl override", () => {
+    const providers = new ProviderRegistry({
+      models: {
+        providers: {
+          google: {
+            apiKey: "${GEMINI_API_KEY}",
+          },
+        },
+      },
+    });
+    expect(providers.get("google")?.baseUrl).toBe("https://generativelanguage.googleapis.com");
+  });
+
+  it("preserves configured non-default google baseUrl override", () => {
+    const providers = new ProviderRegistry({
+      models: {
+        providers: {
+          google: {
+            apiKey: "test-key",
+            baseUrl: "https://example.invalid/google",
+            models: [{ id: "gemini-2.5-flash", name: "gemini-2.5-flash" }],
+          },
+        },
+      },
+    });
+    expect(providers.get("google")?.baseUrl).toBe("https://example.invalid/google");
+  });
+
+  it("merges built-in provider catalog metadata into configured model overrides", () => {
+    const providers = new ProviderRegistry({
+      models: {
+        providers: {
+          google: {
+            apiKey: "test-key",
+            models: [{ id: "gemini-2.5-flash", name: "gemini-2.5-flash", maxTokens: 1234 }],
+          },
+        },
+      },
+    });
+    const model = providers.get("google")?.models?.find((entry) => entry.id === "gemini-2.5-flash");
+    expect(model?.input).toEqual(["text", "image"]);
+    expect(model?.maxTokens).toBe(1234);
+  });
+
+  it("derives provider env links from shared provider contracts", () => {
+    expect(findProvidersByEnvVar("OPENAI_API_KEY")).toEqual(["openai"]);
+    expect(findProvidersByEnvVar("GEMINI_API_KEY")).toEqual(["google"]);
+    expect(findProvidersByEnvVar("DOES_NOT_EXIST")).toEqual([]);
   });
 
   it("resolves typo to closest model in same provider", () => {

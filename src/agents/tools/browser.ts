@@ -148,7 +148,7 @@ export type BrowserToolContext = {
 type WaitForOptions = z.infer<typeof WaitForSchema>;
 
 type BrowserToolResult = {
-  content: Array<{ type: string; text: string }>;
+  content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 };
 

@@ -1,10 +1,26 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import type { ChannelActionName, ChannelActionSpec } from "../../../adapters/channels/types";
 import {
   buildCurrentChannelContextFromDelivery,
   buildCurrentChannelContextFromInbound,
 } from "./current-channel-context";
 
-const plugin = {
+const TELEGRAM_ACTIONS = [
+  "send_text",
+  "send_media",
+  "reply",
+  "edit",
+  "delete",
+  "react",
+] as const satisfies readonly ChannelActionName[];
+
+const TELEGRAM_ACTION_SPECS: ChannelActionSpec[] = TELEGRAM_ACTIONS.map((name) => ({
+  name,
+  enabled: true,
+}));
+
+const plugin = Object.assign(new EventEmitter(), {
   id: "telegram",
   name: "Telegram",
   connect: async () => {},
@@ -22,17 +38,10 @@ const plugin = {
     implicitCurrentTarget: true,
     maxTextLength: 4096,
     maxCaptionLength: 1024,
-    supportedActions: ["send_text", "send_media", "reply", "edit", "delete", "react"],
+    supportedActions: [...TELEGRAM_ACTIONS],
   }),
-  listActions: () => [
-    { name: "send_text", enabled: true },
-    { name: "send_media", enabled: true },
-    { name: "reply", enabled: true },
-    { name: "edit", enabled: true },
-    { name: "delete", enabled: true },
-    { name: "react", enabled: true },
-  ],
-};
+  listActions: () => TELEGRAM_ACTION_SPECS,
+});
 
 describe("current-channel-context", () => {
   it("builds context from inbound message", () => {

@@ -5,6 +5,7 @@ import { getRuntimeHookRunner } from "../../../hooks";
 import { checkSilentReplyAllowed, renderAssistantReply } from "../../reply-utils";
 import type { DeliveryContext } from "../../routing/types";
 import type { ExecutionFlow } from "../contract";
+import { buildFallbackNotice } from "../services/error-reply";
 import type { FallbackInfo } from "../services/prompt-runner";
 import { resolveCurrentReasoningLevel } from "../services/reasoning-level";
 import { StreamingBuffer } from "../services/streaming";
@@ -15,15 +16,6 @@ function hashPreview(text: string | undefined): string {
     return "none";
   }
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
-}
-
-function buildFallbackNotice(info: FallbackInfo, allowSwitchHint: boolean): string {
-  const prefix =
-    info.reason === "timeout"
-      ? `⚠️ Primary model timed out this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`
-      : `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`;
-
-  return allowSwitchHint ? `${prefix} You can /switch if you want to keep using it.` : prefix;
 }
 
 class StreamingReasoningFilter {
@@ -263,7 +255,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
             inboundPlan: null,
           });
           await emitStatus({
-            status: "error",
+            status: "degraded",
             messageId: ctx.messageId,
             payload: { sessionKey, agentId, messageId: ctx.messageId },
           });
@@ -332,7 +324,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
             inboundPlan: null,
           });
           await emitStatus({
-            status: "error",
+            status: "degraded",
             messageId: ctx.messageId,
             payload: { sessionKey, agentId, messageId: ctx.messageId },
           });

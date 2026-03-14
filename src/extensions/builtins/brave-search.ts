@@ -1,7 +1,10 @@
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 import { registerBuiltinExtension } from "../loader";
 import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
+
+type ExtensionToolResult = AgentToolResult<unknown>;
 
 // ---- Config schema ----
 
@@ -52,13 +55,15 @@ async function executeBraveSearch(
   _toolCallId: string,
   args: Record<string, unknown>,
   ctx: ExtensionToolContext,
-): Promise<{ content: Array<{ type: string; text: string }>; details: Record<string, unknown> }> {
+): Promise<ExtensionToolResult> {
   const config = parseConfig(ctx.extensionConfig);
 
   const query = args.query;
   if (typeof query !== "string" || query.trim().length === 0) {
     return {
-      content: [{ type: "text", text: "Error: query parameter is required and must be non-empty" }],
+      content: [
+        { type: "text" as const, text: "Error: query parameter is required and must be non-empty" },
+      ],
       details: {},
     };
   }
@@ -70,7 +75,7 @@ async function executeBraveSearch(
     return {
       content: [
         {
-          type: "text",
+          type: "text" as const,
           text: error instanceof Error ? error.message : "Failed to resolve Brave API key",
         },
       ],
@@ -107,7 +112,7 @@ async function executeBraveSearch(
       return {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `Brave Search API error (${response.status}): ${errorText}`,
           },
         ],
@@ -145,7 +150,7 @@ async function executeBraveSearch(
     };
 
     return {
-      content: [{ type: "text", text: lines.join("\n").trimEnd() }],
+      content: [{ type: "text" as const, text: lines.join("\n").trimEnd() }],
       details: normalized as unknown as Record<string, unknown>,
     };
   } catch (error) {
@@ -153,7 +158,7 @@ async function executeBraveSearch(
       return {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `Brave search timed out after ${config.timeout}ms for query: "${query}"`,
           },
         ],
@@ -162,7 +167,7 @@ async function executeBraveSearch(
     }
     const message = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ type: "text", text: `Brave search failed: ${message}` }],
+      content: [{ type: "text" as const, text: `Brave search failed: ${message}` }],
       details: {},
     };
   }

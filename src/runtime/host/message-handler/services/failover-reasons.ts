@@ -8,7 +8,7 @@
 /**
  * The set of possible failover reasons for prompt execution.
  */
-export type PromptFailoverReason = "timeout" | "error";
+export type PromptFailoverReason = "timeout" | "execution_failure" | "provider_or_auth_unavailable";
 
 /**
  * Canonical error thrown when a prompt execution times out.
@@ -39,7 +39,12 @@ export function isPromptTimeoutError(error: unknown): error is PromptTimeoutErro
     return true;
   }
   if (error instanceof Error) {
-    return (error as PromptTimeoutError).code === "PROMPT_TIMEOUT";
+    const lower = error.message.toLowerCase();
+    return (
+      (error as PromptTimeoutError).code === "PROMPT_TIMEOUT" ||
+      lower.includes("timed out") ||
+      lower.includes("timeout")
+    );
   }
   return false;
 }
@@ -50,10 +55,35 @@ export function isPromptTimeoutError(error: unknown): error is PromptTimeoutErro
  * This is the central place for determining whether a prompt failure
  * was due to timeout vs a generic error.
  */
+function isProviderOrAuthUnavailableError(error: Error): boolean {
+  const lower = error.message.toLowerCase();
+  return (
+    lower.includes("auth_missing") ||
+    lower.includes("missing auth") ||
+    lower.includes("missing authentication") ||
+    lower.includes("missing authentication secret") ||
+    lower.includes("authentication failed") ||
+    lower.includes("unauthorized") ||
+    lower.includes("unauthenticated") ||
+    lower.includes("invalid api key") ||
+    lower.includes("invalid token") ||
+    lower.includes("api key not found") ||
+    lower.includes("provider not configured") ||
+    lower.includes("backend not configured") ||
+    lower.includes("model provider unavailable") ||
+    lower.includes("provider unavailable")
+  );
+}
+
 export function classifyPromptFailoverReason(error: unknown): PromptFailoverReason {
   if (isPromptTimeoutError(error)) {
     return "timeout";
   }
 
-  return "error";
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  if (isProviderOrAuthUnavailableError(normalized)) {
+    return "provider_or_auth_unavailable";
+  }
+
+  return "execution_failure";
 }

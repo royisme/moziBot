@@ -103,11 +103,12 @@ function extractTurnToolData(messages: AgentMessage[]): {
   const toolResults: unknown[] = [];
 
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i] as Record<string, unknown>;
-    if (!msg || typeof msg !== "object") {
+    const entry = messages[i];
+    if (!entry || typeof entry !== "object") {
       continue;
     }
 
+    const msg = entry as unknown as { role?: string; content?: unknown };
     const role = typeof msg.role === "string" ? msg.role : "";
     if (role === "user") {
       // Reached the user message boundary – stop scanning.

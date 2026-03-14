@@ -50,7 +50,7 @@ function createConfig(): MoziConfig {
           api: "openai-responses",
           baseUrl: "https://example.invalid/v1",
           apiKey: "test-key",
-          models: [{ id: "gemini-3-flash-preview" }],
+          models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
         },
       },
     },
@@ -100,7 +100,10 @@ function createConfigWithSemanticLifecycle(overrides?: {
           api: "openai-responses",
           baseUrl: "https://example.invalid/v1",
           apiKey: "test-key",
-          models: [{ id: "gemini-3-flash-preview" }, { id: "control-mini" }],
+          models: [
+            { id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" },
+            { id: "control-mini", name: "control-mini" },
+          ],
         },
       },
     },
@@ -594,9 +597,12 @@ describe("MessageHandler commands", () => {
     expect(payload.text).toContain("Auth broker is disabled");
   });
 
-  it("ignores unknown slash commands", async () => {
+  it("replies with help for unknown slash commands", async () => {
     await handler.handle(createMessage("/unknown"), channel);
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+    const payload = send.mock.calls[0]?.[1] as { text: string };
+    expect(payload.text).toContain("Unknown command: unknown");
+    expect(payload.text).toContain("/help - Show all commands");
     expect(runPromptWithFallback).not.toHaveBeenCalled();
   });
 
@@ -1074,7 +1080,7 @@ describe("MessageHandler commands", () => {
           toModel: string;
           attempt: number;
           error: string;
-          reason: "timeout" | "error";
+          reason: "timeout" | "execution_failure" | "provider_or_auth_unavailable";
         }) => Promise<void> | void;
       }) => {
         await params.onFallback?.({
@@ -1082,7 +1088,7 @@ describe("MessageHandler commands", () => {
           toModel: "quotio/local/minimax-m2.1",
           attempt: 1,
           error: "400 model failure",
-          reason: "error",
+          reason: "execution_failure",
         });
       },
     );
@@ -1103,7 +1109,7 @@ describe("MessageHandler commands", () => {
           toModel: string;
           attempt: number;
           error: string;
-          reason: "timeout" | "error";
+          reason: "timeout" | "execution_failure" | "provider_or_auth_unavailable";
         }) => Promise<void> | void;
       }) => {
         await params.onFallback?.({
@@ -1146,7 +1152,7 @@ describe("MessageHandler commands", () => {
           toModel: string;
           attempt: number;
           error: string;
-          reason: "timeout" | "error";
+          reason: "timeout" | "execution_failure" | "provider_or_auth_unavailable";
         }) => Promise<void> | void;
         onStream?: (event: { type: "text_delta"; delta?: string }) => Promise<void> | void;
       }) => Promise<void>;
@@ -1158,7 +1164,7 @@ describe("MessageHandler commands", () => {
         toModel: "quotio/local/minimax-m2.1",
         attempt: 1,
         error: "400 model failure",
-        reason: "error",
+        reason: "execution_failure",
       });
       await params.onStream?.({ type: "text_delta", delta: "draft response" });
       await params.onStream?.({ type: "agent_end", fullText: "final response" } as never);
@@ -1332,6 +1338,9 @@ describe("MessageHandler commands", () => {
   });
 
   it("emits phase transitions for normal prompt flow", async () => {
+    runPromptWithFallback.mockImplementationOnce(async (params) => {
+      await params.onStream?.({ type: "agent_end", fullText: "hello there" });
+    });
     await handler.handle(createMessage("hello"), channel);
 
     const phases = emitPhase.mock.calls.map((call) => call[1]);

@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ChannelActionName, ChannelActionSpec } from "../../../adapters/channels/types";
 import { buildReplyOutbound, dispatchReply } from "./reply-dispatcher";
+
+const TELEGRAM_ACTIONS = [
+  "send_text",
+  "send_media",
+  "reply",
+  "edit",
+  "delete",
+  "react",
+] as const satisfies readonly ChannelActionName[];
+
+const TELEGRAM_ACTION_SPECS: ChannelActionSpec[] = TELEGRAM_ACTIONS.map((name) => ({
+  name,
+  enabled: true,
+}));
 
 const telegramChannel = {
   id: "telegram",
@@ -12,16 +27,9 @@ const telegramChannel = {
     editMessage: true,
     deleteMessage: true,
     implicitCurrentTarget: true,
-    supportedActions: ["send_text", "send_media", "reply", "edit", "delete", "react"],
+    supportedActions: [...TELEGRAM_ACTIONS],
   }),
-  listActions: () => [
-    { name: "send_text", enabled: true },
-    { name: "send_media", enabled: true },
-    { name: "reply", enabled: true },
-    { name: "edit", enabled: true },
-    { name: "delete", enabled: true },
-    { name: "react", enabled: true },
-  ],
+  listActions: () => TELEGRAM_ACTION_SPECS,
 };
 
 describe("reply-dispatcher", () => {
@@ -33,7 +41,7 @@ describe("reply-dispatcher", () => {
         peerId: "chat-1",
         peerType: "group",
         capabilities: telegramChannel.getCapabilities(),
-        allowedActions: ["send_text", "send_media", "reply", "edit", "delete", "react"],
+        allowedActions: [...TELEGRAM_ACTIONS],
         defaultTarget: { peerId: "chat-1" },
       },
       replyText: "Reasoning:\n用户问好。\n\n你好！有什么我可以帮你的吗？",
@@ -52,7 +60,7 @@ describe("reply-dispatcher", () => {
         peerId: "chat-1",
         peerType: "group",
         capabilities: telegramChannel.getCapabilities(),
-        allowedActions: ["send_text", "send_media", "reply", "edit", "delete", "react"],
+        allowedActions: [...TELEGRAM_ACTIONS],
         defaultTarget: { peerId: "chat-1" },
       },
       replyText: "<think>internal</think>visible",
@@ -79,9 +87,9 @@ describe("reply-dispatcher", () => {
           editMessage: false,
           deleteMessage: false,
           implicitCurrentTarget: true,
-          supportedActions: ["send_text", "send_media", "reply"],
+          supportedActions: ["send_text", "send_media", "reply"] as ChannelActionName[],
         },
-        allowedActions: ["send_text", "send_media", "reply"],
+        allowedActions: ["send_text", "send_media", "reply"] as ChannelActionName[],
         defaultTarget: { peerId: "desktop-default" },
       },
       replyText: "Reasoning:\nstep\n\nanswer",

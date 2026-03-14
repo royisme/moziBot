@@ -1,18 +1,24 @@
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type {
   ChannelActionName,
+  ChannelActionQueryContext,
   ChannelActionSpec,
+  ChannelCapabilities,
   CurrentChannelContext,
   InboundMessage,
 } from "../../../adapters/channels/types";
 import type { DeliveryContext, RouteContext } from "../../routing/types";
+
+type ChannelContextPluginLike = Pick<ChannelPlugin, "getCapabilities"> & {
+  listActions?: (context?: ChannelActionQueryContext) => ChannelActionSpec[];
+};
 
 function uniqueActions(actions: ChannelActionName[]): ChannelActionName[] {
   return Array.from(new Set(actions));
 }
 
 function resolveAllowedActions(params: {
-  plugin: ChannelPlugin;
+  plugin: ChannelContextPluginLike;
   message?: InboundMessage;
   route: RouteContext;
 }): ChannelActionName[] {
@@ -33,7 +39,7 @@ function resolveAllowedActions(params: {
 }
 
 export function buildCurrentChannelContext(params: {
-  plugin: ChannelPlugin;
+  plugin: ChannelContextPluginLike;
   route: RouteContext;
   sessionKey?: string;
   message?: InboundMessage;
@@ -59,7 +65,7 @@ export function buildCurrentChannelContext(params: {
 }
 
 export function buildCurrentChannelContextFromInbound(params: {
-  plugin: ChannelPlugin;
+  plugin: ChannelContextPluginLike;
   message: InboundMessage;
   sessionKey?: string;
 }): CurrentChannelContext {
@@ -80,7 +86,10 @@ export function buildCurrentChannelContextFromInbound(params: {
 }
 
 export function buildCurrentChannelContextFromDelivery(params: {
-  plugin: ChannelPlugin;
+  plugin: {
+    getCapabilities: () => ChannelCapabilities;
+    listActions?: (context?: ChannelActionQueryContext) => ChannelActionSpec[];
+  };
   delivery: DeliveryContext;
 }): CurrentChannelContext {
   const { plugin, delivery } = params;

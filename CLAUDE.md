@@ -1,157 +1,74 @@
 This file is the entrypoint for agent work in this repository.
-It defines where to look, how to classify work, and the minimum execution rules.
+Keep it short, executable, and safe to compress.
 
-Detailed methodology and long-lived process design live in:
+Detailed docs live in:
 - `devDocs/agent-operating-model.md`
 - `devDocs/troubleshooting.md`
 - `devDocs/spec/`
+- `.claude/rules/workflow.md`
+- `.claude/rules/artifacts.md`
+- `.claude/rules/troubleshooting.md`
+- `.claude/rules/routing.md`
+- `HANDOFF.md`
 
-## 1. Source of Truth
+## 1. Source of truth
 
-When an agent needs context, use these sources in order of relevance:
+When you need context, use these sources in order:
+- project scripts, dependencies, runtime assumptions -> `package.json`
+- feature intent and implementation guidance -> `devDocs/spec/`
+- current continuation state -> `HANDOFF.md`
+- workflow and artifact rules -> `.claude/rules/`
+- long-lived process design -> `devDocs/agent-operating-model.md`
+- troubleshooting patterns -> `devDocs/troubleshooting.md`
 
-- Project scripts / dependencies / runtime assumptions → `package.json`
-- Feature intent and implementation guidance → `docs/spec/`
-- Long-lived process and artifact rules → `docs/agent-operating-model.md`
-- Troubleshooting and known issue patterns → `docs/troubleshooting.md`
+Do not treat chat history or compressed context as durable truth unless written back into repo files.
 
-Do not treat chat context or runtime notes as durable project truth unless they are written back into repo docs.
+## 2. Commands
 
-## 2. Tech Stack and Commands
+- package manager: `pnpm`
+- script runner: `pnpm run <script>`
+- check: `pnpm run check`
+- test: `pnpm run test`
+- typecheck: `npx tsc --noEmit`
 
-### Tech stack discovery
-- Need runtime or dependency details → check `package.json`
-- Need Bun API details → check `node_modules/bun-types/docs/`
+Git hooks should enforce:
+- pre-commit -> `pnpm run check`
+- pre-push -> `pnpm run test`
 
-### Package manager / script runner
-- Install / manage packages with `pnpm`
-- Run scripts with `pnpm run <script>`
+## 3. Workflow
 
-### Common commands
-- Check (lint + format): `pnpm run check`
-- Test: `pnpm run test`
-- Type check only: `npx tsc --noEmit`
+- Trivial work: execute directly, validate, summarize.
+- Non-trivial work: clarify, plan, execute in steps, review, validate, resolve.
+- Do not jump into non-trivial implementation without approved or clearly established repo artifacts.
+- For detailed rules, read `.claude/rules/workflow.md` and `.claude/rules/artifacts.md`.
 
-### Git hooks
-- `pre-commit` should run: `pnpm run check`
-- `pre-push` should run: `pnpm run test`
+## 4. Validation
 
-## 3. MCP Tool Usage
-
-Before starting work, first confirm which MCP tools are available in the current session.
-
-Guidelines:
-- For large-output commands, prefer compressed / structured MCP tools instead of raw Bash output
-- For third-party library docs, prefer documentation-query MCP tools
-- For symbol-aware code operations, prefer symbol-level MCP tools
-
-## 4. Task Classification
-
-### Trivial changes
-A task is usually trivial if most of the following are true:
-- touches only 1–2 files
-- no new interface / schema / workflow
-- no new spec needed
-- easy to validate locally with minimal checks
-- low risk and easily reversible
-
-Handling:
-- execute directly
-- validate before finishing
-- briefly summarize what changed and how it was verified
-
-### Non-trivial changes
-Treat the task as non-trivial if any of the following are true:
-- multi-file or cross-module changes
-- introduces or changes interface / state flow / schema / build behavior
-- requires design clarification
-- requires staged execution
-- likely to need rollback reasoning, review, or explicit task tracking
-
-Handling:
-- create plan/spec/tasks first
-- execute in steps
-- validate each meaningful step
-- update task status as work progresses
-
-## 5. Required Workflow for Non-trivial Work
-
-Default flow:
-
-1. Clarify
-2. Plan
-3. Execute
-4. Review
-5. Validate
-6. Resolve
-
-Do not jump directly into implementation for non-trivial work unless the task already has an approved and sufficiently clear spec/task context.
-
-## 6. Artifact Rules
-
-### Feature docs
-- Spec: `devDocs/spec/<feature>.md`  
-  Purpose: what / why / scope / constraints
-
-- Implementation guide: `devDocs/spec/<feature>-impl.md`  
-  Purpose: how / architecture / tradeoffs / execution notes
-
-### Task docs
-- Task files: `devDocs/spec/<feature>-tasks/task-0N-<name>.md`
-- Completed tasks must be renamed to: `task-0N-<name>.resolved.md`
-- No `.resolved` suffix means not completed
-
-If task state becomes unclear, do not guess. Reconstruct it from the task file, validation evidence, and actual repo state.
-
-## 7. Agent Routing
-
-Use the following routing defaults:
-
-- research / validation / simple edits → `selfwork:haiku-dev`
-- spec / task document generation → `selfwork:architect`
-- complex multi-file implementation → `selfwork:sonnet-dev`
-- TypeScript type error fixing → `selfwork:ts-js-expert`
-
-Route by task shape, complexity, and expected output, not by habit.
-
-## 8. Execution Behavior
-
-- If intent is clear and the action is reversible, execute directly and summarize afterward
-- If action is irreversible, affects production, or lacks key information, confirm first
-- For multi-step work: change one step, validate one step
-- Never batch many risky edits without intermediate validation
-
-## 9. Validation Minimum
-
-Every completed task or meaningful change must include, explicitly or implicitly:
-
+Every meaningful change must state:
 - what changed
 - how it was validated
-- result of validation
-- any remaining risk / limitation / follow-up
+- validation result
+- remaining risk, limitation, or follow-up
 
 Passing validation matters more than claiming completion.
 
-## 10. Troubleshooting Discipline
+## 5. Compact Instructions
 
-When blocked or debugging:
-- check `devDocs/troubleshooting.md` first
+When context is compressed, preserve this information in this order:
+1. architecture decisions - never summarize away
+2. modified files and key changes
+3. current verification status with pass/fail state
+4. open TODOs, blockers, and rollback notes
+5. tool output details may be collapsed to pass/fail only
 
-After resolving an issue:
-- add the root cause
-- add the fix
-- place it under the appropriate category
+Session hygiene:
+- use `/clear` when switching to a different task
+- use `/compact` between major phases of the same task
+- use `/context` proactively in long sessions
 
-Do not leave recurring failure patterns only in chat history.
+## 6. Execution constraints
 
-## 11. Doctrine Promotion
-
-If the same class of issue appears repeatedly in review, debugging, or rework, promote it into one of:
-- a rule in `AGENTS.md`
-- a process rule in `devDocs/agent-operating-model.md`
-- a troubleshooting entry
-- a script/check
-- a test case
-- a template improvement
-
-Repeated mistakes must become repo-level learning.
+- Prefer structured MCP tools for large outputs.
+- Prefer symbol-aware tools for targeted code edits.
+- If blocked, check `devDocs/troubleshooting.md` first.
+- If a recurring issue appears more than once, promote it into durable repo guidance, tests, or checks.

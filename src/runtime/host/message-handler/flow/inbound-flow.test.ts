@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChannelActionName } from "../../../adapters/channels/types";
 import type { MessageTurnContext, OrchestratorDeps } from "../contract";
 import { runInboundFlow } from "./inbound-flow";
 
@@ -14,6 +15,7 @@ vi.mock("../../../hooks", () => ({
 }));
 
 function createDeps(): OrchestratorDeps {
+  const supportedActions: ChannelActionName[] = ["send_text"];
   const resolvedContext: ReturnType<OrchestratorDeps["resolveSessionContext"]> = {
     sessionKey: "agent:mozi:telegram:dm:chat-1",
     agentId: "mozi",
@@ -44,7 +46,20 @@ function createDeps(): OrchestratorDeps {
     getCommandHandlerMap: vi.fn(
       () => ({}) as OrchestratorDeps["getCommandHandlerMap"] extends () => infer R ? R : never,
     ),
-    getChannel: vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") })),
+    getChannel: vi.fn(() => ({
+      id: "telegram",
+      getCapabilities: () => ({
+        media: false,
+        polls: false,
+        reactions: false,
+        threads: false,
+        editMessage: false,
+        deleteMessage: false,
+        implicitCurrentTarget: true,
+        supportedActions,
+      }),
+      send: vi.fn(async () => "out"),
+    })),
     dispatchExtensionCommand: vi.fn(async () => false),
     interruptSession: vi.fn(async () => false),
     performSessionReset: vi.fn(async () => {}),

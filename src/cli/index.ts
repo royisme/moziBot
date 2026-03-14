@@ -3,6 +3,7 @@ import { Command } from "commander";
 import "../runtime/pi-package-dir";
 import { APP_VERSION } from "../version";
 import { acpCommand } from "./commands/acp";
+import { configureCommand } from "./commands/configure";
 import { subagentCommand } from "./commands/subagent";
 import { runtimeCommand } from "./runtime";
 import { sandboxCommand } from "./sandbox";
@@ -40,6 +41,7 @@ program.addCommand(runtimeCommand);
 program.addCommand(sandboxCommand);
 program.addCommand(acpCommand);
 program.addCommand(subagentCommand);
+program.addCommand(configureCommand);
 
 program
   .command("init")
@@ -194,12 +196,13 @@ program
   });
 
 // Auth / secrets management
-const authCmd = program.command("auth").description("Manage API keys in ~/.mozi/.env");
+const authCmd = program
+  .command("auth")
+  .description("Manage standard provider credentials and custom secrets in shared Mozi storage");
 
 authCmd
   .command("set <target>")
-  .description("Set API key for tavily/brave, or by ENV var name")
-  .option("-c, --config <path>", "Config file path")
+  .description("Set credential for a standard provider, or set a custom secret by ENV var name")
   .option("-v, --value <value>", "Key value (omit to prompt)")
   .action(async (target: string, options) => {
     const { authSet } = await import("./commands/auth");
@@ -208,8 +211,7 @@ authCmd
 
 authCmd
   .command("list")
-  .description("List auth key status")
-  .option("-c, --config <path>", "Config file path")
+  .description("List stored provider credentials and custom secrets")
   .action(async (options) => {
     const { authList } = await import("./commands/auth");
     await authList(options);
@@ -217,11 +219,20 @@ authCmd
 
 authCmd
   .command("remove <target>")
-  .description("Remove API key for tavily/brave, or by ENV var name")
-  .option("-c, --config <path>", "Config file path")
+  .description("Remove a standard provider credential, or remove a custom secret by ENV var name")
   .action(async (target: string, options) => {
     const { authRemove } = await import("./commands/auth");
     await authRemove(target, options);
+  });
+
+authCmd
+  .command("login <provider>")
+  .description("Run provider-owned interactive auth when supported")
+  .option("-c, --config <path>", "Config file path")
+  .option("--remote", "Remote/VPS mode: show URL instead of opening browser")
+  .action(async (provider: string, options) => {
+    const { authLogin } = await import("./commands/auth");
+    await authLogin(provider, options);
   });
 
 // Extensions management
@@ -290,23 +301,6 @@ skillsCmd
   .action(async (options) => {
     const { listSkills } = await import("./commands/skills");
     await listSkills(options);
-  });
-
-// Codex OAuth login
-authCmd
-  .command("codex-oauth")
-  .description("Log in with OpenAI Codex via OAuth and save credentials")
-  .option("-c, --config <path>", "Config file path (used to resolve base directory)")
-  .option("--remote", "Remote/VPS mode: show URL instead of opening browser")
-  .action(async (options) => {
-    const { loginOpenAICodexOAuth } = await import("../commands/codex-oauth");
-    const { loadConfig, resolveConfigPath } = await import("../config/loader");
-    let baseDir: string | undefined;
-    if (options.config) {
-      const result = loadConfig(resolveConfigPath(options.config));
-      baseDir = result.config?.paths?.baseDir;
-    }
-    await loginOpenAICodexOAuth({ baseDir, isRemote: Boolean(options.remote) });
   });
 
 program.parse();

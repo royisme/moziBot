@@ -660,7 +660,7 @@ export class EmbeddedMemoryManager implements MemorySearchManager {
     return embeddings;
   }
 
-  private collectCachedEmbeddings(chunks: Array<{ hash: string }>): {
+  private collectCachedEmbeddings(chunks: Array<{ hash: string; text: string }>): {
     embeddings: number[][];
     missing: Array<{ index: number; chunk: { hash: string; text: string } }>;
   } {

@@ -1,3 +1,4 @@
+import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 import { ExtensionRegistry } from "./registry";
 import type { LoadedExtension } from "./types";
@@ -17,9 +18,9 @@ function makeExtension(
         name,
         label: name,
         description: `Tool ${name}`,
-        parameters: {},
+        parameters: Type.Object({}),
         execute: async () => ({
-          content: [{ type: "text", text: "ok" }],
+          content: [{ type: "text" as const, text: "ok" }],
           details: {},
         }),
       })),
@@ -30,9 +31,9 @@ function makeExtension(
       name,
       label: name,
       description: `Tool ${name}`,
-      parameters: {},
+      parameters: Type.Object({}),
       execute: async () => ({
-        content: [{ type: "text", text: "ok" }],
+        content: [{ type: "text" as const, text: "ok" }],
         details: {},
       }),
     })),

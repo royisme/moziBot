@@ -5,6 +5,7 @@ import {
   Client,
   Command,
   CommandInteraction,
+  type CommandOptions,
   type MessagePayloadFile,
   type MessagePayloadObject,
   MessageCreateListener,
@@ -140,144 +141,50 @@ export class DiscordPlugin extends BaseChannelPlugin {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const outerPlugin = this;
 
-    // ACP parent command with subcommands
     class AcpCommand extends Command {
       name = "acp";
       description = "Manage ACP (Agent Client Protocol) sessions";
       defer = true;
-      options = [
+      options: CommandOptions = [
         {
-          name: "spawn",
-          description: "Spawn a new ACP session",
-          type: ApplicationCommandOptionType.Subcommand,
-          options: [
-            {
-              name: "backend",
-              description: "The backend to use (e.g., openai-codex)",
-              type: ApplicationCommandOptionType.String,
-              required: true,
-            },
-            {
-              name: "agent",
-              description: "Agent ID to use",
-              type: ApplicationCommandOptionType.String,
-              required: false,
-            },
-            {
-              name: "mode",
-              description: "Session mode (persistent or oneshot)",
-              type: ApplicationCommandOptionType.String,
-              required: false,
-              choices: [
-                { name: "Persistent", value: "persistent" },
-                { name: "Oneshot", value: "oneshot" },
-              ],
-            },
-            {
-              name: "cwd",
-              description: "Working directory",
-              type: ApplicationCommandOptionType.String,
-              required: false,
-            },
-          ],
-        },
-        {
-          name: "status",
-          description: "Show status of an ACP session",
-          type: ApplicationCommandOptionType.Subcommand,
-          options: [
-            {
-              name: "session",
-              description: "Session key or label",
-              type: ApplicationCommandOptionType.String,
-              required: true,
-            },
-          ],
-        },
-        {
-          name: "cancel",
-          description: "Cancel an ACP session",
-          type: ApplicationCommandOptionType.Subcommand,
-          options: [
-            {
-              name: "session",
-              description: "Session key or label",
-              type: ApplicationCommandOptionType.String,
-              required: true,
-            },
-          ],
-        },
-        {
-          name: "list",
-          description: "List all ACP sessions",
-          type: ApplicationCommandOptionType.Subcommand,
+          name: "command",
+          description: "ACP command line, e.g. 'spawn openai-codex --agent=mozi'",
+          type: ApplicationCommandOptionType.String,
+          required: true,
         },
       ];
 
-      // Spawn subcommand
       async run(interaction: CommandInteraction): Promise<void> {
-        const subcommand =
-          interaction.options.getSubcommandGroup(false) ||
-          interaction.options.getSubcommand(false) ||
-          "";
-
-        const args = this.buildArgsFromInteraction(interaction, subcommand);
-        await this.handleAcpCommand(interaction, subcommand, args, outerPlugin);
-      }
-
-      private buildArgsFromInteraction(
-        interaction: CommandInteraction,
-        subcommand: string,
-      ): string {
-        const parts: string[] = [subcommand];
-
-        // Get all options
-        const backend = interaction.options.getString("backend");
-        const agent = interaction.options.getString("agent");
-        const mode = interaction.options.getString("mode");
-        const cwd = interaction.options.getString("cwd");
-        const session = interaction.options.getString("session");
-
-        if (backend) {
-          parts.push(backend);
-        }
-        if (agent) {
-          parts.push(`--agent=${agent}`);
-        }
-        if (mode) {
-          parts.push(`--mode=${mode}`);
-        }
-        if (cwd) {
-          parts.push(`--cwd=${cwd}`);
-        }
-        if (session) {
-          parts.push(session);
-        }
-
-        return parts.join(" ");
+        const args = interaction.options.getString("command", true);
+        await this.handleAcpCommand(interaction, args, outerPlugin);
       }
 
       private async handleAcpCommand(
         interaction: CommandInteraction,
-        subcommand: string,
         args: string,
         plugin: DiscordPlugin,
       ): Promise<void> {
         // Build a synthetic inbound message for the command handler
+        const raw = interaction as unknown as {
+          id?: string;
+          guildId?: string | null;
+          user?: { id: string; username?: string | null } | null;
+          channel?: { id?: string | null } | null;
+        };
         const inbound: InboundMessage = {
-          id: interaction.id,
+          id: raw.id ?? "unknown",
           channel: plugin.id,
-          peerId: interaction.channel?.id || "unknown",
-          peerType: interaction.guildId ? "group" : "dm",
-          senderId: interaction.user.id,
-          senderName: interaction.user.username,
+          peerId: raw.channel?.id ?? interaction.channel?.id ?? "unknown",
+          peerType: raw.guildId ? "group" : "dm",
+          senderId: raw.user?.id ?? interaction.userId ?? "unknown",
+          senderName: raw.user?.username ?? interaction.user?.username ?? undefined,
           text: `/acp ${args}`,
           timestamp: new Date(),
           raw: {
-            interactionId: interaction.id,
-            userId: interaction.user.id,
-            channelId: interaction.channel?.id,
-            guildId: interaction.guildId,
+            interactionId: raw.id,
+            userId: raw.user?.id ?? interaction.userId,
+            channelId: raw.channel?.id ?? interaction.channel?.id ?? undefined,
+            guildId: raw.guildId ?? undefined,
           },
         };
 
@@ -320,12 +227,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
     const simpleCommands: Array<{
       name: string;
       description: string;
-      options?: Array<{
-        name: string;
-        description: string;
-        type: number;
-        required?: boolean;
-      }>;
+      options?: CommandOptions;
     }> = [
       { name: "models", description: "List available AI models" },
       {

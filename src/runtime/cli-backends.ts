@@ -3,9 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  AssistantMessageEventStream,
+  createAssistantMessageEventStream,
   registerApiProvider,
   type AssistantMessage,
+  type AssistantMessageEventStream,
   type Model,
   type Context,
   type StreamOptions,
@@ -161,7 +162,7 @@ export function listCliBackendModelDefinitions(config: MoziConfig): Array<{
     }
     result.push({
       providerId,
-      models: modelIds.map((id) => ({ id, input: ["text"] })),
+      models: modelIds.map((id) => ({ id, name: id, input: ["text"] })),
     });
   }
   return result;
@@ -600,8 +601,12 @@ async function executeCli(params: {
   }
 }
 
-function streamCliBackend(model: Model, context: Context, options?: StreamOptions) {
-  const stream = new AssistantMessageEventStream();
+function streamCliBackend(
+  model: Model<"cli-backend">,
+  context: Context,
+  options?: StreamOptions,
+): AssistantMessageEventStream {
+  const stream = createAssistantMessageEventStream();
   void (async () => {
     const backend = getBackend(model.provider);
     if (!backend) {

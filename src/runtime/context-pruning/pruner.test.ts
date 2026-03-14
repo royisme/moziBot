@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { pruneContextMessages } from "./pruner";
 import {
@@ -20,22 +21,38 @@ function makeSettings(
   };
 }
 
-function makeToolResult(toolName: string, text: string) {
+function makeToolResult(toolName: string, text: string): AgentMessage {
   return {
-    role: "toolResult" as const,
+    role: "toolResult",
     toolName,
-    content: [{ type: "text" as const, text }],
+    toolCallId: `${toolName}-call`,
+    isError: false,
+    timestamp: Date.now(),
+    content: [{ type: "text", text }],
   };
 }
 
-function makeUserMessage(text: string) {
-  return { role: "user" as const, content: text };
+function makeUserMessage(text: string): AgentMessage {
+  return { role: "user", content: text, timestamp: Date.now() };
 }
 
-function makeAssistantMessage(text: string) {
+function makeAssistantMessage(text: string): AgentMessage {
   return {
-    role: "assistant" as const,
-    content: [{ type: "text" as const, text }],
+    role: "assistant",
+    content: [{ type: "text", text }],
+    timestamp: Date.now(),
+    api: "openai-responses",
+    provider: "test-provider",
+    model: "test-model",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
   };
 }
 
@@ -199,7 +216,7 @@ describe("pruneContextMessages", () => {
   it("does not prune messages before first user message", () => {
     const largeText = "b".repeat(10000);
     const messages = [
-      { role: "assistant" as const, content: [{ type: "text" as const, text: "system init" }] },
+      makeAssistantMessage("system init"),
       makeToolResult("init_tool", largeText),
       makeUserMessage("first user msg"),
       makeToolResult("bash", largeText),

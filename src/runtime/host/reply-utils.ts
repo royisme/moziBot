@@ -332,8 +332,8 @@ export function isSilentReplyText(
   text: string | undefined,
   token: string = SILENT_REPLY_TOKEN,
 ): boolean {
-  if (!text) {
-    return false;
+  if (!text || text.trim() === "") {
+    return true;
   }
   const escaped = escapeRegExp(token);
   const prefix = new RegExp(`^\\s*${escaped}(?=$|\\W)`);

@@ -93,10 +93,15 @@ describe("reply-utils", () => {
       expect(isSilentReplyText(`done. ${SILENT_REPLY_TOKEN}`)).toBe(true);
     });
 
+    it("treats empty or whitespace strings as silent", () => {
+      expect(isSilentReplyText("")).toBe(true);
+      expect(isSilentReplyText("   ")).toBe(true);
+      expect(isSilentReplyText(undefined)).toBe(true);
+    });
+
     it("does not match unrelated text", () => {
       expect(isSilentReplyText("NO_REPLYING")).toBe(false);
       expect(isSilentReplyText("normal response")).toBe(false);
-      expect(isSilentReplyText("")).toBe(false);
     });
   });
 

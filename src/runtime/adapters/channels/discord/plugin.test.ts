@@ -607,9 +607,9 @@ describe("DiscordPlugin (carbon)", () => {
       throw new Error("message listener not found");
     }
 
-    let received: { media?: Array<{ type: string; mimeType?: string }> } | null = null;
+    let receivedMedia: Array<{ type: string; mimeType?: string }> | undefined;
     plugin.on("message", (msg) => {
-      received = msg as { media?: Array<{ type: string; mimeType?: string }> };
+      receivedMedia = (msg as { media?: Array<{ type: string; mimeType?: string }> }).media;
     });
 
     await listener.handle(
@@ -666,13 +666,17 @@ describe("DiscordPlugin (carbon)", () => {
       client,
     );
 
-    expect(received).toBeDefined();
-    expect(received?.media?.length).toBe(5);
-    expect(received?.media?.[0]?.type).toBe("photo");
-    expect(received?.media?.[1]?.type).toBe("video");
-    expect(received?.media?.[2]?.type).toBe("audio");
-    expect(received?.media?.[3]?.type).toBe("document");
-    expect(received?.media?.[4]?.type).toBe("document"); // unknown content type defaults to document
+    expect(receivedMedia).toBeDefined();
+    const media = receivedMedia;
+    if (!media) {
+      throw new Error("Expected normalized media attachments");
+    }
+    expect(media.length).toBe(5);
+    expect(media[0]?.type).toBe("photo");
+    expect(media[1]?.type).toBe("video");
+    expect(media[2]?.type).toBe("audio");
+    expect(media[3]?.type).toBe("document");
+    expect(media[4]?.type).toBe("document"); // unknown content type defaults to document
   });
 
   it("normalizes slash interactions to parity text semantics", async () => {

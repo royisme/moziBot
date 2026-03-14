@@ -24,7 +24,8 @@ describe("brave-search extension", () => {
         return;
       }
       const result = await tool.execute("call-1", { query: "brave search" });
-      const text = result.content[0]?.text || "";
+      const firstContent = result.content[0];
+      const text = firstContent?.type === "text" ? firstContent.text : "";
       expect(text).toContain("BRAVE_API_KEY");
       expect(text.toLowerCase()).toContain("not found");
       expect(text).toContain("mozi auth set brave");

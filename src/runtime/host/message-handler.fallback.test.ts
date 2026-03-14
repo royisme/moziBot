@@ -16,7 +16,10 @@ function createConfig(): MoziConfig {
           api: "openai-responses",
           baseUrl: "https://example.invalid/v1",
           apiKey: "test-key",
-          models: [{ id: "gemini-3-flash-preview" }, { id: "fallback-model" }],
+          models: [
+            { id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" },
+            { id: "fallback-model", name: "fallback-model" },
+          ],
         },
       },
     },

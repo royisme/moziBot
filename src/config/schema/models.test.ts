@@ -7,7 +7,7 @@ describe("Models schema", () => {
       models: {
         providers: {
           quotio: {
-            models: [{ id: "gemini-3-flash-preview" }],
+            models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
           },
         },
         aliases: {

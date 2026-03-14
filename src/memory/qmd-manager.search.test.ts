@@ -56,7 +56,7 @@ describe("QmdMemoryManager search behavior", () => {
     await fs.mkdir(alphaDir, { recursive: true });
     await fs.mkdir(bravoDir, { recursive: true });
 
-    vi.mocked(runQmd).mockImplementation(async ({ args }) => {
+    vi.mocked(runQmd).mockImplementation(async ({ args }: Parameters<typeof runQmd>[0]) => {
       if (args[0] === "collection" && args[1] === "list") {
         return { stdout: "[]", stderr: "" };
       }
@@ -98,13 +98,15 @@ describe("QmdMemoryManager search behavior", () => {
       channels: {},
       memory: {
         backend: "qmd",
+        citations: "auto",
         qmd: {
+          command: "qmd",
           includeDefaultMemory: false,
           searchMode: "search",
-          update: { onBoot: false, interval: "0" },
+          update: { onBoot: false, interval: "0", debounceMs: 0, embedInterval: "0" },
           paths: [
-            { name: "alpha", path: alphaDir },
-            { name: "bravo", path: bravoDir },
+            { name: "alpha", path: alphaDir, pattern: "**/*.md" },
+            { name: "bravo", path: bravoDir, pattern: "**/*.md" },
           ],
         },
       },
@@ -125,7 +127,9 @@ describe("QmdMemoryManager search behavior", () => {
     });
     await manager.close();
 
-    const searchCalls = vi.mocked(runQmd).mock.calls.filter((call) => call[0].args[0] === "search");
+    const searchCalls = vi
+      .mocked(runQmd)
+      .mock.calls.filter((call: [Parameters<typeof runQmd>[0]]) => call[0].args[0] === "search");
     expect(searchCalls).toHaveLength(2);
     expect(searchCalls[0]?.[0].args).toContain("alpha");
     expect(searchCalls[1]?.[0].args).toContain("bravo");
@@ -141,7 +145,7 @@ describe("QmdMemoryManager search behavior", () => {
     const alphaDir = path.join(tmpDir, "alpha");
     await fs.mkdir(alphaDir, { recursive: true });
 
-    vi.mocked(runQmd).mockImplementation(async ({ args }) => {
+    vi.mocked(runQmd).mockImplementation(async ({ args }: Parameters<typeof runQmd>[0]) => {
       if (args[0] === "collection" && args[1] === "list") {
         return { stdout: "[]", stderr: "" };
       }
@@ -167,11 +171,13 @@ describe("QmdMemoryManager search behavior", () => {
       channels: {},
       memory: {
         backend: "qmd",
+        citations: "auto",
         qmd: {
+          command: "qmd",
           includeDefaultMemory: false,
           searchMode: "vsearch",
-          update: { onBoot: false, interval: "0" },
-          paths: [{ name: "alpha", path: alphaDir }],
+          update: { onBoot: false, interval: "0", debounceMs: 0, embedInterval: "0" },
+          paths: [{ name: "alpha", path: alphaDir, pattern: "**/*.md" }],
         },
       },
     } as const satisfies MoziConfig;
@@ -193,7 +199,7 @@ describe("QmdMemoryManager search behavior", () => {
 
     const searchCalls = vi
       .mocked(runQmd)
-      .mock.calls.filter((call) => call[0].args[0] === "vsearch");
+      .mock.calls.filter((call: [Parameters<typeof runQmd>[0]]) => call[0].args[0] === "vsearch");
     expect(searchCalls).toHaveLength(1);
     expect(results[0]?.path).toBe("qmd/mock/doc-9.md");
   });

@@ -5,8 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig } from "./loader";
 
 const ENV_KEY = "MOZI_LOADER_TEST_KEY";
+const SHARED_ENV_KEY = "MOZI_SHARED_LOADER_TEST_KEY";
 const ORIGINAL_ENV = process.env[ENV_KEY];
+const ORIGINAL_SHARED_ENV = process.env[SHARED_ENV_KEY];
 const tempDirs: string[] = [];
+const sharedMoziEnvPath = path.join(os.homedir(), ".mozi", ".env");
+let originalSharedMoziEnvContent: string | null | undefined;
 
 function createConfigDir(): { dir: string; configPath: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mozi-loader-"));
@@ -18,7 +22,7 @@ function createConfigDir(): { dir: string; configPath: string } {
         quotio: {
           api: "openai-responses",
           apiKey: `\${${ENV_KEY}}`,
-          models: [{ id: "gemini-3-flash-preview" }],
+          models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
         },
       },
     },
@@ -36,6 +40,20 @@ afterEach(() => {
     delete process.env[ENV_KEY];
   } else {
     process.env[ENV_KEY] = ORIGINAL_ENV;
+  }
+  if (ORIGINAL_SHARED_ENV === undefined) {
+    delete process.env[SHARED_ENV_KEY];
+  } else {
+    process.env[SHARED_ENV_KEY] = ORIGINAL_SHARED_ENV;
+  }
+  if (originalSharedMoziEnvContent !== undefined) {
+    fs.mkdirSync(path.dirname(sharedMoziEnvPath), { recursive: true });
+    if (originalSharedMoziEnvContent === null) {
+      fs.rmSync(sharedMoziEnvPath, { force: true });
+    } else {
+      fs.writeFileSync(sharedMoziEnvPath, originalSharedMoziEnvContent, "utf-8");
+    }
+    originalSharedMoziEnvContent = undefined;
   }
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -166,6 +184,36 @@ describe("config loader local .env support", () => {
 
     expect(result.success).toBe(true);
     expect(result.config?.models?.providers?.quotio?.apiKey).toBe("from-dotenv-var");
+  });
+
+  it("loads shared mozi env so auth-managed credentials resolve at runtime", () => {
+    delete process.env[SHARED_ENV_KEY];
+    originalSharedMoziEnvContent = fs.existsSync(sharedMoziEnvPath)
+      ? fs.readFileSync(sharedMoziEnvPath, "utf-8")
+      : null;
+    fs.mkdirSync(path.dirname(sharedMoziEnvPath), { recursive: true });
+    fs.writeFileSync(sharedMoziEnvPath, `${SHARED_ENV_KEY}=from-shared-mozi-env\n`, "utf-8");
+
+    const { configPath } = createConfigDir();
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8")) as Record<string, unknown>;
+    parsed.models = {
+      providers: {
+        google: {
+          apiKey: `\${${SHARED_ENV_KEY}}`,
+          models: [{ id: "gemini-2.5-flash" }],
+        },
+      },
+    };
+    parsed.agents = {
+      defaults: { model: "google/gemini-2.5-flash" },
+      mozi: { main: true, sandbox: { mode: "off" } },
+    };
+    fs.writeFileSync(configPath, JSON.stringify(parsed, null, 2), "utf-8");
+
+    const result = loadConfig(configPath);
+
+    expect(result.success).toBe(true);
+    expect(result.config?.models?.providers?.google?.apiKey).toBe("from-shared-mozi-env");
   });
 
   it("does not override existing process env with config-local .env.var", () => {

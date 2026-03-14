@@ -154,7 +154,7 @@ test("config --doctor fails for invalid runnable state", async () => {
         quotio: {
           api: "openai-responses",
           apiKey: "test-key",
-          models: [{ id: "gemini-3-flash-preview" }],
+          models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
         },
       },
     },
@@ -225,7 +225,7 @@ test("config doctor fails when provider apiKey remains unresolved env placeholde
         quotio: {
           api: "openai-responses",
           apiKey: "${MISSING_PROVIDER_KEY}",
-          models: [{ id: "gemini-3-flash-preview" }],
+          models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
         },
       },
     },

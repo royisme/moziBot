@@ -1,8 +1,11 @@
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 import { detectSuspiciousPatterns, wrapWebContent } from "../../security/external-content";
 import { registerBuiltinExtension } from "../loader";
 import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
+
+type ExtensionToolResult = AgentToolResult<unknown>;
 
 // ---- Config schema ----
 
@@ -224,13 +227,15 @@ async function executeWebFetch(
   _toolCallId: string,
   args: Record<string, unknown>,
   ctx: ExtensionToolContext,
-): Promise<{ content: Array<{ type: string; text: string }>; details: Record<string, unknown> }> {
+): Promise<ExtensionToolResult> {
   const config = parseConfig(ctx.extensionConfig);
 
   const url = args.url;
   if (typeof url !== "string" || url.trim().length === 0) {
     return {
-      content: [{ type: "text", text: "Error: url parameter is required and must be non-empty" }],
+      content: [
+        { type: "text" as const, text: "Error: url parameter is required and must be non-empty" },
+      ],
       details: {},
     };
   }
@@ -243,14 +248,14 @@ async function executeWebFetch(
     parsedUrl = new URL(urlStr);
   } catch {
     return {
-      content: [{ type: "text", text: "Error: Invalid URL format" }],
+      content: [{ type: "text" as const, text: "Error: Invalid URL format" }],
       details: {},
     };
   }
 
   if (!["http:", "https:"].includes(parsedUrl.protocol)) {
     return {
-      content: [{ type: "text", text: "Error: URL must use http or https protocol" }],
+      content: [{ type: "text" as const, text: "Error: URL must use http or https protocol" }],
       details: {},
     };
   }
@@ -258,7 +263,9 @@ async function executeWebFetch(
   const hostname = parsedUrl.hostname.toLowerCase();
   if (!(await validateResolvedHostname(hostname))) {
     return {
-      content: [{ type: "text", text: "Error: Request to private/internal hosts is not allowed" }],
+      content: [
+        { type: "text" as const, text: "Error: Request to private/internal hosts is not allowed" },
+      ],
       details: {},
     };
   }
@@ -292,7 +299,9 @@ async function executeWebFetch(
 
         if (fetchError instanceof Error && fetchError.name === "AbortError") {
           return {
-            content: [{ type: "text", text: `Error: Request timed out after ${config.timeout}ms` }],
+            content: [
+              { type: "text" as const, text: `Error: Request timed out after ${config.timeout}ms` },
+            ],
             details: {},
           };
         }
@@ -315,7 +324,7 @@ async function executeWebFetch(
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Error: Fetch failed - ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`,
             },
           ],
@@ -331,7 +340,7 @@ async function executeWebFetch(
           return {
             content: [
               {
-                type: "text",
+                type: "text" as const,
                 text: `Error: Redirect without location (status ${response.status})`,
               },
             ],
@@ -344,7 +353,10 @@ async function executeWebFetch(
           clearTimeout(timeoutId);
           return {
             content: [
-              { type: "text", text: `Error: Too many redirects (max ${config.maxRedirects})` },
+              {
+                type: "text" as const,
+                text: `Error: Too many redirects (max ${config.maxRedirects})`,
+              },
             ],
             details: {},
           };
@@ -358,7 +370,10 @@ async function executeWebFetch(
             clearTimeout(timeoutId);
             return {
               content: [
-                { type: "text", text: "Error: Redirect to private/internal host is not allowed" },
+                {
+                  type: "text" as const,
+                  text: "Error: Redirect to private/internal host is not allowed",
+                },
               ],
               details: {},
             };
@@ -366,7 +381,7 @@ async function executeWebFetch(
         } catch {
           clearTimeout(timeoutId);
           return {
-            content: [{ type: "text", text: "Error: Invalid redirect location" }],
+            content: [{ type: "text" as const, text: "Error: Invalid redirect location" }],
             details: {},
           };
         }
@@ -379,7 +394,10 @@ async function executeWebFetch(
         clearTimeout(timeoutId);
         return {
           content: [
-            { type: "text", text: `Error: HTTP ${response.status} - ${response.statusText}` },
+            {
+              type: "text" as const,
+              text: `Error: HTTP ${response.status} - ${response.statusText}`,
+            },
           ],
           details: { status: response.status, statusText: response.statusText },
         };
@@ -396,7 +414,7 @@ async function executeWebFetch(
           return {
             content: [
               {
-                type: "text",
+                type: "text" as const,
                 text: `Error: Response too large (max ${config.maxResponseBytes} bytes)`,
               },
             ],
@@ -410,7 +428,7 @@ async function executeWebFetch(
         return {
           content: [
             {
-              type: "text",
+              type: "text" as const,
               text: `Error: Failed to read response - ${readError instanceof Error ? readError.message : String(readError)}`,
             },
           ],
@@ -479,13 +497,15 @@ async function executeWebFetch(
       }
 
       return {
-        content: [{ type: "text", text: wrappedText }],
+        content: [{ type: "text" as const, text: wrappedText }],
         details: safeDetails,
       };
     }
 
     return {
-      content: [{ type: "text", text: `Error: Too many redirects (max ${config.maxRedirects})` }],
+      content: [
+        { type: "text" as const, text: `Error: Too many redirects (max ${config.maxRedirects})` },
+      ],
       details: {},
     };
   } catch (error) {
@@ -508,7 +528,10 @@ async function executeWebFetch(
 
     return {
       content: [
-        { type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` },
+        {
+          type: "text" as const,
+          text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        },
       ],
       details: {},
     };
@@ -521,10 +544,7 @@ async function tryFirecrawlFallback(
   maxChars: number,
   config: WebFetchConfig,
   apiKey: string,
-): Promise<{
-  content: Array<{ type: string; text: string }>;
-  details: Record<string, unknown>;
-} | null> {
+): Promise<ExtensionToolResult | null> {
   const endpoint = `${config.firecrawlBaseUrl}/v1/scrape`;
 
   try {
@@ -576,7 +596,7 @@ async function tryFirecrawlFallback(
     const wrappedText = wrapWebContent(truncated.text, "web_fetch");
 
     return {
-      content: [{ type: "text", text: wrappedText }],
+      content: [{ type: "text" as const, text: wrappedText }],
       details: {
         url,
         extractMode,

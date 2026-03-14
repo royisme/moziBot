@@ -47,7 +47,8 @@ export async function listExtensions(): Promise<void> {
 
   for (const ext of extensions) {
     const status = formatEnabled(ext);
-    const tools = ext.manifest.tools.map((t) => t.name).join(", ");
+    const manifestTools = ext.manifest.tools ?? [];
+    const tools = manifestTools.map((t) => t.name).join(", ");
     console.log(`  ${chalk.cyan(ext.manifest.id)} (${ext.manifest.version}) [${status}]`);
     console.log(`    ${ext.manifest.name}`);
     if (ext.manifest.description) {
@@ -86,7 +87,7 @@ export async function infoExtension(id: string): Promise<void> {
 
   console.log("");
   console.log(chalk.bold("  Tools:"));
-  for (const tool of ext.manifest.tools) {
+  for (const tool of ext.manifest.tools ?? []) {
     console.log(`    - ${tool.name}: ${tool.description}`);
   }
 

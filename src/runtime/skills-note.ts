@@ -4,6 +4,15 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import type { SkillLoader } from "../agents/skills/loader";
 
+function isSkillsNoteArgs(value: unknown): value is { skill: string; note: string } {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof (value as { skill?: unknown }).skill === "string" &&
+    typeof (value as { note?: unknown }).note === "string"
+  );
+}
+
 export function createSkillsNoteTool(params: {
   homeDir: string;
   skillLoader?: SkillLoader;
@@ -17,6 +26,9 @@ export function createSkillsNoteTool(params: {
       note: Type.String({ minLength: 1 }),
     }),
     execute: async (_toolCallId, args) => {
+      if (!isSkillsNoteArgs(args)) {
+        throw new Error("Invalid skills_note arguments");
+      }
       const skillsDir = join(params.homeDir, "skills");
       await fs.mkdir(skillsDir, { recursive: true });
       const filePath = join(skillsDir, `${args.skill}.md`);

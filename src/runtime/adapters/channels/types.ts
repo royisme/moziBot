@@ -176,7 +176,7 @@ export interface InlineButton {
 
 export type ChannelStatus = "connected" | "connecting" | "disconnected" | "error";
 
-export type StatusReaction = "queued" | "thinking" | "tool" | "done" | "error";
+export type StatusReaction = "queued" | "thinking" | "tool" | "done" | "degraded" | "error";
 
 export interface StatusReactionPayload {
   readonly sessionKey?: string;

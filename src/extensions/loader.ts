@@ -138,8 +138,10 @@ function adaptTool(
     label: def.label,
     description: def.description,
     parameters: def.parameters,
-    execute: async (toolCallId: string, args: unknown) => {
-      return def.execute(toolCallId, args as Record<string, unknown>, ctx);
+    execute: async (toolCallId: string, args: unknown, signal, onUpdate) => {
+      void signal;
+      void onUpdate;
+      return def.execute(toolCallId, (args as Record<string, unknown>) ?? {}, ctx);
     },
   };
 }

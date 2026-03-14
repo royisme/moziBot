@@ -149,19 +149,26 @@ export function applyConfigDefaults(raw: unknown): unknown {
   return obj;
 }
 
+function loadDotEnvFile(envPath: string): void {
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+  const result = loadDotEnv({ path: envPath, override: false, quiet: true });
+  if (result.error) {
+    throw result.error;
+  }
+}
+
+function loadSharedMoziEnv(): void {
+  loadDotEnvFile(path.join(os.homedir(), ".mozi", ".env"));
+}
+
 function loadConfigLocalEnv(resolvedPath: string): void {
   const configDir = path.dirname(resolvedPath);
   const envFiles = [".env", ".env.var"];
 
   for (const envFile of envFiles) {
-    const envPath = path.join(configDir, envFile);
-    if (!fs.existsSync(envPath)) {
-      continue;
-    }
-    const result = loadDotEnv({ path: envPath, override: false, quiet: true });
-    if (result.error) {
-      throw result.error;
-    }
+    loadDotEnvFile(path.join(configDir, envFile));
   }
 }
 
@@ -177,6 +184,7 @@ export function loadConfig(configPath?: string): ConfigLoadResult {
 
   try {
     loadConfigLocalEnv(resolvedPath);
+    loadSharedMoziEnv();
     const raw = fs.readFileSync(resolvedPath, "utf-8");
     let config: unknown = parseJsonc(raw);
     config = processIncludes(config, resolvedPath);

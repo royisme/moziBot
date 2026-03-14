@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { z } from "zod";
 import type { RuntimeHookHandlerMap, RuntimeHookName } from "../runtime/hooks/types";
 
@@ -14,16 +14,13 @@ export type ExtensionToolDefinition = {
   /** Description shown to the model. */
   description: string;
   /** JSON Schema for parameters (TypeBox-compatible object). */
-  parameters: unknown;
+  parameters: AgentTool["parameters"];
   /** Execute function: receives tool call ID and parsed args, returns AgentTool result. */
   execute: (
     toolCallId: string,
     args: Record<string, unknown>,
     context: ExtensionToolContext,
-  ) => Promise<{
-    content: Array<{ type: string; text: string }>;
-    details: Record<string, unknown>;
-  }>;
+  ) => Promise<AgentToolResult<unknown>>;
 };
 
 export type ExtensionConfigValidation =

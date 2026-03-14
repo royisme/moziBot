@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { Model, OpenAICompletionsCompat } from "@mariozechner/pi-ai";
-import { convertMessages } from "@mariozechner/pi-ai/dist/providers/openai-completions.js";
+import { convertMessages, type Model, type OpenAICompletionsCompat } from "@mariozechner/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, initDb, multimodal } from "../storage/db";
 import type { DeliveryPlan } from "./capabilities";
@@ -78,8 +77,12 @@ const OPENAI_COMPLETIONS_COMPAT: Required<OpenAICompletionsCompat> = {
   requiresToolResultName: false,
   requiresAssistantAfterToolResult: false,
   requiresThinkingAsText: false,
-  requiresMistralToolIds: false,
   thinkingFormat: "openai",
+  reasoningEffortMap: {
+    low: "low",
+    medium: "medium",
+    high: "high",
+  },
   openRouterRouting: {},
   vercelGatewayRouting: {},
   supportsStrictMode: true,
@@ -151,7 +154,7 @@ describe("resolveProviderInputMediaAsImages", () => {
     expect(messages).toHaveLength(1);
     const content =
       messages[0]?.role === "user" && Array.isArray(messages[0].content) ? messages[0].content : [];
-    const imagePart = content.find((part) => part.type === "image_url");
+    const imagePart = content.find((part: (typeof content)[number]) => part.type === "image_url");
     expect(imagePart).toBeDefined();
     expect(imagePart && "image_url" in imagePart ? imagePart.image_url.url : "").toContain(
       "data:image/png;base64,",

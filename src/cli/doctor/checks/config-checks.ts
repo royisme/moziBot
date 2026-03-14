@@ -64,7 +64,7 @@ export async function runConfigChecks(
         level: "warn",
         summary: `Provider ${spec.provider} has no API key (agent ${id}).`,
         details: "The agent may fail at runtime without valid credentials.",
-        fixHint: `Set the API key for provider ${spec.provider} in your config or .env file.`,
+        fixHint: `Set the API key for provider ${spec.provider} in your config, project .env file, or shared Mozi secret storage.`,
       });
     }
 
@@ -284,7 +284,7 @@ function checkSecretIssues(config: MoziConfig): DoctorFinding[] {
         id: "config:provider-redacted-api-key",
         level: "fail",
         summary: `Provider ${provider} apiKey is redacted sentinel and must be replaced.`,
-        fixHint: `Set a valid API key for provider ${provider} in your config or .env file.`,
+        fixHint: `Set a valid API key for provider ${provider} in your config, project .env file, or shared Mozi secret storage.`,
       });
     }
     if (typeof entry.apiKey === "string" && unresolvedEnvPattern.test(entry.apiKey)) {

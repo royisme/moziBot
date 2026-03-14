@@ -1,3 +1,6 @@
+import { classifyPromptFailoverReason } from "./failover-reasons";
+import type { FallbackInfo } from "./prompt-runner";
+
 /**
  * Error Classification and Reply Service
  *
@@ -90,6 +93,25 @@ export function buildMissingAuthGuidance(message: string): string {
     : "Missing authentication secret. Set it with /setAuth set KEY=<value> [--scope=agent|global].";
 }
 
+function buildProviderUnavailableGuidance(message: string): string {
+  return `Model provider is unavailable or not configured for this turn. Check provider/runtime configuration and try again. Details: ${message}`;
+}
+
+function buildTimeoutGuidance(message: string): string {
+  return `The model timed out for this turn. Try again, switch to a faster model, or check provider responsiveness. Details: ${message}`;
+}
+
+export function buildFallbackNotice(info: FallbackInfo, allowSwitchHint: boolean): string {
+  const prefix =
+    info.reason === "timeout"
+      ? `⚠️ Primary model timed out this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`
+      : info.reason === "provider_or_auth_unavailable"
+        ? `⚠️ Primary model provider or authentication is unavailable this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`
+        : `⚠️ Primary model failed this turn; using fallback model ${info.toModel} (from ${info.fromModel}).`;
+
+  return allowSwitchHint ? `${prefix} You can /switch if you want to keep using it.` : prefix;
+}
+
 /**
  * Creates the final user-facing text for an error reply.
  */
@@ -100,5 +122,12 @@ export function createErrorReplyText(error: unknown): string {
     return buildMissingAuthGuidance(err.message);
   }
 
-  return `Sorry, an error occurred while processing the message: ${err.message}`;
+  switch (classifyPromptFailoverReason(err)) {
+    case "provider_or_auth_unavailable":
+      return buildProviderUnavailableGuidance(err.message);
+    case "timeout":
+      return buildTimeoutGuidance(err.message);
+    default:
+      return `Sorry, an error occurred while processing the message: ${err.message}`;
+  }
 }

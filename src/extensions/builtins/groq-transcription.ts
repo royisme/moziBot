@@ -1,9 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { z } from "zod";
 import { registerBuiltinExtension } from "../loader";
 import type { ExtensionManifest, ExtensionToolContext, ExtensionToolDefinition } from "../types";
+
+type ExtensionToolResult = AgentToolResult<unknown>;
 
 const GroqTranscriptionConfigSchema = z.object({
   apiKeyEnv: z.string().default("GROQ_API_KEY"),
@@ -41,14 +44,17 @@ async function executeGroqTranscription(
   _toolCallId: string,
   args: Record<string, unknown>,
   ctx: ExtensionToolContext,
-): Promise<{ content: Array<{ type: string; text: string }>; details: Record<string, unknown> }> {
+): Promise<ExtensionToolResult> {
   const config = parseConfig(ctx.extensionConfig);
 
   const filePathValue = args.filePath;
   if (typeof filePathValue !== "string" || filePathValue.trim().length === 0) {
     return {
       content: [
-        { type: "text", text: "Error: filePath is required and must be a non-empty string" },
+        {
+          type: "text" as const,
+          text: "Error: filePath is required and must be a non-empty string",
+        },
       ],
       details: {},
     };
@@ -75,7 +81,7 @@ async function executeGroqTranscription(
     return {
       content: [
         {
-          type: "text",
+          type: "text" as const,
           text: error instanceof Error ? error.message : "Failed to resolve Groq API key",
         },
       ],
@@ -125,7 +131,7 @@ async function executeGroqTranscription(
       return {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `Groq transcription API error (${response.status}): ${errorText}`,
           },
         ],
@@ -136,7 +142,7 @@ async function executeGroqTranscription(
     if (responseFormat === "text") {
       const text = (await response.text()).trim();
       return {
-        content: [{ type: "text", text: text || "(empty transcription)" }],
+        content: [{ type: "text" as const, text: text || "(empty transcription)" }],
         details: { model, responseFormat, filePath },
       };
     }
@@ -144,7 +150,7 @@ async function executeGroqTranscription(
     const data = (await response.json()) as GroqTranscriptionResponse & Record<string, unknown>;
     const text = typeof data.text === "string" ? data.text.trim() : "";
     return {
-      content: [{ type: "text", text: text || "(empty transcription)" }],
+      content: [{ type: "text" as const, text: text || "(empty transcription)" }],
       details: {
         ...data,
         model,
@@ -157,7 +163,7 @@ async function executeGroqTranscription(
       return {
         content: [
           {
-            type: "text",
+            type: "text" as const,
             text: `Groq transcription timed out after ${config.timeoutMs}ms`,
           },
         ],
@@ -167,7 +173,7 @@ async function executeGroqTranscription(
 
     const message = error instanceof Error ? error.message : String(error);
     return {
-      content: [{ type: "text", text: `Groq transcription failed: ${message}` }],
+      content: [{ type: "text" as const, text: `Groq transcription failed: ${message}` }],
       details: {},
     };
   }

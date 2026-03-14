@@ -1,15 +1,22 @@
 import { z } from "zod";
+import { SecretInputSchema } from "../../storage/secrets/types";
 
-export const ModelApiSchema = z.enum([
+export const MODEL_APIS = [
   "openai-responses",
   "openai-completions",
   "openai-codex-responses",
   "anthropic-messages",
   "google-generative-ai",
   "google-gemini-cli",
+  "github-copilot",
+  "bedrock-converse-stream",
   "cli-backend",
   "ollama",
-]);
+] as const;
+
+export const ModelApiSchema = z.enum(MODEL_APIS);
+
+export const ModelProviderAuthModeSchema = z.enum(["api-key", "aws-sdk", "oauth", "token"]);
 
 export const ModelInputSchema = z.enum(["text", "image", "audio", "video", "file"]);
 
@@ -18,9 +25,18 @@ export const ModelCompatSchema = z
     supportsStore: z.boolean().optional(),
     supportsDeveloperRole: z.boolean().optional(),
     supportsReasoningEffort: z.boolean().optional(),
+    supportsUsageInStreaming: z.boolean().optional(),
+    supportsTools: z.boolean().optional(),
+    supportsStrictMode: z.boolean().optional(),
     maxTokensField: z
       .union([z.literal("max_completion_tokens"), z.literal("max_tokens")])
       .optional(),
+    thinkingFormat: z.enum(["openai", "zai", "qwen"]).optional(),
+    requiresToolResultName: z.boolean().optional(),
+    requiresAssistantAfterToolResult: z.boolean().optional(),
+    requiresThinkingAsText: z.boolean().optional(),
+    requiresMistralToolIds: z.boolean().optional(),
+    requiresOpenAiAnthropicToolPayload: z.boolean().optional(),
   })
   .strict()
   .optional();
@@ -28,7 +44,7 @@ export const ModelCompatSchema = z
 export const ModelDefinitionSchema = z
   .object({
     id: z.string().min(1),
-    name: z.string().optional(),
+    name: z.string().min(1),
     api: ModelApiSchema.optional(),
     reasoning: z.boolean().optional(),
     input: z.array(ModelInputSchema).optional(),
@@ -51,11 +67,10 @@ export const ModelDefinitionSchema = z
 export const ModelProviderSchema = z
   .object({
     baseUrl: z.string().optional(),
-    apiKey: z.string().optional(),
-    auth: z
-      .union([z.literal("api-key"), z.literal("aws-sdk"), z.literal("oauth"), z.literal("token")])
-      .optional(),
+    apiKey: SecretInputSchema.optional(),
+    auth: ModelProviderAuthModeSchema.optional(),
     api: ModelApiSchema.optional(),
+    injectNumCtxForOpenAICompat: z.boolean().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     authHeader: z.boolean().optional(),
     models: z.array(ModelDefinitionSchema).optional(),

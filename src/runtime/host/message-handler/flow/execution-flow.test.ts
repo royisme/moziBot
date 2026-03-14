@@ -47,16 +47,20 @@ function createBridgeChannel(
   };
 }
 
+type RunPromptWithFallbackParams = Parameters<OrchestratorDeps["runPromptWithFallback"]>[0];
+
 function createDeps(): OrchestratorDeps & {
   __loggerInfoMock: ReturnType<typeof vi.fn>;
   __runPromptWithFallbackMock: ReturnType<typeof vi.fn>;
+  __ensureChannelContextMock: ReturnType<typeof vi.fn>;
 } {
   const loggerInfo = vi.fn();
-  const runPromptWithFallbackMock = vi.fn(async ({ onStream }) => {
+  const runPromptWithFallbackMock = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
     if (onStream) {
       await onStream({ type: "agent_end", fullText: "hi" });
     }
   });
+  const ensureChannelContextMock = vi.fn(async () => {});
   return {
     config: {} as OrchestratorDeps["config"],
     logger: {
@@ -101,7 +105,7 @@ function createDeps(): OrchestratorDeps & {
     checkInputCapability: vi.fn(async () => ({ ok: true })),
     ingestInboundMessage: vi.fn(async () => null),
     buildPromptText: vi.fn(() => ""),
-    ensureChannelContext: vi.fn(async () => {}),
+    ensureChannelContext: ensureChannelContextMock,
     startTypingIndicator: vi.fn(async () => undefined),
     emitPhaseSafely: vi.fn(async () => {}),
     emitStatusSafely: vi.fn(async () => {}),
@@ -127,6 +131,7 @@ function createDeps(): OrchestratorDeps & {
     stopTypingIndicator: vi.fn(async () => {}),
     __loggerInfoMock: loggerInfo,
     __runPromptWithFallbackMock: runPromptWithFallbackMock,
+    __ensureChannelContextMock: ensureChannelContextMock,
   };
 }
 
@@ -166,16 +171,17 @@ describe("runExecutionFlow", () => {
 
     await runExecutionFlow(ctx, deps, createBundle());
 
-    expect(deps.ensureChannelContext.mock.calls[0]?.[0]).toEqual(
+    expect(deps.__ensureChannelContextMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({
         sessionKey: "agent:mozi:telegram:dm:chat-1",
         agentId: "mozi",
         message: ctx.payload,
       }),
     );
-    expect(
-      (deps.ensureChannelContext as ReturnType<typeof vi.fn>).mock.calls[0]?.[0],
-    ).not.toHaveProperty("channel", bridgeChannel);
+    expect(deps.__ensureChannelContextMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "channel",
+      bridgeChannel,
+    );
   });
 
   it("preserves telegram thinking stream support from the bridge", async () => {
@@ -205,16 +211,18 @@ describe("runExecutionFlow", () => {
         editMessage: vi.fn(async () => {}),
       }),
     );
-    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
-      await onFallback?.({
-        fromModel: "quotio/gemini-3-flash-preview",
-        toModel: "quotio/local/minimax-m2.1",
-        attempt: 1,
-        error: "Agent prompt timed out",
-        reason: "timeout",
-      });
-      await onStream?.({ type: "agent_end", fullText: "hi" });
-    });
+    deps.runPromptWithFallback = vi.fn(
+      async ({ onFallback, onStream }: RunPromptWithFallbackParams) => {
+        await onFallback?.({
+          fromModel: "quotio/gemini-3-flash-preview",
+          toModel: "quotio/local/minimax-m2.1",
+          attempt: 1,
+          error: "Agent prompt timed out",
+          reason: "timeout",
+        });
+        await onStream?.({ type: "agent_end", fullText: "hi" });
+      },
+    );
 
     await runExecutionFlow(ctx, deps, createBundle());
 
@@ -232,16 +240,18 @@ describe("runExecutionFlow", () => {
     const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
     deps.getChannel = vi.fn(() => createBridgeChannel());
-    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
-      await onFallback?.({
-        fromModel: "quotio/gemini-3-flash-preview",
-        toModel: "quotio/local/minimax-m2.1",
-        attempt: 1,
-        error: "Agent prompt timed out",
-        reason: "timeout",
-      });
-      await onStream?.({ type: "agent_end", fullText: "hi" });
-    });
+    deps.runPromptWithFallback = vi.fn(
+      async ({ onFallback, onStream }: RunPromptWithFallbackParams) => {
+        await onFallback?.({
+          fromModel: "quotio/gemini-3-flash-preview",
+          toModel: "quotio/local/minimax-m2.1",
+          attempt: 1,
+          error: "Agent prompt timed out",
+          reason: "timeout",
+        });
+        await onStream?.({ type: "agent_end", fullText: "hi" });
+      },
+    );
 
     await runExecutionFlow(ctx, deps, createBundle());
 
@@ -253,22 +263,24 @@ describe("runExecutionFlow", () => {
     );
   });
 
-  it("keeps generic fallback copy for non-timeout failures", async () => {
+  it("keeps generic fallback copy for execution failures", async () => {
     const ctx = createContext();
     const deps = createDeps();
     const dispatchReply = vi.spyOn(deps, "dispatchReply");
 
     deps.getChannel = vi.fn(() => createBridgeChannel());
-    deps.runPromptWithFallback = vi.fn(async ({ onFallback, onStream }) => {
-      await onFallback?.({
-        fromModel: "quotio/gemini-3-flash-preview",
-        toModel: "quotio/local/minimax-m2.1",
-        attempt: 1,
-        error: "400 model failure",
-        reason: "error",
-      });
-      await onStream?.({ type: "agent_end", fullText: "hi" });
-    });
+    deps.runPromptWithFallback = vi.fn(
+      async ({ onFallback, onStream }: RunPromptWithFallbackParams) => {
+        await onFallback?.({
+          fromModel: "quotio/gemini-3-flash-preview",
+          toModel: "quotio/local/minimax-m2.1",
+          attempt: 1,
+          error: "400 model failure",
+          reason: "execution_failure",
+        });
+        await onStream?.({ type: "agent_end", fullText: "hi" });
+      },
+    );
 
     await runExecutionFlow(ctx, deps, createBundle());
 
@@ -276,6 +288,42 @@ describe("runExecutionFlow", () => {
       expect.objectContaining({
         replyText:
           "⚠️ Primary model failed this turn; using fallback model quotio/local/minimax-m2.1 (from quotio/gemini-3-flash-preview).",
+      }),
+    );
+  });
+
+  it("uses provider/auth unavailable fallback copy", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+    const emitStatusSafely = vi.spyOn(deps, "emitStatusSafely");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(
+      async ({ onFallback, onStream }: RunPromptWithFallbackParams) => {
+        await onFallback?.({
+          fromModel: "openai/gpt-4o",
+          toModel: "claude-cli/sonnet-4.5",
+          attempt: 1,
+          error: "AUTH_MISSING OPENAI_API_KEY",
+          reason: "provider_or_auth_unavailable",
+        });
+        await onStream?.({ type: "agent_end", fullText: "hi" });
+      },
+    );
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText:
+          "⚠️ Primary model provider or authentication is unavailable this turn; using fallback model claude-cli/sonnet-4.5 (from openai/gpt-4o).",
+      }),
+    );
+    expect(emitStatusSafely).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "degraded",
+        messageId: "m1",
       }),
     );
   });

@@ -1,3 +1,4 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { describe, expect, it, vi } from "vitest";
 import type { MoziConfig } from "../../../../config";
 import { maybePreFlushBeforePrompt } from "./preflush-gate";
@@ -70,9 +71,10 @@ describe("maybePreFlushBeforePrompt", () => {
 
   it("flushes when cooldown expired", async () => {
     const flushMemory = vi.fn(async () => true);
+    const messages: AgentMessage[] = [{ role: "user", content: "hi", timestamp: Date.now() }];
     const agentManager = {
       getContextUsage: () => ({ percentage: 95 }),
-      getAgent: vi.fn(async () => ({ agent: { messages: [{ role: "user", content: "hi" }] } })),
+      getAgent: vi.fn(async () => ({ agent: { messages } })),
       getSessionMetadata: () => ({
         memoryFlush: {
           trigger: "pre_overflow",

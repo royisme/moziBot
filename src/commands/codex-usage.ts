@@ -4,9 +4,7 @@
  * Fetches usage/rate limit information from OpenAI's Codex API.
  */
 
-import os from "node:os";
-import path from "node:path";
-import { AuthStorage } from "@mariozechner/pi-coding-agent";
+import { readCodexCliCredentials } from "../runtime/cli-credentials";
 
 const PROVIDER_ID = "openai-codex";
 const USAGE_ENDPOINT = "https://chatgpt.com/backend-api/wham/usage";
@@ -48,12 +46,6 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
 }
 
-/** Resolve the pi-agent directory based on config baseDir. */
-function resolvePiAgentDir(baseDir?: string): string {
-  const base = baseDir ?? path.join(os.homedir(), ".mozi");
-  return path.join(base, "pi-agent");
-}
-
 /**
  * Fetch Codex usage information from the API.
  *
@@ -69,42 +61,21 @@ export async function fetchCodexUsage(options?: {
   timeoutMs?: number;
   fetchFn?: typeof fetch;
 }): Promise<CodexUsageSnapshot> {
-  const baseDir = options?.baseDir;
   const accountId = options?.accountId;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchFn = options?.fetchFn ?? globalThis.fetch;
 
-  const piAgentDir = resolvePiAgentDir(baseDir);
-  const authPath = path.join(piAgentDir, "auth.json");
-
-  // Load credentials from AuthStorage
-  let authStorage: AuthStorage;
-  try {
-    authStorage = AuthStorage.create(authPath);
-  } catch {
-    return {
-      provider: PROVIDER_ID,
-      displayName: "Codex",
-      windows: [],
-      error: "Auth storage not found",
-    };
-  }
-
-  const credentials = authStorage.get(PROVIDER_ID);
+  const credentials = readCodexCliCredentials();
   if (!credentials) {
     return {
       provider: PROVIDER_ID,
       displayName: "Codex",
       windows: [],
-      error: "No credentials",
+      error: "No Codex CLI credentials",
     };
   }
 
-  // Extract token from credentials
-  let token: string | undefined;
-  if (credentials.type === "oauth") {
-    token = credentials.access;
-  }
+  const token = credentials.access?.trim();
 
   if (!token) {
     return {

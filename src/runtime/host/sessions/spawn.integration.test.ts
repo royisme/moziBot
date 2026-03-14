@@ -2,7 +2,8 @@ import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { closeDb, initDb } from "../../../storage/db";
 import { SessionManager } from "./manager";
-import { SubAgentRegistry, spawnSubAgent } from "./spawn";
+import { DetachedRunRegistry } from "./subagent-registry";
+import { spawnSubAgent } from "./spawn";
 
 const TEST_DB = "data/test-spawn.db";
 
@@ -20,16 +21,17 @@ function cleanupTestDb() {
 
 describe("SubAgent Spawn", () => {
   let manager: SessionManager;
-  let registry: SubAgentRegistry;
+  let registry: DetachedRunRegistry;
 
   beforeEach(() => {
     cleanupTestDb();
     initDb(TEST_DB);
     manager = new SessionManager();
-    registry = new SubAgentRegistry();
+    registry = new DetachedRunRegistry("data");
   });
 
   afterEach(() => {
+    registry.shutdown();
     closeDb();
     cleanupTestDb();
   });
@@ -83,7 +85,7 @@ describe("SubAgent Spawn", () => {
     expect(run).toBeDefined();
     expect(run?.task).toBe("tracked task");
     expect(run?.label).toBe("my label");
-    expect(run?.status).toBe("pending");
+    expect(run?.status).toBe("accepted");
 
     const runs = registry.listByParent(parentKey);
     expect(runs.length).toBe(1);
@@ -100,15 +102,15 @@ describe("SubAgent Spawn", () => {
       cleanup: "keep",
     });
 
-    registry.complete(result.childKey, {
+    await registry.completeByChildKey(result.childKey, {
       status: "completed",
       result: "success result",
     });
 
-    const run = registry.get(result.childKey);
+    const run = registry.get(result.runId);
     expect(run?.status).toBe("completed");
     expect(run?.result).toBe("success result");
-    expect(run?.completedAt).toBeDefined();
+    expect(run?.endedAt).toBeDefined();
   });
 
   test("nested spawn is rejected", async () => {
@@ -138,8 +140,8 @@ describe("SubAgent Spawn", () => {
 
     expect(registry.get(result.childKey)).toBeDefined();
 
-    registry.cleanup(result.childKey);
-    expect(registry.get(result.childKey)).toBeUndefined();
+    await registry.setTerminal({ runId: result.runId, status: "completed" });
+    expect(registry.get(result.runId)).toBeUndefined();
 
     // Note: The registry cleanup currently only removes from registry.
     // If we wanted it to also remove from SessionManager, we would need to call manager.delete()

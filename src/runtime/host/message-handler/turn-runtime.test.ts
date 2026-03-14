@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ChannelActionName, ChannelActionSpec } from "../../adapters/channels/types";
 import type { MessageTurnContext, OrchestratorDeps } from "./contract";
 import { StreamingBuffer } from "./services/streaming";
 import { MessageTurnRuntime } from "./turn-runtime";
@@ -31,6 +32,20 @@ vi.mock("../../hooks", () => ({
   getRuntimeHookRunner: () => hookMocks.runner,
 }));
 
+const TELEGRAM_ACTIONS = [
+  "send_text",
+  "send_media",
+  "reply",
+  "edit",
+  "delete",
+  "react",
+] as const satisfies readonly ChannelActionName[];
+
+const TELEGRAM_ACTION_SPECS: ChannelActionSpec[] = TELEGRAM_ACTIONS.map((name) => ({
+  name,
+  enabled: true,
+}));
+
 function createDeps(): OrchestratorDeps {
   return {
     config: {} as OrchestratorDeps["config"],
@@ -59,7 +74,21 @@ function createDeps(): OrchestratorDeps {
     getCommandHandlerMap: vi.fn(
       () => ({}) as OrchestratorDeps["getCommandHandlerMap"] extends () => infer R ? R : never,
     ),
-    getChannel: vi.fn(() => ({ id: "telegram", send: vi.fn(async () => "out") })),
+    getChannel: vi.fn(() => ({
+      id: "telegram",
+      send: vi.fn(async () => "out"),
+      getCapabilities: () => ({
+        media: true,
+        polls: false,
+        reactions: true,
+        threads: true,
+        editMessage: true,
+        deleteMessage: true,
+        implicitCurrentTarget: true,
+        supportedActions: [...TELEGRAM_ACTIONS],
+      }),
+      listActions: () => TELEGRAM_ACTION_SPECS,
+    })),
     dispatchExtensionCommand: vi.fn(async () => false),
     interruptSession: vi.fn(async () => false),
     performSessionReset: vi.fn(async () => {}),

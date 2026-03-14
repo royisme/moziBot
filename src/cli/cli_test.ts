@@ -42,7 +42,7 @@ test("doctor succeeds with minimal off-mode runnable config", async () => {
       providers: {
         openai: {
           api: "openai-responses",
-          models: [{ id: "gpt-4o-mini" }],
+          models: [{ id: "gpt-4o-mini", name: "gpt-4o-mini" }],
         },
       },
     },
@@ -73,7 +73,7 @@ test("doctor --fix succeeds with minimal off-mode runnable config", async () => 
       providers: {
         openai: {
           api: "openai-responses",
-          models: [{ id: "gpt-4o-mini" }],
+          models: [{ id: "gpt-4o-mini", name: "gpt-4o-mini" }],
         },
       },
     },

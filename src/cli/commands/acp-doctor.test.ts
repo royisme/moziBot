@@ -12,7 +12,7 @@ const BASE_CONFIG = {
       quotio: {
         api: "openai-responses",
         apiKey: "test-key",
-        models: [{ id: "gemini-3-flash-preview" }],
+        models: [{ id: "gemini-3-flash-preview", name: "gemini-3-flash-preview" }],
       },
     },
   },
