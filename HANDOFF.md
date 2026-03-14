@@ -31,9 +31,31 @@ Five-phase alignment of provider contracts, auth resolution, credential manageme
 
 ## Validation state
 
-- `pnpm exec tsc --noEmit --pretty false` ✅
-- `pnpm run test` ✅ (1739/1739)
-- `pnpm run check` ❌ (pre-existing unrelated lint error in `execution-flow.test.ts:171` — `unbound-method`)
+- `pnpm run check` ✅ (passed via pre-commit for commit `896c757`)
+- `pnpm exec tsc --noEmit --pretty false` ✅ earlier in the session
+- `pnpm run test` ✅ earlier in the session (agent reported full vitest pass: 171 files / 1761 tests)
+
+### Provider transport refactor landed in `896c757`
+
+**Bug / motivation:** runtime behavior was still partially inferred from provider `baseUrl` and mixed contract/runtime state. That let native SDK providers like `google` leak into the Pi OpenAI-compatible registration path, which caused the Google 404 regression.
+
+**What landed:**
+- `src/runtime/types.ts` — introduced `ProviderTransportKind = "openai-compat" | "native-sdk" | "cli-backend"` and `ResolvedProvider`
+- `src/runtime/providers/contracts.ts` — now static contract metadata only; google marked `transportKind: "native-sdk"`
+- `src/runtime/providers/composition.ts` — new contract+config composition pipeline producing `ResolvedProvider`
+- `src/runtime/provider-registry.ts` — now stores resolved providers
+- `src/runtime/providers/pi-registration.ts` — extracted PI registration logic; only registers `transportKind === "openai-compat"`
+- `src/runtime/agent-manager.ts` — now orchestrates registration instead of encoding provider transport rules
+- `src/runtime/cli-backends.ts` — Gemini CLI added as first-class `cli-backend` with `google-gemini-cli`
+
+**Why this works:**
+Transport routing is now explicit. Google keeps canonical metadata like `baseUrl`, but registration/routing decisions use `transportKind` instead of guessing from HTTP-looking config.
+
+**Tests added/updated:**
+- `src/runtime/providers/composition.test.ts`
+- `src/runtime/providers/pi-registration.test.ts`
+- `src/runtime/model-registry.test.ts`
+- `src/runtime/cli-backends.test.ts`
 
 ## Intentionally incomplete
 
