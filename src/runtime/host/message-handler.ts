@@ -127,8 +127,26 @@ export class MessageHandler {
       errorCode?: string;
     }) => Promise<void> | void
   >();
+  private readonly pendingInternalMessages = new Map<
+    string,
+    Array<{ content: string; source: string; metadata?: Record<string, unknown> }>
+  >();
   private runLifecycle = new RunLifecycleRegistry({
     onTerminal: (entry, payload) => {
+      const pending = this.pendingInternalMessages.get(entry.sessionKey);
+      if (pending?.length) {
+        this.pendingInternalMessages.delete(entry.sessionKey);
+        for (const msg of pending) {
+          void this.handleInternalMessage({
+            sessionKey: entry.sessionKey,
+            content: msg.content,
+            source: msg.source,
+            metadata: msg.metadata,
+          }).catch((err) =>
+            logger.error({ err, sessionKey: entry.sessionKey }, "Deferred internal message failed"),
+          );
+        }
+      }
       const callback = this.detachedTerminalCallbacks.get(entry.runId);
       const errorCode =
         payload.errorCode ??
@@ -927,6 +945,18 @@ export class MessageHandler {
       },
       "Handling internal message",
     );
+
+    const activeRun = this.runLifecycle.getRunBySession(sessionKey);
+    if (activeRun) {
+      logger.info(
+        { sessionKey, source, runId: activeRun.runId },
+        "Session has active run, deferring internal message",
+      );
+      const queue = this.pendingInternalMessages.get(sessionKey) ?? [];
+      queue.push({ content, source, metadata });
+      this.pendingInternalMessages.set(sessionKey, queue);
+      return;
+    }
 
     try {
       const parts = sessionKey.split(":");

@@ -151,12 +151,13 @@ export class RunLifecycleRegistry {
       entry.controller.abort(payload.reason ?? payload.error);
     }
 
+    this.runBySession.delete(entry.sessionKey);
+
     this.listeners.onTerminal?.(entry, {
       ...payload,
       partialText: payload.partialText ?? entry.buffer.snapshot(),
     });
 
-    this.runBySession.delete(entry.sessionKey);
     return true;
   }
 

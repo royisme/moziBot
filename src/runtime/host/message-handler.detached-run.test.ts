@@ -837,4 +837,128 @@ describe("MessageHandler.startDetachedRun observability", () => {
       vi.useRealTimers();
     }
   });
+
+  it("defers internal message while parent run is active, then processes it after terminal", async () => {
+    vi.useFakeTimers();
+    try {
+      const handler = new MessageHandler(createConfig());
+      const h = handler as unknown as {
+        agentManager: {
+          getAgent: (
+            sessionKey: string,
+            agentId: string,
+          ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+          getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
+          resolveDefaultAgentId: () => string;
+        };
+        runPromptWithFallback: (params: {
+          sessionKey: string;
+          agentId: string;
+          text: string;
+          traceId?: string;
+        }) => Promise<void>;
+        resolveLatestAssistantText: (sessionKey: string, agentId: string) => Promise<string>;
+        createHostSubagentRuntime: (
+          sessionManager: unknown,
+          detachedRunRegistry: unknown,
+        ) => {
+          startDetachedPromptRun: (params: {
+            runId: string;
+            sessionKey: string;
+            agentId: string;
+            text: string;
+            timeoutSeconds?: number;
+            onTerminal?: (params: {
+              terminal: "completed" | "failed" | "aborted" | "timeout";
+              partialText?: string;
+              error?: Error;
+              reason?: string;
+              errorCode?: string;
+            }) => Promise<void> | void;
+          }) => Promise<{ runId: string }>;
+        };
+        handleInternalMessage: (params: {
+          sessionKey: string;
+          content: string;
+          source: string;
+          metadata?: Record<string, unknown>;
+        }) => Promise<void>;
+        pendingInternalMessages: Map<
+          string,
+          Array<{ content: string; source: string; metadata?: Record<string, unknown> }>
+        >;
+      };
+
+      const sessionKey = "agent:worker:subagent:dm:chat-defer";
+      let resolvePrompt!: () => void;
+      const promptPromise = new Promise<void>((resolve) => {
+        resolvePrompt = resolve;
+      });
+
+      h.agentManager = {
+        getAgent: async () => ({
+          agent: { messages: [] },
+          modelRef: "quotio/gemini-3-flash-preview",
+        }),
+        getSessionMetadata: () => ({}),
+        resolveDefaultAgentId: () => "mozi",
+      };
+      h.resolveLatestAssistantText = async () => "";
+      h.runPromptWithFallback = vi.fn(() => promptPromise);
+
+      const runtime = h.createHostSubagentRuntime(
+        { get: () => undefined } as never,
+        {
+          get: () => undefined,
+          register: vi.fn(),
+          markStarted: vi.fn(),
+          setTerminal: vi.fn(),
+        } as never,
+      );
+
+      // Start a detached run that won't complete until we resolve the promise
+      await runtime.startDetachedPromptRun({
+        runId: "defer-parent-run",
+        sessionKey,
+        agentId: "worker",
+        text: "parent task",
+      });
+
+      // Advance timers so the microtask fires and the run becomes "started"
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Now send an internal message while the run is active — it should be deferred
+      void handler.handleInternalMessage({
+        sessionKey,
+        content: "deferred notification",
+        source: "subagent-timeout",
+      });
+
+      // Message must be queued, not yet processed
+      const queued = h.pendingInternalMessages.get(sessionKey);
+      expect(queued).toBeDefined();
+      expect(queued).toHaveLength(1);
+      expect(queued?.[0]?.content).toBe("deferred notification");
+
+      // runPromptWithFallback should not have been called for the internal message yet
+      expect(h.runPromptWithFallback).toHaveBeenCalledTimes(1); // only the parent run call
+
+      // Complete the parent run
+      resolvePrompt();
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // After terminal, deferred message should have been flushed
+      expect(h.pendingInternalMessages.get(sessionKey)).toBeUndefined();
+      expect(h.runPromptWithFallback).toHaveBeenCalledTimes(2); // parent + deferred
+      const secondCall = (h.runPromptWithFallback as ReturnType<typeof vi.fn>).mock.calls[1];
+      expect(secondCall[0]).toMatchObject({
+        sessionKey,
+        text: "deferred notification",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
