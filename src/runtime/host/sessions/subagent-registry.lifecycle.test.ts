@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { injectMessageHandler } from "./subagent-announce";
 import {
   DetachedRunRegistry,
   createDefaultDeliveryState,
+  type DetachedRunRecord,
   type LifecyclePhase,
   type VisibilityPolicy,
   type DeliveryPhaseState,
@@ -16,11 +18,13 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "lifecycle-test-"));
+    injectMessageHandler({ handleInternalMessage: async () => {} } as never);
     registry = new DetachedRunRegistry(tmpDir);
   });
 
   afterEach(() => {
     registry.shutdown();
+    injectMessageHandler({ handleInternalMessage: async () => {} } as never);
     try {
       fs.rmSync(tmpDir, { recursive: true });
     } catch {}
@@ -179,8 +183,8 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
       expect(run?.terminalDelivery?.status).toBe("pending");
       // pendingDeliveryPhase is set (phase pending delivery)
       expect(run?.pendingDeliveryPhase).toBe("completed");
-      // lastDeliveredPhase is not set until actual delivery
-      expect(run?.lastDeliveredPhase).toBeUndefined();
+      // lastDeliveredPhase is "accepted" (auto-delivered on register, no accepted announce)
+      expect(run?.lastDeliveredPhase).toBe("accepted");
     });
 
     it("should return undefined for non-existent run", () => {
@@ -199,12 +203,16 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
         cleanup: "keep",
       });
 
-      expect(registry.isPhaseDelivered("run-dedupe-1", "accepted")).toBe(false);
-
-      registry.markPhaseDelivered("run-dedupe-1", "accepted");
-
+      // accepted is auto-delivered on register (no accepted announce)
       expect(registry.isPhaseDelivered("run-dedupe-1", "accepted")).toBe(true);
-      expect(registry.get("run-dedupe-1")?.lastDeliveredPhase).toBe("accepted");
+
+      // started is not yet delivered
+      expect(registry.isPhaseDelivered("run-dedupe-1", "started")).toBe(false);
+
+      registry.markPhaseDelivered("run-dedupe-1", "started");
+
+      expect(registry.isPhaseDelivered("run-dedupe-1", "started")).toBe(true);
+      expect(registry.get("run-dedupe-1")?.lastDeliveredPhase).toBe("started");
     });
 
     it("should allow re-transition to same phase (idempotent)", () => {
@@ -285,8 +293,8 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
 
       const run = registry.get("run-delivery-1");
       expect(run?.ackDelivery).toBeDefined();
-      // ackDelivery starts as pending (needs initial ack delivery)
-      expect(run?.ackDelivery?.status).toBe("pending");
+      // ackDelivery is auto-delivered on register (accepted announce is skipped)
+      expect(run?.ackDelivery?.status).toBe("delivered");
       // terminalDelivery starts as "none" - not applicable until terminal
       expect(run?.terminalDelivery).toBeDefined();
       expect(run?.terminalDelivery?.status).toBe("none");
@@ -303,9 +311,8 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
 
       // Active runs should not show up as needing terminal delivery
       const pending = registry.getRunsWithPendingDelivery();
-      // Only the ack is pending, not terminal
-      expect(pending).toHaveLength(1);
-      expect(pending[0]?.terminalDelivery?.status).toBe("none");
+      // Ack is auto-delivered on register, so no pending deliveries
+      expect(pending).toHaveLength(0);
     });
 
     it("should update delivery state", () => {
@@ -422,13 +429,9 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
         cleanup: "keep",
       });
 
-      // Mark one as fully delivered (ack delivered - terminal is none for active)
-      registry.updateDeliveryState("run-pending-1", "ack", { status: "delivered" });
-
+      // Both runs have ack auto-delivered on register, so no pending deliveries
       const pending = registry.getRunsWithPendingDelivery();
-      // Only run-pending-2 has pending ack delivery
-      expect(pending).toHaveLength(1);
-      expect(pending[0]?.runId).toBe("run-pending-2");
+      expect(pending).toHaveLength(0);
     });
 
     it("should get undelivered terminal runs", () => {
@@ -479,7 +482,7 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
 
       expect(result?.status).toBe("completed");
       expect(result?.result).toBe("Final result");
-      expect(result?.terminalDelivery?.status).toBe("pending");
+      expect(result?.terminalDelivery?.status).toBe("delivered");
     });
 
     it("should set terminal with error", async () => {
@@ -516,10 +519,9 @@ describe("DetachedRunRegistry - Lifecycle Transitions", () => {
       });
 
       const run = registry.get("run-term-3");
-      // pendingDeliveryPhase is set immediately when terminal is set
-      expect(run?.pendingDeliveryPhase).toBe("completed");
-      // lastDeliveredPhase is only set after actual delivery succeeds
-      expect(run?.lastDeliveredPhase).toBeUndefined();
+      expect(run?.pendingDeliveryPhase).toBeUndefined();
+      expect(run?.lastDeliveredPhase).toBe("completed");
+      expect(run?.terminalDelivery?.status).toBe("delivered");
     });
   });
 });
@@ -549,6 +551,7 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
 
   afterEach(() => {
     registry.shutdown();
+    injectMessageHandler({ handleInternalMessage: async () => {} } as never);
     try {
       fs.rmSync(tmpDir, { recursive: true });
     } catch {}
@@ -561,8 +564,9 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
       expect(result.pendingRunIds).toEqual([]);
     });
 
-    it("should return hasPendingUserVisible=true when user-visible run has pending ack", () => {
+    it("should return hasPendingUserVisible=false when user-visible run has auto-delivered ack", () => {
       // Register a run with user_visible policy (default)
+      // Ack is auto-delivered on register (accepted announce is skipped)
       registry.register({
         runId: "run-1",
         kind: "subagent",
@@ -574,8 +578,7 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
       });
 
       const result = registry.getPendingUserVisibleAck("parent-key-1");
-      expect(result.hasPendingUserVisible).toBe(true);
-      expect(result.pendingRunIds).toContain("run-1");
+      expect(result.hasPendingUserVisible).toBe(false);
     });
 
     it("should return hasPendingUserVisible=false for internal_silent runs", () => {
@@ -604,7 +607,10 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
         visibilityPolicy: "user_visible",
       });
 
-      registry.updateDeliveryState("run-1", "ack", { status: "delivered", deliveredAt: Date.now() });
+      registry.updateDeliveryState("run-1", "ack", {
+        status: "delivered",
+        deliveredAt: Date.now(),
+      });
 
       const result = registry.getPendingUserVisibleAck("parent-key-1");
       expect(result.hasPendingUserVisible).toBe(false);
@@ -650,16 +656,22 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
         visibilityPolicy: "user_visible",
       });
 
+      // Ack is auto-delivered, so no pending for non-terminal runs
       const result1 = registry.getPendingUserVisibleAck("parent-key-1");
-      expect(result1.hasPendingUserVisible).toBe(true);
-      expect(result1.pendingRunIds).toEqual(["run-1"]);
+      expect(result1.hasPendingUserVisible).toBe(false);
 
+      // But terminal runs with undelivered terminal delivery are still pending
+      registry.transitionTo("run-1", "completed", { result: "done" });
+      const result1After = registry.getPendingUserVisibleAck("parent-key-1");
+      expect(result1After.hasPendingUserVisible).toBe(true);
+      expect(result1After.pendingRunIds).toEqual(["run-1"]);
+
+      // parent-key-2 still has no pending
       const result2 = registry.getPendingUserVisibleAck("parent-key-2");
-      expect(result2.hasPendingUserVisible).toBe(true);
-      expect(result2.pendingRunIds).toEqual(["run-2"]);
+      expect(result2.hasPendingUserVisible).toBe(false);
     });
 
-    it("should track multiple pending runs for same parent", () => {
+    it("should track multiple pending runs for same parent when terminal", () => {
       registry.register({
         runId: "run-1",
         kind: "subagent",
@@ -680,6 +692,10 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
         visibilityPolicy: "user_visible",
       });
 
+      // Transition both to terminal with undelivered terminal delivery
+      registry.transitionTo("run-1", "completed", { result: "done" });
+      registry.transitionTo("run-2", "failed", { error: "err" });
+
       const result = registry.getPendingUserVisibleAck("parent-key-1");
       expect(result.hasPendingUserVisible).toBe(true);
       expect(result.pendingRunIds).toHaveLength(2);
@@ -687,7 +703,7 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
   });
 
   describe("needsAckDelivery and isAckDelivered", () => {
-    it("should report needsAckDelivery correctly", () => {
+    it("should report needsAckDelivery=false after register (auto-delivered)", () => {
       registry.register({
         runId: "run-1",
         kind: "subagent",
@@ -698,8 +714,9 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
         visibilityPolicy: "user_visible",
       });
 
-      expect(registry.needsAckDelivery("run-1")).toBe(true);
-      expect(registry.isAckDelivered("run-1")).toBe(false);
+      // Ack is auto-delivered on register (accepted announce is skipped)
+      expect(registry.needsAckDelivery("run-1")).toBe(false);
+      expect(registry.isAckDelivered("run-1")).toBe(true);
     });
 
     it("should report isAckDelivered correctly after delivery", () => {
@@ -713,7 +730,10 @@ describe("DetachedRunRegistry - Parent Turn Suppression Guard", () => {
         visibilityPolicy: "user_visible",
       });
 
-      registry.updateDeliveryState("run-1", "ack", { status: "delivered", deliveredAt: Date.now() });
+      registry.updateDeliveryState("run-1", "ack", {
+        status: "delivered",
+        deliveredAt: Date.now(),
+      });
 
       expect(registry.needsAckDelivery("run-1")).toBe(false);
       expect(registry.isAckDelivered("run-1")).toBe(true);
@@ -753,6 +773,7 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
 
   afterEach(() => {
     registry.shutdown();
+    injectMessageHandler({ handleInternalMessage: async () => {} } as never);
     try {
       fs.rmSync(tmpDir, { recursive: true });
     } catch {}
@@ -886,7 +907,7 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
       expect(result.undeliveredTerminal).toHaveLength(0);
     });
 
-    it("should identify runs with pending ack delivery", () => {
+    it("should not identify runs with auto-delivered ack as needing replay", () => {
       registry.register({
         runId: "run-replay-1",
         childKey: "agent:test:subagent:dm:r1",
@@ -895,10 +916,9 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
         cleanup: "keep",
       });
 
-      // Ack is pending by default after register
+      // Ack is auto-delivered on register, so no pending ack
       const result = registry.getRunsNeedingReplay();
-      expect(result.pendingAck).toHaveLength(1);
-      expect(result.pendingAck[0]?.runId).toBe("run-replay-1");
+      expect(result.pendingAck).toHaveLength(0);
     });
 
     it("should identify undelivered terminal runs", () => {
@@ -1000,6 +1020,129 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
 
       newRegistry.shutdown();
       fs.rmSync(newTmpDir, { recursive: true });
+    });
+  });
+
+  describe("reconcileOrphanedRuns ack retry", () => {
+    const registerPendingAckRun = (
+      runId: string,
+      visibilityPolicy: VisibilityPolicy = "user_visible",
+    ) => {
+      registry.restoreFromSerialized({
+        ...registry.serialize(),
+        [runId]: {
+          runId,
+          kind: "subagent",
+          childKey: `child-${runId}`,
+          parentKey: "parent-ack-reconcile",
+          task: `task-${runId}`,
+          cleanup: "keep",
+          status: "accepted",
+          createdAt: Date.now(),
+          visibilityPolicy,
+          ackDelivery: {
+            ...createDefaultDeliveryState(),
+            status: "pending",
+            attemptCount: 0,
+          },
+          terminalDelivery: createDefaultDeliveryState(),
+          announcedPhases: {
+            accepted: false,
+            started: false,
+            streaming: false,
+            completed: false,
+            failed: false,
+            aborted: false,
+            timeout: false,
+          },
+        } as DetachedRunRecord,
+      });
+    };
+
+    it("retries pending ack and marks it delivered on success", async () => {
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+      registerPendingAckRun("run-ack-1");
+
+      const result = await registry.reconcileOrphanedRuns({
+        parentKey: "parent-ack-reconcile",
+        isRunActive: () => true,
+      });
+
+      const run = registry.get("run-ack-1");
+      expect(result.retriedAck).toBe(1);
+      expect(result.retriedAckRunIds).toEqual(["run-ack-1"]);
+      expect(run?.ackDelivery?.status).toBe("delivered");
+      expect(run?.ackDelivery?.attemptCount).toBe(1);
+      expect(run?.ackDelivery?.lastError).toBeUndefined();
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      expect(handleInternalMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionKey: "parent-ack-reconcile",
+          source: "detached-run-announce",
+          metadata: expect.objectContaining({
+            detachedRunId: "run-ack-1",
+            detachedStatus: "accepted",
+          }),
+        }),
+      );
+    });
+
+    it("continues retrying remaining pending ack deliveries when one throws", async () => {
+      registerPendingAckRun("run-ack-1");
+      registerPendingAckRun("run-ack-2");
+      registerPendingAckRun("run-ack-3");
+
+      const deliveryOrder: string[] = [];
+      const triggerPhaseAnnounce = vi.spyOn(registry, "triggerPhaseAnnounce");
+      triggerPhaseAnnounce.mockImplementation(async (run, phase) => {
+        deliveryOrder.push(run.runId);
+        if (run.runId === "run-ack-2") {
+          throw new Error("ack delivery exploded");
+        }
+        return DetachedRunRegistry.prototype.triggerPhaseAnnounce.call(registry, run, phase);
+      });
+
+      const result = await registry.reconcileOrphanedRuns({
+        parentKey: "parent-ack-reconcile",
+        isRunActive: () => true,
+      });
+
+      expect(deliveryOrder).toEqual(["run-ack-1", "run-ack-2", "run-ack-3"]);
+      expect(result.retriedAck).toBe(2);
+      expect(result.retriedAckRunIds).toEqual(["run-ack-1", "run-ack-3"]);
+      expect(registry.get("run-ack-1")?.ackDelivery?.status).toBe("delivered");
+      expect(registry.get("run-ack-3")?.ackDelivery?.status).toBe("delivered");
+      expect(registry.get("run-ack-2")?.ackDelivery).toEqual(
+        expect.objectContaining({
+          status: "pending",
+          attemptCount: 1,
+          lastError: "ack delivery exploded",
+        }),
+      );
+    });
+
+    it("keeps repeated accepted announcements idempotent after successful delivery", async () => {
+      const handleInternalMessage = vi.fn(async () => {});
+      injectMessageHandler({ handleInternalMessage } as never);
+      registerPendingAckRun("run-ack-idempotent");
+
+      const run = registry.get("run-ack-idempotent");
+      expect(run).toBeDefined();
+
+      await registry.triggerPhaseAnnounce(run as DetachedRunRecord, "accepted");
+      const firstDeliveredAt = registry.get("run-ack-idempotent")?.ackDelivery?.deliveredAt;
+
+      await registry.triggerPhaseAnnounce(
+        registry.get("run-ack-idempotent") as DetachedRunRecord,
+        "accepted",
+      );
+      const finalRun = registry.get("run-ack-idempotent");
+
+      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      expect(finalRun?.ackDelivery?.status).toBe("delivered");
+      expect(finalRun?.ackDelivery?.deliveredAt).toBe(firstDeliveredAt);
+      expect(finalRun?.announcedPhases?.accepted).toBe(true);
     });
   });
 });

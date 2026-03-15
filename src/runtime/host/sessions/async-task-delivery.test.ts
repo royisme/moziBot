@@ -118,12 +118,12 @@ describe("async-task-delivery", () => {
         phase: "completed",
         duration: "5m30s",
       });
-      expect(msg).toBe('Background task "TestTask" completed in 5m30s.');
+      expect(msg).toBe('Background task "TestTask" completed in 5m30s. Use /tasks for details.');
     });
 
     it("builds completed message without duration", () => {
       const msg = buildSimpleAckMessage({ taskLabel: "TestTask", phase: "completed" });
-      expect(msg).toBe('Background task "TestTask" completed.');
+      expect(msg).toBe('Background task "TestTask" completed. Use /tasks for details.');
     });
 
     it("builds failed message with error", () => {
@@ -132,12 +132,12 @@ describe("async-task-delivery", () => {
         phase: "failed",
         error: "Something went wrong",
       });
-      expect(msg).toBe('Background task "TestTask" failed: Something went wrong');
+      expect(msg).toBe('Background task "TestTask" failed: Something went wrong. Use /tasks for details.');
     });
 
     it("builds failed message without error", () => {
       const msg = buildSimpleAckMessage({ taskLabel: "TestTask", phase: "failed" });
-      expect(msg).toBe('Background task "TestTask" failed.');
+      expect(msg).toBe('Background task "TestTask" failed. Use /tasks for details.');
     });
 
     it("builds timeout message with duration", () => {
@@ -146,7 +146,7 @@ describe("async-task-delivery", () => {
         phase: "timeout",
         duration: "10m",
       });
-      expect(msg).toBe('Background task "TestTask" timed out after 10m.');
+      expect(msg).toBe('Background task "TestTask" timed out after 10m. Use /tasks for details.');
     });
 
     it("builds aborted message with error", () => {
@@ -155,7 +155,7 @@ describe("async-task-delivery", () => {
         phase: "aborted",
         error: "User cancelled",
       });
-      expect(msg).toBe('Background task "TestTask" was cancelled: User cancelled');
+      expect(msg).toBe('Background task "TestTask" was cancelled: User cancelled. Use /tasks for details.');
     });
   });
 

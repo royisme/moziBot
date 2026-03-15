@@ -92,20 +92,20 @@ export function buildSimpleAckMessage(params: {
       return `Task "${taskLabel}" is producing output.`;
     case "completed":
       return duration
-        ? `Background task "${taskLabel}" completed in ${duration}.`
-        : `Background task "${taskLabel}" completed.`;
+        ? `Background task "${taskLabel}" completed in ${duration}. Use /tasks for details.`
+        : `Background task "${taskLabel}" completed. Use /tasks for details.`;
     case "failed":
       return error
-        ? `Background task "${taskLabel}" failed: ${error}`
-        : `Background task "${taskLabel}" failed.`;
+        ? `Background task "${taskLabel}" failed: ${error}. Use /tasks for details.`
+        : `Background task "${taskLabel}" failed. Use /tasks for details.`;
     case "timeout":
       return duration
-        ? `Background task "${taskLabel}" timed out after ${duration}.`
-        : `Background task "${taskLabel}" timed out.`;
+        ? `Background task "${taskLabel}" timed out after ${duration}. Use /tasks for details.`
+        : `Background task "${taskLabel}" timed out. Use /tasks for details.`;
     case "aborted":
       return error
-        ? `Background task "${taskLabel}" was cancelled: ${error}`
-        : `Background task "${taskLabel}" was cancelled.`;
+        ? `Background task "${taskLabel}" was cancelled: ${error}. Use /tasks for details.`
+        : `Background task "${taskLabel}" was cancelled. Use /tasks for details.`;
     default:
       return `Background task "${taskLabel}" status: ${phase}`;
   }

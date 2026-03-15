@@ -88,25 +88,11 @@ export function buildDetachedRunTriggerMessage(params: DetachedRunAnnouncementPa
     ].join("\n");
   }
 
-  // Terminal phases: include findings and optional error summary
-  const findings = params.status === "failed" || params.status === "timeout" || params.status === "aborted"
-    ? params.error
-      ? `Error: ${params.error.slice(0, 200)}`
-      : "(no error details)"
-    : params.result || "(no output)";
-
+  // Terminal phases: brief message only — details available via /tasks status <runId>
   return [
-    `Background task "${taskLabel}" ${statusLabel}.`,
+    `Background task "${taskLabel}" ${statusLabel}. Duration: ${duration}.`,
     "",
-    "Findings:",
-    findings,
-    "",
-    `Duration: ${duration}`,
-    "",
-    "Summarize this naturally for the user. Keep it brief (1-2 sentences).",
-    "Flow it into the conversation naturally.",
-    "Do not mention technical details like sessionKey or that this was a background task.",
-    "You can respond with NO_REPLY if no announcement is needed.",
+    "Acknowledge this briefly. You can respond with NO_REPLY.",
   ].join("\n");
 }
 

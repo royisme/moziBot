@@ -119,7 +119,10 @@ export class DetachedRunRegistry {
   }
 
   register(
-    run: Omit<DetachedRunRecord, "createdAt" | "status" | "kind" | "announcedPhases" | "ackDelivery" | "terminalDelivery"> & {
+    run: Omit<
+      DetachedRunRecord,
+      "createdAt" | "status" | "kind" | "announcedPhases" | "ackDelivery" | "terminalDelivery"
+    > & {
       kind?: "subagent" | "acp";
       createdAt?: number;
       status?: DetachedRunStatus;
@@ -149,10 +152,17 @@ export class DetachedRunRegistry {
     this.runs.set(record.runId, record);
     this.persist();
 
-    // Trigger accepted phase announcement asynchronously
-    this.triggerPhaseAnnounce(record, "accepted").catch((err) => {
-      logger.error({ err, runId: record.runId }, "Failed to announce accepted phase");
-    });
+    // Skip "accepted" announcement — "started" follows almost immediately and is sufficient.
+    // Mark ackDelivery as delivered to prevent lifecycle guard issues.
+    if (record.ackDelivery) {
+      record.ackDelivery.status = "delivered";
+      record.ackDelivery.deliveredAt = record.createdAt;
+    }
+    if (record.announcedPhases) {
+      record.announcedPhases.accepted = true;
+    }
+    record.lastDeliveredPhase = "accepted";
+    this.persist();
   }
 
   // === Lifecycle Phase Transition Methods ===
@@ -313,10 +323,7 @@ export class DetachedRunRegistry {
   /**
    * Get delivery state for a phase.
    */
-  getDeliveryState(
-    runId: string,
-    phase: "ack" | "terminal",
-  ): DeliveryPhaseState | undefined {
+  getDeliveryState(runId: string, phase: "ack" | "terminal"): DeliveryPhaseState | undefined {
     const run = this.runs.get(runId);
     if (!run) {
       return undefined;
@@ -353,7 +360,10 @@ export class DetachedRunRegistry {
    *
    * Returns: { hasPendingUserVisible: boolean, pendingRunIds: string[] }
    */
-  getPendingUserVisibleAck(parentKey: string): { hasPendingUserVisible: boolean; pendingRunIds: string[] } {
+  getPendingUserVisibleAck(parentKey: string): {
+    hasPendingUserVisible: boolean;
+    pendingRunIds: string[];
+  } {
     const runs = this.listByParent(parentKey);
     const pending: string[] = [];
 
@@ -427,6 +437,27 @@ export class DetachedRunRegistry {
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  cleanTerminal(parentKey?: string): { cleaned: number; runIds: string[] } {
+    const terminalStatuses = ["completed", "failed", "aborted", "timeout"];
+    const runIds: string[] = [];
+    for (const [id, run] of this.runs) {
+      if (!terminalStatuses.includes(run.status)) {
+        continue;
+      }
+      if (parentKey && run.parentKey !== parentKey) {
+        continue;
+      }
+      runIds.push(id);
+    }
+    for (const id of runIds) {
+      this.runs.delete(id);
+    }
+    if (runIds.length > 0) {
+      this.persist();
+    }
+    return { cleaned: runIds.length, runIds };
+  }
+
   update(runId: string, changes: Partial<DetachedRunRecord>): DetachedRunRecord | undefined {
     const run = this.runs.get(runId);
     if (!run) {
@@ -437,7 +468,11 @@ export class DetachedRunRegistry {
     return run;
   }
 
-  markAbortRequested(runId: string, requestedBy: string, requestedAt = Date.now()): DetachedRunRecord | undefined {
+  markAbortRequested(
+    runId: string,
+    requestedBy: string,
+    requestedAt = Date.now(),
+  ): DetachedRunRecord | undefined {
     return this.update(runId, {
       abortRequestedAt: requestedAt,
       abortRequestedBy: requestedBy,
@@ -464,11 +499,7 @@ export class DetachedRunRegistry {
     const run = this.transitionTo(runId, "streaming", {
       timestamp: startedAt ?? Date.now(),
     });
-    if (run) {
-      this.triggerPhaseAnnounce(run, "streaming").catch((err) => {
-        logger.error({ err, runId }, "Failed to announce streaming phase");
-      });
-    }
+    // Skip "streaming" announcement — users don't need "producing output" notifications.
     return run;
   }
 
@@ -743,14 +774,15 @@ export class DetachedRunRegistry {
   getRunsWithPendingDelivery(): DetachedRunRecord[] {
     const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
     return [...this.runs.values()].filter((run) => {
-      const ackPending = run.ackDelivery?.status === "pending" || run.ackDelivery?.status === "queued";
+      const ackPending =
+        run.ackDelivery?.status === "pending" || run.ackDelivery?.status === "queued";
       // Only count terminal delivery as pending for actual terminal runs
       const isTerminal = terminalPhases.includes(run.status);
-      const terminalPending = isTerminal && (
-        run.terminalDelivery?.status === "pending" ||
-        run.terminalDelivery?.status === "queued" ||
-        run.terminalDelivery?.status === "failed"
-      );
+      const terminalPending =
+        isTerminal &&
+        (run.terminalDelivery?.status === "pending" ||
+          run.terminalDelivery?.status === "queued" ||
+          run.terminalDelivery?.status === "failed");
       return ackPending || terminalPending;
     });
   }
@@ -791,14 +823,22 @@ export class DetachedRunRegistry {
     parentKey?: string;
     isRunActive?: (runId: string) => boolean;
     requestedBy?: string;
-  }): Promise<{ retried: number; reconciled: number; runIds: string[] }> {
+  }): Promise<{
+    retried: number;
+    retriedAck: number;
+    reconciled: number;
+    runIds: string[];
+    retriedAckRunIds: string[];
+  }> {
     const terminalPhases: DetachedRunStatus[] = ["completed", "failed", "timeout", "aborted"];
     const scopedRuns = [...this.runs.values()].filter((run) =>
       options?.parentKey ? run.parentKey === options.parentKey : true,
     );
     let retried = 0;
+    let retriedAck = 0;
     let reconciled = 0;
     const runIds: string[] = [];
+    const retriedAckRunIds: string[] = [];
 
     const pendingAnnouncementRuns = scopedRuns.filter(
       (run) =>
@@ -816,12 +856,42 @@ export class DetachedRunRegistry {
         run.terminalDelivery.status = "pending";
         run.terminalDelivery.attemptCount += 1;
       }
-      await this.triggerAnnounce(
-        run,
-        run.status as "completed" | "failed" | "aborted" | "timeout",
-      );
+      await this.triggerAnnounce(run, run.status as "completed" | "failed" | "aborted" | "timeout");
       retried += 1;
       runIds.push(run.runId);
+    }
+
+    const pendingAckRuns = scopedRuns.filter((run) => {
+      if (run.visibilityPolicy === "internal_silent") {
+        return false;
+      }
+      return run.ackDelivery?.status === "pending";
+    });
+
+    for (const run of pendingAckRuns) {
+      try {
+        logger.warn(
+          { runId: run.runId, childKey: run.childKey, kind: run.kind, status: run.status },
+          "Retrying pending detached task acknowledgement after host restart",
+        );
+        if (run.ackDelivery) {
+          run.ackDelivery.attemptCount += 1;
+        }
+        this.persist();
+        await this.triggerPhaseAnnounce(run, "accepted");
+        retriedAck += 1;
+        retriedAckRunIds.push(run.runId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(
+          { err: message, runId: run.runId },
+          "Ack delivery retry failed, will retry on next reconciliation",
+        );
+        if (run.ackDelivery) {
+          run.ackDelivery.lastError = message;
+        }
+        this.persist();
+      }
     }
 
     const orphanedRuns = scopedRuns.filter((run) => {
@@ -867,7 +937,7 @@ export class DetachedRunRegistry {
       runIds.push(run.runId);
     }
 
-    return { retried, reconciled, runIds };
+    return { retried, retriedAck, reconciled, runIds, retriedAckRunIds };
   }
 
   /**
@@ -920,7 +990,11 @@ export class DetachedRunRegistry {
         });
       }
       // Violation: terminal run that was attempted but not delivered and not pending retry
-      else if (terminalStatus !== "delivered" && terminalStatus !== "pending" && terminalStatus !== "queued") {
+      else if (
+        terminalStatus !== "delivered" &&
+        terminalStatus !== "pending" &&
+        terminalStatus !== "queued"
+      ) {
         violations.push({
           runId: run.runId,
           status: run.status,
