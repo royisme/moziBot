@@ -14,9 +14,14 @@ import {
   ensureChromeExtensionRelayServer,
   stopAllChromeExtensionRelays,
 } from "../browser/extension-relay";
+import { EventEnqueuerRef } from "../core/enqueuer-ref.js";
 import { RuntimeKernel } from "../core/kernel";
+import { injectWatchdogEnqueuer } from "../exec-tool.js";
 import { AgentJobDelivery, AgentJobRunner, InMemoryAgentJobRegistry } from "../jobs";
 import { bootstrapSandboxes } from "../sandbox/bootstrap";
+import type { WatchdogStateInputs } from "../watchdog/state-collector";
+import type { WatchdogReadFacade } from "../watchdog/watchdog-read-facade";
+import { WatchdogService } from "../watchdog/watchdog-service";
 import { ConfigManager } from "./config-manager";
 import { CronScheduler } from "./cron/scheduler";
 import type { CronJob } from "./cron/types";
@@ -43,9 +48,11 @@ export class RuntimeHost {
   private detachedRunRegistry: SessionDetachedRunRegistry;
   private channelRegistry: ChannelRegistry;
   private runtimeKernel: RuntimeKernel | null = null;
+  private enqueuerRef: EventEnqueuerRef | null = null;
   private messageHandler: MessageHandler | null = null;
   private cronScheduler: CronScheduler | null = null;
   private heartbeatRunner: HeartbeatRunner | null = null;
+  private watchdogService: WatchdogService | null = null;
   private reminderRunner: ReminderRunner | null = null;
   private agentJobRegistry: InMemoryAgentJobRegistry | null = null;
   private agentJobRunner: AgentJobRunner | null = null;
@@ -196,6 +203,10 @@ export class RuntimeHost {
       this.heartbeatRunner.start(config);
     }
 
+    if (this.watchdogService && process.env.DISABLE_LEGACY_WATCHDOG !== "true") {
+      this.watchdogService.start(config);
+    }
+
     // 7. Initialize Cron Scheduler
     await this.initializeCron();
 
@@ -320,6 +331,37 @@ export class RuntimeHost {
       agentJobRegistry: this.agentJobRegistry,
     });
 
+    if (!this.enqueuerRef) {
+      this.enqueuerRef = new EventEnqueuerRef(this.runtimeKernel);
+    } else {
+      this.enqueuerRef.setTarget(this.runtimeKernel);
+    }
+    this.messageHandler.setEnqueuer(this.enqueuerRef);
+
+    if (!this.watchdogService) {
+      const stateInputs: WatchdogStateInputs = {
+        getCronEvents: (_agentId) => [], // TODO: wire AgentJobRegistry
+        getReminders: (_sessionKey) => [], // TODO: wire ReminderRunner
+        isMemoryMaintenanceDue: (_agentId) => false, // TODO: wire MemoryGovernance
+        getPendingSubagentResultCount: (_sessionKey) => 0, // TODO: wire runtimeQueue
+      };
+      this.watchdogService = new WatchdogService(
+        this.buildWatchdogFacade(),
+        this.enqueuerRef,
+        stateInputs,
+      );
+      // Wire exec-tool to enqueue watchdog_wake when a background job finishes
+      const enqueuerRef = this.enqueuerRef;
+      injectWatchdogEnqueuer((sessionKey) => {
+        void enqueuerRef.enqueueEvent({
+          sessionKey,
+          eventType: "watchdog_wake",
+          payload: { reason: "exec-finished" },
+          priority: 10,
+        });
+      });
+    }
+
     if (!this.reminderRunner) {
       this.reminderRunner = new ReminderRunner(this.runtimeKernel, 1000, 32, {
         jobRunner: this.agentJobRunner,
@@ -327,16 +369,26 @@ export class RuntimeHost {
       });
     }
 
-    if (!this.heartbeatRunner) {
-      this.heartbeatRunner = new HeartbeatRunner(
-        messageHandler,
-        messageHandler.getAgentManager(),
-        async (msg: InboundMessage) => {
-          await this.enqueueInboundMessage(msg);
-        },
+    if (process.env.DISABLE_LEGACY_HEARTBEAT === "true") {
+      logger.warn(
+        "HeartbeatRunner is disabled via DISABLE_LEGACY_HEARTBEAT. WatchdogService is active.",
       );
+    } else {
+      logger.warn(
+        "HeartbeatRunner is deprecated and will be removed in a future release. " +
+          "Set DISABLE_LEGACY_HEARTBEAT=true to use WatchdogService only.",
+      );
+      if (!this.heartbeatRunner) {
+        this.heartbeatRunner = new HeartbeatRunner(
+          messageHandler,
+          messageHandler.getAgentManager(),
+          async (msg: InboundMessage) => {
+            await this.enqueueInboundMessage(msg);
+          },
+        );
+      }
+      this.heartbeatRunner.updateConfig(config);
     }
-    this.heartbeatRunner.updateConfig(config);
   }
 
   private async scheduleSafeMessageHandlerReload(config: MoziConfig): Promise<void> {
@@ -729,6 +781,11 @@ export class RuntimeHost {
     if (this.heartbeatRunner) {
       this.heartbeatRunner.stop();
     }
+
+    // 2c. Stop watchdog service
+    if (this.watchdogService) {
+      this.watchdogService.stop();
+    }
     if (this.runtimeKernel) {
       await this.runtimeKernel.stop();
     }
@@ -785,6 +842,22 @@ export class RuntimeHost {
       queue: {
         pending: this.runtimeKernel?.getPendingDepth() ?? 0,
       },
+    };
+  }
+
+  /**
+   * Build a read-only facade for WatchdogService that exposes session/routing state
+   * without a direct MessageHandler dependency.
+   * Called after all subsystems are initialized. Task-08 will wire this into WatchdogService.
+   */
+  private buildWatchdogFacade(): WatchdogReadFacade {
+    return {
+      getLastRoute: (agentId) => this.messageHandler?.getLastRoute(agentId),
+      resolveSessionKey: (agentId, route) =>
+        this.messageHandler!.getRuntimeRouter().resolveSessionKeyFromRoute(agentId, route),
+      isSessionActive: (sessionKey) =>
+        this.messageHandler?.getRunLifecycleRegistry().hasActiveRun(sessionKey) ?? false,
+      getHomeDir: (agentId) => this.messageHandler?.getAgentManager().getHomeDir(agentId),
     };
   }
 

@@ -6,6 +6,21 @@ import { logger } from "../logger.js";
 import { getProcessRegistry } from "../process/process-registry.js";
 import type { ExecRuntime, ExecResult } from "./exec-runtime.js";
 
+// ---------------------------------------------------------------------------
+// Watchdog enqueuer injection
+// ---------------------------------------------------------------------------
+
+/** Callback injected by RuntimeHost to trigger a watchdog_wake when a background job finishes. */
+let _watchdogEnqueuer: ((sessionKey: string) => void) | null = null;
+
+/**
+ * Inject a callback that enqueues a watchdog_wake event for the given sessionKey.
+ * Called by RuntimeHost after WatchdogService is created. Pass null to disable.
+ */
+export function injectWatchdogEnqueuer(fn: ((sessionKey: string) => void) | null): void {
+  _watchdogEnqueuer = fn;
+}
+
 export function createExecTool(params: {
   runtime: ExecRuntime;
   agentId: string;
@@ -272,6 +287,15 @@ async function watchForCompletion(jobId: string, sessionKey: string): Promise<vo
         });
         if (queued) {
           requestHeartbeatNow({ reason: "exec-finished", sessionKey });
+        }
+        // Also wake WatchdogService so the new event queue path picks up the completion
+        if (_watchdogEnqueuer) {
+          _watchdogEnqueuer(sessionKey);
+        } else {
+          logger.warn(
+            { jobId, sessionKey },
+            "watchForCompletion: watchdog enqueuer not wired — watchdog_wake will not be triggered",
+          );
         }
         return;
       }

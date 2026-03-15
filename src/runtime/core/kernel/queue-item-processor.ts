@@ -11,7 +11,7 @@ import type { SessionManager } from "../../host/sessions/manager";
 import type { AgentJobRegistry, AgentJobRunner } from "../../jobs";
 import { SessionStatus } from "../constants";
 import { continuationRegistry } from "../continuation";
-import type { RuntimeErrorPolicy } from "../contracts";
+import type { RuntimeErrorPolicy, SubagentResultPayload } from "../contracts";
 
 type RouteLike = {
   channelId?: unknown;
@@ -81,6 +81,18 @@ export async function processQueueItem(params: {
   };
 
   try {
+    // Type dispatch: non-user_message events are handled separately
+    const eventType = params.queueItem.event_type ?? "user_message";
+    if (eventType !== "user_message") {
+      await handleNonUserEvent({
+        queueItem: params.queueItem,
+        messageHandler: params.messageHandler,
+      });
+      runtimeQueue.markCompletedIfRunning(params.queueItem.id);
+      releaseSessionOnce();
+      return;
+    }
+
     continuationRegistry.resumeSession(params.queueItem.session_key);
     const inbound = params.parseInbound(params.queueItem.inbound_json);
     const channel = params.buildRuntimeChannel({
@@ -445,6 +457,36 @@ async function processPendingContinuations(params: {
       ...params,
       continuation,
     });
+  }
+}
+
+async function handleNonUserEvent(params: {
+  queueItem: RuntimeQueueItem;
+  messageHandler: MessageHandler;
+}): Promise<void> {
+  const payload = params.queueItem.event_payload
+    ? (JSON.parse(params.queueItem.event_payload) as Record<string, unknown>)
+    : {};
+  switch (params.queueItem.event_type) {
+    case "internal": {
+      await params.messageHandler.handleInternalMessageQueued(payload);
+      break;
+    }
+    case "subagent_result": {
+      await params.messageHandler.handleSubagentResult(payload as SubagentResultPayload);
+      break;
+    }
+    case "watchdog_wake": {
+      await params.messageHandler.handleWatchdogWake({
+        sessionKey: params.queueItem.session_key,
+        agentId: typeof payload.agentId === "string" ? payload.agentId : undefined,
+        prompt: typeof payload.prompt === "string" ? payload.prompt : undefined,
+      });
+      break;
+    }
+    default:
+      // cron_fire, reminder — not yet handled; log and skip
+      console.warn(`[queue] unhandled event_type: ${params.queueItem.event_type}`);
   }
 }
 

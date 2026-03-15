@@ -9,6 +9,8 @@ import type { SessionManager } from "../host/sessions/manager";
 import type { AgentJobRegistry, AgentJobRunner } from "../jobs";
 import { QueueMode, PeerType, SessionStatus } from "./constants";
 import type {
+  EventEnqueuer,
+  EventType,
   RuntimeEgress,
   RuntimeEnqueueResult,
   RuntimeErrorPolicy,
@@ -17,6 +19,7 @@ import type {
   RuntimeQueueConfig,
   RuntimeQueueMode,
 } from "./contracts";
+import { EVENT_PRIORITY } from "./contracts";
 import { ChannelRuntimeEgress } from "./egress";
 import { DefaultRuntimeErrorPolicy } from "./error-policy";
 import { createRuntimeChannel } from "./kernel/channel-factory";
@@ -46,7 +49,7 @@ type RuntimeKernelOptions = {
 const DEFAULT_QUEUE_MODE: RuntimeQueueMode = QueueMode.STEER_BACKLOG;
 const DEFAULT_COLLECT_WINDOW_MS = 400;
 
-export class RuntimeKernel implements RuntimeIngress {
+export class RuntimeKernel implements RuntimeIngress, EventEnqueuer {
   private readonly messageHandler: MessageHandler;
   private readonly sessionManager: SessionManager;
   private readonly channelRegistry: ChannelRegistry;
@@ -247,6 +250,37 @@ export class RuntimeKernel implements RuntimeIngress {
       queueItemId,
       sessionKey: context.sessionKey,
     };
+  }
+
+  async enqueueEvent(params: {
+    sessionKey: string;
+    eventType: EventType;
+    payload: Record<string, unknown>;
+    priority?: number;
+    scheduledAt?: Date;
+  }): Promise<void> {
+    const now = new Date().toISOString();
+    const scheduledAt = params.scheduledAt?.toISOString() ?? null;
+    const availableAt = scheduledAt ?? now;
+    runtimeQueue.enqueueEvent({
+      sessionKey: params.sessionKey,
+      eventType: params.eventType,
+      eventPayload: JSON.stringify(params.payload),
+      priority: params.priority ?? EVENT_PRIORITY[params.eventType],
+      scheduledAt,
+      enqueuedAt: now,
+      availableAt,
+    });
+    this.schedulePump();
+    logger.debug(
+      {
+        sessionKey: params.sessionKey,
+        eventType: params.eventType,
+        priority: params.priority ?? EVENT_PRIORITY[params.eventType],
+        scheduledAt,
+      },
+      "Event enqueued",
+    );
   }
 
   private extractCommandToken(text: string): string {

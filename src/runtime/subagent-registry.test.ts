@@ -240,6 +240,7 @@ describe("SubagentRegistry", () => {
         detachedRunRegistry: new SessionDetachedRunRegistry(registryDir),
         startDetachedPromptRun,
         isDetachedRunActive: vi.fn(() => true),
+        enqueuer: { enqueueEvent: vi.fn(() => Promise.resolve()) },
       },
     );
 
@@ -313,6 +314,7 @@ describe("SubagentRegistry", () => {
         detachedRunRegistry,
         startDetachedPromptRun,
         isDetachedRunActive: vi.fn(() => true),
+        enqueuer: { enqueueEvent: vi.fn(() => Promise.resolve()) },
       },
     );
 
@@ -399,6 +401,7 @@ describe("SubagentRegistry", () => {
         detachedRunRegistry,
         startDetachedPromptRun,
         isDetachedRunActive: vi.fn((runId: string) => runId === "run-a"),
+        enqueuer: { enqueueEvent: vi.fn(() => Promise.resolve()) },
       },
     );
 

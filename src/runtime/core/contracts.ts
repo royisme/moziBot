@@ -93,3 +93,46 @@ export interface HandleResult {
   /** If set, the kernel will enqueue a follow-up task */
   continuation?: ContinuationRequest;
 }
+
+// ---------------------------------------------------------------------------
+// Unified Event Queue types
+// ---------------------------------------------------------------------------
+
+export type EventType =
+  | "user_message"
+  | "subagent_result"
+  | "internal"
+  | "cron_fire"
+  | "reminder"
+  | "watchdog_wake";
+
+export interface EventEnqueuer {
+  enqueueEvent(params: {
+    sessionKey: string;
+    eventType: EventType;
+    payload: Record<string, unknown>;
+    priority?: number;
+    scheduledAt?: Date;
+  }): Promise<void>;
+}
+
+export type SubagentResultPayload = {
+  parentSessionKey: string;
+  parentAgentId: string;
+  runId: string;
+  childSessionKey: string;
+  terminal: "completed" | "timeout" | "aborted" | "failed";
+  resultText?: string;
+  error?: string;
+  visibilityPolicy: "user_visible" | "internal_silent";
+};
+
+/** Default priority for each event type. Lower number = higher priority. */
+export const EVENT_PRIORITY = {
+  user_message: 0,
+  subagent_result: 1,
+  internal: 2,
+  cron_fire: 5,
+  reminder: 5,
+  watchdog_wake: 10,
+} as const satisfies Record<EventType, number>;

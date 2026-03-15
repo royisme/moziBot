@@ -2,6 +2,7 @@ import { Agent } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import { AgentManager } from "./agent-manager";
 import type { PromptMode } from "./agent-manager/prompt-builder";
+import type { EventEnqueuer, SubagentResultPayload } from "./core/contracts.js";
 import type { SessionManager } from "./host/sessions/manager";
 import { spawnSubAgent } from "./host/sessions/spawn";
 import type { DetachedRunRegistry as SessionDetachedRunRegistry } from "./host/sessions/spawn";
@@ -9,8 +10,15 @@ import { ModelRegistry } from "./model-registry";
 import { ProviderRegistry } from "./provider-registry";
 import type { ModelSpec } from "./types";
 
-const MAX_CONCURRENT_SUBAGENTS = 2;
+const _MAX_CONCURRENT_SUBAGENTS = 2;
 const DEFAULT_DETACHED_SUBAGENT_TIMEOUT_SECONDS = 300;
+
+type PendingSpawnRequest = {
+  params: SubagentRunParams;
+  enqueuedAt: number;
+  resolve: (result: SubagentSpawnResult) => void;
+  reject: (error: Error) => void;
+};
 
 type SubagentRunParams = {
   parentSessionKey: string;
@@ -34,6 +42,7 @@ export interface SubagentSpawnResult {
 export type HostSubagentRuntime = {
   sessionManager: SessionManager;
   detachedRunRegistry: SessionDetachedRunRegistry;
+  enqueuer: EventEnqueuer;
   startDetachedPromptRun: (params: {
     runId: string;
     sessionKey: string;
@@ -56,7 +65,12 @@ export type HostSubagentRuntime = {
 };
 
 export class SubagentRegistry {
-  private activeCounts = new Map<string, number>();
+  private readonly activeBySession = new Map<string, number>();
+  /**
+   * In-memory only. Queued spawns are lost on restart, which is acceptable
+   * because spawns are always initiated by a live parent agent run context.
+   */
+  private readonly spawnQueues = new Map<string, PendingSpawnRequest[]>();
   private activeDetachedRuns = new Map<string, string>();
   private tempCounters = new Map<string, number>();
   private tempAgents = new Map<string, Agent>();
@@ -81,17 +95,37 @@ export class SubagentRegistry {
     this.hostRuntime = params.hostRuntime;
   }
 
-  private incActive(sessionKey: string) {
-    const current = this.activeCounts.get(sessionKey) || 0;
-    if (current >= MAX_CONCURRENT_SUBAGENTS) {
-      throw new Error("Subagent concurrency limit reached");
-    }
-    this.activeCounts.set(sessionKey, current + 1);
+  private getActiveCount(sessionKey: string): number {
+    return this.activeBySession.get(sessionKey) ?? 0;
   }
 
-  private decActive(sessionKey: string) {
-    const current = this.activeCounts.get(sessionKey) || 0;
-    this.activeCounts.set(sessionKey, Math.max(0, current - 1));
+  private incActive(sessionKey: string): void {
+    this.activeBySession.set(sessionKey, this.getActiveCount(sessionKey) + 1);
+  }
+
+  private decActive(sessionKey: string): void {
+    const current = this.activeBySession.get(sessionKey) ?? 0;
+    const next = Math.max(0, current - 1);
+    if (next === 0 && (this.spawnQueues.get(sessionKey)?.length ?? 0) === 0) {
+      this.activeBySession.delete(sessionKey);
+    } else {
+      this.activeBySession.set(sessionKey, next);
+    }
+  }
+
+  private onSubagentTerminated(parentSessionKey: string): void {
+    this.decActive(parentSessionKey);
+    this.drainSpawnQueue(parentSessionKey);
+  }
+
+  private drainSpawnQueue(sessionKey: string): void {
+    const queue = this.spawnQueues.get(sessionKey) ?? [];
+    if (queue.length === 0) {
+      return;
+    }
+    const next = queue.shift()!;
+    this.spawnQueues.set(sessionKey, queue);
+    this.doSpawn(next.params).then(next.resolve).catch(next.reject);
   }
 
   private getSpawnDepth(sessionKey: string): number {
@@ -146,6 +180,17 @@ export class SubagentRegistry {
   }
 
   async spawn(params: SubagentRunParams): Promise<SubagentSpawnResult> {
+    if (this.getActiveCount(params.parentSessionKey) >= _MAX_CONCURRENT_SUBAGENTS) {
+      return new Promise((resolve, reject) => {
+        const queue = this.spawnQueues.get(params.parentSessionKey) ?? [];
+        queue.push({ params, enqueuedAt: Date.now(), resolve, reject });
+        this.spawnQueues.set(params.parentSessionKey, queue);
+      });
+    }
+    return this.doSpawn(params);
+  }
+
+  private async doSpawn(params: SubagentRunParams): Promise<SubagentSpawnResult> {
     if (!this.hostRuntime) {
       throw new Error("Detached subagent runtime is not available");
     }
@@ -178,7 +223,7 @@ export class SubagentRegistry {
       runId = spawnResult.runId;
 
       if (spawnResult.status !== "accepted") {
-        this.decActive(params.parentSessionKey);
+        this.onSubagentTerminated(params.parentSessionKey);
         return spawnResult;
       }
 
@@ -214,7 +259,22 @@ export class SubagentRegistry {
           const parentSessionKey = this.activeDetachedRuns.get(detachedRunId);
           if (parentSessionKey) {
             this.activeDetachedRuns.delete(detachedRunId);
-            this.decActive(parentSessionKey);
+            this.onSubagentTerminated(parentSessionKey);
+            await this.hostRuntime!.enqueuer.enqueueEvent({
+              sessionKey: parentSessionKey,
+              eventType: "subagent_result",
+              payload: {
+                parentSessionKey,
+                parentAgentId: params.parentAgentId,
+                runId: detachedRunId,
+                childSessionKey: spawnResult.childKey,
+                terminal,
+                resultText: partialText,
+                error: reason ?? error?.message,
+                visibilityPolicy: params.visibilityPolicy ?? "user_visible",
+              } satisfies SubagentResultPayload,
+              priority: 1,
+            });
           }
         },
       });
@@ -229,7 +289,7 @@ export class SubagentRegistry {
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      this.decActive(params.parentSessionKey);
+      this.onSubagentTerminated(params.parentSessionKey);
       throw error;
     }
   }
@@ -295,7 +355,7 @@ export class SubagentRegistry {
         .find((m: { role: string }) => m.role === "assistant");
       return this.extractText((last as { content?: unknown })?.content);
     } finally {
-      this.decActive(params.parentSessionKey);
+      this.onSubagentTerminated(params.parentSessionKey);
     }
   }
 

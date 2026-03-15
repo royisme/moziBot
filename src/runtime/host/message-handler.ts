@@ -8,6 +8,7 @@ import { type ResolvedMemoryPersistenceConfig } from "../../memory/backend-confi
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { PromptMode } from "../agent-manager/prompt-builder";
+import type { EventEnqueuer, SubagentResultPayload } from "../core/contracts.js";
 import { configureMemoryMaintainerHooks } from "../hooks/bundled/memory-maintainer";
 import { InboundMediaPreprocessor } from "../media-understanding/preprocess";
 import { SubagentRegistry, type HostSubagentRuntime } from "../subagent-registry";
@@ -127,26 +128,9 @@ export class MessageHandler {
       errorCode?: string;
     }) => Promise<void> | void
   >();
-  private readonly pendingInternalMessages = new Map<
-    string,
-    Array<{ content: string; source: string; metadata?: Record<string, unknown> }>
-  >();
+  private enqueuer: EventEnqueuer | null = null;
   private runLifecycle = new RunLifecycleRegistry({
     onTerminal: (entry, payload) => {
-      const pending = this.pendingInternalMessages.get(entry.sessionKey);
-      if (pending?.length) {
-        this.pendingInternalMessages.delete(entry.sessionKey);
-        for (const msg of pending) {
-          void this.handleInternalMessage({
-            sessionKey: entry.sessionKey,
-            content: msg.content,
-            source: msg.source,
-            metadata: msg.metadata,
-          }).catch((err) =>
-            logger.error({ err, sessionKey: entry.sessionKey }, "Deferred internal message failed"),
-          );
-        }
-      }
       const callback = this.detachedTerminalCallbacks.get(entry.runId);
       const errorCode =
         payload.errorCode ??
@@ -203,6 +187,18 @@ export class MessageHandler {
 
   getAgentManager(): AgentManager {
     return this.agentManager;
+  }
+
+  getRunLifecycleRegistry(): RunLifecycleRegistry {
+    return this.runLifecycle;
+  }
+
+  setEnqueuer(enqueuer: EventEnqueuer): void {
+    this.enqueuer = enqueuer;
+  }
+
+  getRuntimeRouter(): RuntimeRouter {
+    return this.router;
   }
 
   getSessionTimestamps(sessionKey: string): { createdAt?: number; updatedAt?: number } | null {
@@ -300,9 +296,21 @@ export class MessageHandler {
       return undefined;
     }
 
+    // Lazy enqueuer proxy: delegates to this.enqueuer when it is eventually wired via setEnqueuer().
+    // This allows HostSubagentRuntime to be constructed before the enqueuer is available.
+    const lazyEnqueuer: import("../core/contracts.js").EventEnqueuer = {
+      enqueueEvent: (params) => {
+        if (!this.enqueuer) {
+          throw new Error("EventEnqueuer is not yet wired; subagent result cannot be enqueued");
+        }
+        return this.enqueuer.enqueueEvent(params);
+      },
+    };
+
     return {
       sessionManager,
       detachedRunRegistry,
+      enqueuer: lazyEnqueuer,
       startDetachedPromptRun: async ({
         runId,
         sessionKey,
@@ -930,49 +938,84 @@ export class MessageHandler {
 
   async handleInternalMessage(params: {
     sessionKey: string;
+    agentId?: string;
     content: string;
-    source: string;
+    source?: string;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    const { sessionKey, content, source, metadata } = params;
-
-    logger.info(
-      {
-        sessionKey,
-        source,
-        metadata,
-        contentChars: content.length,
+    if (!this.enqueuer) {
+      throw new Error("handleInternalMessage: enqueuer not wired — call setEnqueuer() before use");
+    }
+    await this.enqueuer.enqueueEvent({
+      sessionKey: params.sessionKey,
+      eventType: "internal",
+      payload: {
+        sessionKey: params.sessionKey,
+        agentId: params.agentId,
+        content: params.content,
+        source: params.source,
+        metadata: params.metadata,
       },
-      "Handling internal message",
-    );
+      priority: 2,
+    });
+  }
 
-    const activeRun = this.runLifecycle.getRunBySession(sessionKey);
-    if (activeRun) {
-      logger.info(
-        { sessionKey, source, runId: activeRun.runId },
-        "Session has active run, deferring internal message",
-      );
-      const queue = this.pendingInternalMessages.get(sessionKey) ?? [];
-      queue.push({ content, source, metadata });
-      this.pendingInternalMessages.set(sessionKey, queue);
+  /**
+   * Called by the queue pump for 'internal' events.
+   * Runs the LLM call that was previously done synchronously in handleInternalMessage.
+   */
+  async handleInternalMessageQueued(payload: {
+    content?: string;
+    source?: string;
+    metadata?: Record<string, unknown>;
+    sessionKey?: string;
+    agentId?: string;
+  }): Promise<void> {
+    const { content = "", source, metadata: _metadata, sessionKey, agentId } = payload;
+    if (!sessionKey || !agentId) {
+      logger.warn({ payload }, "handleInternalMessageQueued: missing sessionKey or agentId");
+      return;
+    }
+    await this.runPromptWithFallback({
+      sessionKey,
+      agentId,
+      text: content,
+      traceId: `internal:${source ?? "queue"}:${Date.now()}`,
+    });
+  }
+
+  async handleWatchdogWake(params: {
+    sessionKey: string;
+    agentId?: string;
+    prompt?: string;
+  }): Promise<void> {
+    const { sessionKey, agentId, prompt } = params;
+    if (!agentId) {
+      return;
+    }
+    await this.runPromptWithFallback({
+      sessionKey,
+      agentId,
+      text: prompt ?? "",
+    });
+  }
+
+  async handleSubagentResult(payload: SubagentResultPayload): Promise<void> {
+    const { parentSessionKey, parentAgentId, resultText, terminal, visibilityPolicy } = payload;
+
+    // Skip if result is not user-visible
+    if (visibilityPolicy === "internal_silent") {
       return;
     }
 
-    try {
-      const parts = sessionKey.split(":");
-      const agentId = parts[1] || "mozi";
+    const summaryText = resultText
+      ? `[Subagent completed (${terminal})]:\n${resultText}`
+      : `[Subagent ${terminal}]`;
 
-      await this.runPromptWithFallback({
-        sessionKey,
-        agentId,
-        text: content,
-        traceId: `internal:${source}:${Date.now()}`,
-      });
-
-      logger.info({ sessionKey, agentId, source }, "Internal message processed");
-    } catch (err) {
-      logger.error({ err, sessionKey, source }, "Failed to handle internal message");
-      throw err;
-    }
+    await this.runPromptWithFallback({
+      sessionKey: parentSessionKey,
+      agentId: parentAgentId,
+      text: summaryText,
+    });
   }
 }

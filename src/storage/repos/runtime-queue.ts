@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import type { EventType } from "../../runtime/core/contracts.js";
 import { withConnection } from "../connection";
 import type { RuntimeQueueItem } from "../types";
 
@@ -16,7 +18,7 @@ export const runtimeQueue = {
     return withConnection((conn) => {
       const result = conn
         .prepare(
-          `INSERT OR IGNORE INTO runtime_queue (id, dedup_key, session_key, channel_id, peer_id, peer_type, inbound_json, status, attempts, error, enqueued_at, available_at, started_at, finished_at, updated_at) VALUES ($id, $dedup_key, $session_key, $channel_id, $peer_id, $peer_type, $inbound_json, 'queued', 0, NULL, $enqueued_at, $available_at, NULL, NULL, $updated_at)`,
+          `INSERT OR IGNORE INTO runtime_queue (id, dedup_key, session_key, channel_id, peer_id, peer_type, inbound_json, status, attempts, error, enqueued_at, available_at, started_at, finished_at, updated_at, event_type, event_payload, priority, scheduled_at) VALUES ($id, $dedup_key, $session_key, $channel_id, $peer_id, $peer_type, $inbound_json, 'queued', 0, NULL, $enqueued_at, $available_at, NULL, NULL, $updated_at, 'user_message', NULL, 0, NULL)`,
         )
         .run({
           id: item.id,
@@ -245,4 +247,35 @@ export const runtimeQueue = {
           | RuntimeQueueItem
           | undefined) ?? null,
     ),
+  enqueueEvent: (item: {
+    sessionKey: string;
+    eventType: EventType;
+    eventPayload: string | null;
+    priority: number;
+    scheduledAt: string | null;
+    enqueuedAt: string;
+    availableAt: string;
+  }): { inserted: boolean } => {
+    return withConnection((conn) => {
+      const id = randomUUID();
+      const dedupKey = `event:${item.eventType}:${item.sessionKey}:${id}`;
+      const result = conn
+        .prepare(
+          `INSERT INTO runtime_queue (id, dedup_key, session_key, channel_id, peer_id, peer_type, inbound_json, status, attempts, error, enqueued_at, available_at, started_at, finished_at, updated_at, event_type, event_payload, priority, scheduled_at) VALUES ($id, $dedup_key, $session_key, '', '', 'dm', NULL, 'queued', 0, NULL, $enqueued_at, $available_at, NULL, NULL, $updated_at, $event_type, $event_payload, $priority, $scheduled_at)`,
+        )
+        .run({
+          id,
+          dedup_key: dedupKey,
+          session_key: item.sessionKey,
+          enqueued_at: item.enqueuedAt,
+          available_at: item.availableAt,
+          updated_at: item.enqueuedAt,
+          event_type: item.eventType,
+          event_payload: item.eventPayload,
+          priority: item.priority,
+          scheduled_at: item.scheduledAt,
+        });
+      return { inserted: result.changes > 0 };
+    });
+  },
 };

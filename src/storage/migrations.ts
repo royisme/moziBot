@@ -72,9 +72,19 @@ export function runMigrations(conn: DatabaseType): void {
       available_at TEXT NOT NULL,
       started_at TEXT,
       finished_at TEXT,
-      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      event_type TEXT NOT NULL DEFAULT 'user_message',
+      event_payload TEXT,
+      priority INTEGER NOT NULL DEFAULT 0,
+      scheduled_at TEXT
     );
   `);
+
+  // Migration guards for existing databases
+  ensureColumn(conn, "runtime_queue", "event_type", "TEXT NOT NULL DEFAULT 'user_message'");
+  ensureColumn(conn, "runtime_queue", "event_payload", "TEXT");
+  ensureColumn(conn, "runtime_queue", "priority", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(conn, "runtime_queue", "scheduled_at", "TEXT");
 
   conn.exec(`
     CREATE INDEX IF NOT EXISTS idx_runtime_queue_status_available

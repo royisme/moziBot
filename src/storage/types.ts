@@ -1,3 +1,5 @@
+import type { EventType } from "../runtime/core/contracts.js";
+
 export interface Message {
   id: string;
   channel: string;
@@ -54,6 +56,10 @@ export interface RuntimeQueueItem {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string;
+  event_type: EventType;
+  event_payload: string | null;
+  priority: number;
+  scheduled_at: string | null;
 }
 
 export interface ReminderRecord {

@@ -1,5 +1,7 @@
 import type { MoziConfig } from "../../config";
 import type { InboundMessage } from "../adapters/channels/types";
+import type { RouteContext } from "./routing/types";
+import { buildSessionKey } from "./session-key";
 
 export type ResolvedRoute = {
   agentId: string;
@@ -102,5 +104,51 @@ export class RuntimeRouter {
       mainKey: sessionCfg?.mainKey,
       identityLinks: sessionCfg?.identityLinks,
     };
+  }
+
+  /**
+   * Derive the canonical sessionKey from an agentId and RouteContext directly.
+   * Pure function — no InboundMessage construction needed, no side effects.
+   * Uses the same dmScope/mainKey/identityLinks resolution as resolveSessionContext().
+   */
+  resolveSessionKeyFromRoute(agentId: string, route: RouteContext): string {
+    const sessionCfg = this.config.session as
+      | {
+          dmScope?: ResolvedRoute["dmScope"];
+          mainKey?: string;
+          identityLinks?: Record<string, string[]>;
+        }
+      | undefined;
+    const channels = this.config.channels as
+      | (Record<string, unknown> & {
+          [channelId: string]: { dmScope?: ResolvedRoute["dmScope"] } | undefined;
+        })
+      | undefined;
+    const channelCfg = channels?.[route.channelId] as
+      | { dmScope?: ResolvedRoute["dmScope"] }
+      | undefined;
+    const dmScope = channelCfg?.dmScope || sessionCfg?.dmScope || this.config.channels?.dmScope;
+
+    // Build a minimal message-like object from RouteContext for buildSessionKey
+    const messageProxy: InboundMessage = {
+      id: "",
+      channel: route.channelId,
+      peerId: route.peerId,
+      peerType: route.peerType,
+      accountId: route.accountId,
+      threadId: route.threadId,
+      senderId: "",
+      timestamp: new Date(),
+      text: "",
+      raw: null,
+    };
+
+    return buildSessionKey({
+      agentId,
+      message: messageProxy,
+      dmScope,
+      mainKey: sessionCfg?.mainKey,
+      identityLinks: sessionCfg?.identityLinks,
+    });
   }
 }

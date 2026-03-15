@@ -6,6 +6,10 @@ import { drainSystemEvents, peekSystemEventEntries } from "../../infra/system-ev
 import { logger } from "../../logger";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { AgentManager } from "../agent-manager";
+import {
+  parseEveryMs,
+  parseHeartbeatDirectives as parseDirectives,
+} from "../watchdog/directive-reader";
 import type { MessageHandler } from "./message-handler";
 import { normalizeRouteContext } from "./routing/route-context";
 
@@ -29,12 +33,10 @@ type HeartbeatState = {
   paused: boolean;
 };
 
-type HeartbeatDirectives = {
-  enabled?: boolean;
-  everyMs?: number;
-  prompt?: string;
-};
-
+/**
+ * @deprecated Use WatchdogService instead. HeartbeatRunner will be removed in a future release.
+ * To disable: set DISABLE_LEGACY_HEARTBEAT=true (default in new deployments).
+ */
 export class HeartbeatRunner {
   private timer?: ReturnType<typeof setInterval>;
   private states = new Map<string, HeartbeatState>();
@@ -229,12 +231,14 @@ export class HeartbeatRunner {
       heartbeatFileExists = false;
     }
 
-    const directives = heartbeatFileExists ? parseHeartbeatDirectives(content) : {};
-    if (directives.enabled === false) {
+    const directives = heartbeatFileExists
+      ? parseDirectives(content)
+      : { enabled: true, intervalMs: null, prompt: null };
+    if (!directives.enabled) {
       return;
     }
-    if (typeof directives.everyMs === "number" && directives.everyMs > 0) {
-      state.everyMs = directives.everyMs;
+    if (typeof directives.intervalMs === "number" && directives.intervalMs > 0) {
+      state.everyMs = directives.intervalMs;
     }
     const effectivePrompt = directives.prompt?.trim() || state.prompt;
 
@@ -330,30 +334,6 @@ function resolveDefaultAgentId(agents: MoziConfig["agents"]): string {
   return entries[0]?.[0] || "mozi";
 }
 
-function parseEveryMs(raw: string): number | null {
-  const value = raw.trim().toLowerCase();
-  if (!value) {
-    return null;
-  }
-  const match = /^([0-9]+)\s*(ms|s|m|h|d)$/.exec(value);
-  if (!match) {
-    return null;
-  }
-  const amount = Number(match[1]);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return null;
-  }
-  const unit = match[2];
-  const multipliers: Record<string, number> = {
-    ms: 1,
-    s: 1000,
-    m: 60_000,
-    h: 3_600_000,
-    d: 86_400_000,
-  };
-  return amount * (multipliers[unit] || 0);
-}
-
 export function parseHeartbeatEveryMs(raw: string): number | null {
   return parseEveryMs(raw);
 }
@@ -380,43 +360,6 @@ function isHeartbeatContentEffectivelyEmpty(content: string | undefined | null):
     return false;
   }
   return true;
-}
-
-function parseHeartbeatDirectives(content: string): HeartbeatDirectives {
-  const directives: HeartbeatDirectives = {};
-  const lines = content.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const enableMatch = trimmed.match(/^@heartbeat\s+enabled\s*=\s*(on|off|true|false)$/i);
-    if (enableMatch) {
-      const value = enableMatch[1]?.toLowerCase();
-      directives.enabled = value === "on" || value === "true";
-      continue;
-    }
-
-    const everyMatch = trimmed.match(/^@heartbeat\s+every\s*=\s*([^\s#]+)$/i);
-    if (everyMatch) {
-      const parsed = parseEveryMs((everyMatch[1] || "").trim());
-      if (parsed && parsed > 0) {
-        directives.everyMs = parsed;
-      }
-      continue;
-    }
-
-    const promptMatch = trimmed.match(/^@heartbeat\s+prompt\s*=\s*(.+)$/i);
-    if (promptMatch) {
-      const prompt = (promptMatch[1] || "").trim();
-      if (prompt) {
-        directives.prompt = prompt;
-      }
-      continue;
-    }
-  }
-  return directives;
 }
 
 function buildHeartbeatContext(

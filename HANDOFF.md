@@ -2,6 +2,37 @@
 
 ## Current objective
 
+Execute the Two-Tier Watchdog + Unified Event Queue architecture (Phases 1-4).
+Spec: `devDocs/spec/watchdog-event-queue-arch.md`
+Review: `devDocs/spec/watchdog-event-queue-arch-review.md`
+Run: `.claude/selfwork/runs/run-2026-03-15T01-20-37-yzo1kb/`
+
+### Active selfwork run — 8 tasks, status: executing
+
+Dependency execution order:
+- Round 1: **task-01** (EventEnqueuer + schema) — no deps
+- Round 2 (parallel): **task-02** (kernel + pump dispatch), **task-06** (spawn backpressure), **task-07** (WatchdogReadFacade + Router + hasActiveRun)
+- Round 3: **task-03** (RuntimeHost wires EnqueuerRef)
+- Round 4: **task-04** (handleInternalMessage enqueues)
+- Round 5 (parallel): **task-05** (subagent result routing), **task-08** (WatchdogService)
+
+### Key architectural decisions (do not discard)
+
+1. **EventEnqueuer interface** — narrow interface extracted from RuntimeKernel; passed via `HostSubagentRuntime` to `SubagentRegistry`; avoids circular deps
+2. **EventEnqueuerRef wrapper** — stable indirection layer; `RuntimeHost.reloadMessageHandler()` calls `ref.setTarget(newKernel)` after recreating kernel
+3. **Queue schema** — adds `event_type`, `event_payload`, `priority`, `scheduled_at` columns to `runtime_queue`; `inbound_json` preserved for user_message events
+4. **pump loop dispatch** — early return in `processQueueItem` before `parseInbound` for non-user_message events
+5. **WatchdogReadFacade** — replaces HeartbeatRunner's 3 couplings to MessageHandler; pure read-only interface
+6. **RuntimeRouter.resolveSessionKeyFromRoute()** — pure method; eliminates fake InboundMessage construction in heartbeat
+7. **RunLifecycleRegistry.hasActiveRun()** — correct home for session-active check
+8. **spawnQueues: Map<sessionKey, PendingSpawnRequest[]>** — per-session backpressure (not global)
+9. **pendingInternalMessages** → SQLite `internal` queue items via EventEnqueuer
+10. **Phase 5 deferred** — legacy path deletion out of scope for this run
+
+---
+
+## Previous objective (completed)
+
 Continue OpenClaw alignment beyond the contract layer. The provider/auth/model contract layer is now aligned.
 
 This file is session-state transfer, not permanent architecture policy.

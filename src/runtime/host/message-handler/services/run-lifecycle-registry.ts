@@ -216,6 +216,14 @@ export class RunLifecycleRegistry {
     });
   }
 
+  hasActiveRun(sessionKey: string): boolean {
+    const run = this.getRunBySession(sessionKey);
+    if (!run) {
+      return false;
+    }
+    return !this.isTerminal(run.state);
+  }
+
   dispose(runId: string): void {
     const entry = this.byRunId.get(runId);
     if (!entry) {
