@@ -1,11 +1,23 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Agent } from "@mariozechner/pi-agent-core";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import type { MoziConfig } from "../../config";
 import { setHeartbeatWakeHandler } from "../../infra/heartbeat-wake";
-import { drainSystemEvents, peekSystemEventEntries } from "../../infra/system-events";
+import {
+  drainSystemEvents,
+  peekSystemEventEntries,
+  type SystemEventEntry,
+} from "../../infra/system-events";
 import { logger } from "../../logger";
+import { renderMessageText } from "../../memory/governance/extraction-service";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { AgentManager } from "../agent-manager";
+import { getAgentFastModelCandidates } from "../agent-manager/model-routing-service";
+import { resolveAgentModelRef } from "../agent-manager/model-session-service";
+import { ModelRegistry } from "../model-registry";
+import { ProviderRegistry } from "../provider-registry";
+import type { ModelSpec } from "../types";
 import {
   parseEveryMs,
   parseHeartbeatDirectives as parseDirectives,
@@ -212,6 +224,72 @@ export class HeartbeatRunner {
     }
   }
 
+  private async triageHeartbeat(params: {
+    agentId: string;
+    heartbeatContent: string;
+    systemEvents: SystemEventEntry[];
+    heartbeatContext: string[];
+  }): Promise<"dispatch" | "no_reply"> {
+    if (!this.config) {
+      return "dispatch";
+    }
+
+    const modelRegistry = new ModelRegistry(this.config);
+    const providerRegistry = new ProviderRegistry(this.config);
+    const candidates = [
+      ...getAgentFastModelCandidates({ config: this.config, agentId: params.agentId }),
+      resolveAgentModelRef({ config: this.config, agentId: params.agentId }),
+    ].filter((ref): ref is string => Boolean(ref));
+
+    let modelRef: string | null = null;
+    for (const candidate of candidates) {
+      const resolved = modelRegistry.resolve(candidate);
+      if (resolved) {
+        modelRef = resolved.ref;
+        break;
+      }
+    }
+
+    if (!modelRef) {
+      return "dispatch";
+    }
+
+    const spec = modelRegistry.get(modelRef);
+    if (!spec) {
+      return "dispatch";
+    }
+
+    const agent = new Agent({
+      initialState: {
+        systemPrompt: "You are a heartbeat triage classifier. Reply with exactly one word.",
+        model: buildPiModel(spec),
+        tools: [],
+        messages: [],
+      },
+      sessionId: `heartbeat-triage:${Date.now()}`,
+      getApiKey: (provider) => providerRegistry.resolveApiKey(provider),
+    });
+
+    const triagePrompt = buildTriagePrompt(params);
+    const timeoutPromise = new Promise<"dispatch">((resolve) => {
+      setTimeout(() => resolve("dispatch"), 10_000);
+    });
+
+    const run = (async (): Promise<"dispatch" | "no_reply"> => {
+      await agent.prompt(triagePrompt);
+      const last = [...agent.state.messages].toReversed().find((msg) => msg.role === "assistant");
+      const text = last ? renderMessageText(last.content).trim().toUpperCase() : "";
+      return text.includes("DISPATCH") ? "dispatch" : "no_reply";
+    })();
+
+    try {
+      return await Promise.race([run, timeoutPromise]);
+    } catch (err) {
+      logger.warn({ err, agentId: params.agentId }, "Heartbeat triage failed");
+      return "dispatch";
+    }
+  }
+
   private async runHeartbeat(state: HeartbeatState): Promise<void> {
     const lastRoute = this.handler.getLastRoute(state.agentId);
     if (!lastRoute) {
@@ -311,7 +389,22 @@ export class HeartbeatRunner {
       return;
     }
 
-    // Session is idle — now safe to drain events and enqueue the turn
+    const triageResult = await this.triageHeartbeat({
+      agentId: state.agentId,
+      heartbeatContent: content,
+      systemEvents: events,
+      heartbeatContext,
+    });
+
+    if (triageResult === "no_reply") {
+      logger.debug(
+        { agentId: state.agentId, sessionKey: context.sessionKey },
+        "Heartbeat triage: nothing actionable",
+      );
+      drainSystemEvents(context.sessionKey);
+      return;
+    }
+
     drainSystemEvents(context.sessionKey);
 
     try {
@@ -320,6 +413,49 @@ export class HeartbeatRunner {
       logger.warn({ error, agentId: state.agentId }, "Heartbeat run failed");
     }
   }
+}
+
+function buildPiModel(spec: ModelSpec): Model<Api> {
+  return {
+    id: spec.id,
+    name: spec.id,
+    api: spec.api,
+    provider: spec.provider,
+    baseUrl: spec.baseUrl,
+    reasoning: spec.reasoning ?? false,
+    input: spec.input ?? ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: spec.contextWindow ?? 128000,
+    maxTokens: spec.maxTokens ?? 8192,
+    headers: spec.headers,
+  } as Model<Api>;
+}
+
+function buildTriagePrompt(params: {
+  heartbeatContent: string;
+  systemEvents: SystemEventEntry[];
+  heartbeatContext: string[];
+}): string {
+  const sections = [
+    "Decide if the following heartbeat content requires action by the main agent.",
+    "If there are actionable tasks, scheduled work, or events needing response, reply: DISPATCH",
+    "If nothing needs attention (empty tasks, no-op directives, status-only), reply: NO_REPLY",
+    "",
+    "HEARTBEAT_CONTEXT:",
+    ...params.heartbeatContext,
+    "",
+    "HEARTBEAT_CONTENT:",
+    params.heartbeatContent.trim(),
+  ];
+  if (params.systemEvents.length > 0) {
+    sections.push(
+      "",
+      "SYSTEM_EVENTS:",
+      ...params.systemEvents.map((e) => `[${new Date(e.ts).toISOString()}] ${e.text}`),
+    );
+  }
+  sections.push("", "Reply with exactly one word: DISPATCH or NO_REPLY.");
+  return sections.join("\n");
 }
 
 function resolveDefaultAgentId(agents: MoziConfig["agents"]): string {

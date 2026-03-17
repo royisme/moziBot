@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { _resetAllQueues, enqueueSystemEvent } from "../../infra/system-events";
 import type { InboundMessage } from "../adapters/channels/types";
 import { HeartbeatRunner } from "./heartbeat";
 
 const fsReadFileMock = vi.fn<(...args: unknown[]) => Promise<string>>(async () => "");
+const promptMock = vi.fn<(prompt: string) => Promise<void>>(async () => {});
+const agentInstances: Array<{ state: { messages: Array<{ role: string; content: string }> } }> = [];
 
 vi.mock("node:fs/promises", () => ({
   default: {
@@ -10,6 +13,59 @@ vi.mock("node:fs/promises", () => ({
   },
   readFile: (...args: unknown[]) => fsReadFileMock(...args),
 }));
+
+vi.mock("@mariozechner/pi-agent-core", () => ({
+  Agent: class MockAgent {
+    state = { messages: [] as Array<{ role: string; content: string }> };
+
+    constructor(_params: unknown) {
+      agentInstances.push(this);
+    }
+
+    async prompt(prompt: string) {
+      await promptMock(prompt);
+    }
+  },
+}));
+
+beforeEach(() => {
+  fsReadFileMock.mockReset();
+  fsReadFileMock.mockResolvedValue("");
+  promptMock.mockReset();
+  promptMock.mockImplementation(async () => {
+    const agent = agentInstances.at(-1);
+    agent?.state.messages.push({ role: "assistant", content: "DISPATCH" });
+  });
+  agentInstances.length = 0;
+  _resetAllQueues();
+  vi.useRealTimers();
+});
+
+function makeConfig() {
+  return {
+    models: {
+      providers: {
+        quotio: {
+          api: "openai-responses",
+          apiKey: "test-key",
+          models: [{ id: "gemini-3-flash-preview", api: "openai-responses" }],
+        },
+      },
+    },
+    agents: {
+      defaults: {
+        heartbeat: {
+          enabled: true,
+          every: "30m",
+          prompt: "Read HEARTBEAT.md if it exists",
+        },
+      },
+      mozi: {
+        model: "quotio/gemini-3-flash-preview",
+      },
+    },
+  } as never;
+}
 
 describe("HeartbeatRunner", () => {
   it("injects HEARTBEAT.md content envelope into heartbeat prompt", async () => {
@@ -46,21 +102,7 @@ describe("HeartbeatRunner", () => {
       enqueueInbound as never,
     );
 
-    runner.updateConfig({
-      models: { providers: {} },
-      agents: {
-        defaults: {
-          heartbeat: {
-            enabled: true,
-            every: "30m",
-            prompt: "Read HEARTBEAT.md if it exists",
-          },
-        },
-        mozi: {
-          model: "quotio/gemini-3-flash-preview",
-        },
-      },
-    } as never);
+    runner.updateConfig(makeConfig());
 
     const stateMap = (runner as unknown as { states: Map<string, { nextRunAt: number }> }).states;
     const moziState = stateMap.get("mozi");
@@ -135,13 +177,12 @@ describe("HeartbeatRunner", () => {
       enqueueInbound as never,
     );
 
-    runner.start({
-      models: { providers: {} },
-      agents: {
-        defaults: { heartbeat: { enabled: true, every: "30m" } },
-        mozi: { model: "quotio/gemini-3-flash-preview" },
-      },
-    } as never);
+    const config = makeConfig() as { agents: { defaults: Record<string, unknown> } };
+    (config.agents.defaults as { heartbeat: { enabled: boolean; every: string } }).heartbeat = {
+      enabled: true,
+      every: "30m",
+    };
+    runner.start(config as never);
 
     const wake = runner as unknown as {
       handleWake: (reason: string, sessionKey?: string) => Promise<string>;
@@ -200,7 +241,15 @@ describe("HeartbeatRunner", () => {
     );
 
     runner.updateConfig({
-      models: { providers: {} },
+      models: {
+        providers: {
+          quotio: {
+            api: "openai-responses",
+            apiKey: "test-key",
+            models: [{ id: "gemini-3-flash-preview", api: "openai-responses" }],
+          },
+        },
+      },
       agents: {
         defaults: {
           heartbeat: {
@@ -221,5 +270,150 @@ describe("HeartbeatRunner", () => {
     const stateMap = (runner as unknown as { states: Map<string, unknown> }).states;
     expect(stateMap.size).toBe(1);
     expect(stateMap.has("dev-coder")).toBe(true);
+  });
+
+  it("skips enqueue when triage returns no_reply", async () => {
+    fsReadFileMock.mockResolvedValueOnce("# HEARTBEAT.md\nStatus only");
+    promptMock.mockImplementationOnce(async () => {
+      const agent = agentInstances.at(-1);
+      agent?.state.messages.push({ role: "assistant", content: "NO_REPLY" });
+    });
+
+    const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+    const handler = {
+      getLastRoute: vi.fn(() => ({
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      })),
+      resolveSessionContext: vi.fn(() => ({ sessionKey: "agent:mozi:telegram:dm:chat-1" })),
+      isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({ createdAt: Date.now() })),
+    };
+    const agentManager = { getHomeDir: vi.fn(() => "/tmp/home") };
+    const runner = new HeartbeatRunner(
+      handler as never,
+      agentManager as never,
+      enqueueInbound as never,
+    );
+    runner.updateConfig(makeConfig());
+
+    enqueueSystemEvent("noop event", { sessionKey: "agent:mozi:telegram:dm:chat-1" });
+
+    const stateMap = (runner as unknown as { states: Map<string, { nextRunAt: number }> }).states;
+    const moziState = stateMap.get("mozi");
+    if (moziState) {
+      moziState.nextRunAt = Date.now() - 1;
+    }
+
+    await (runner as unknown as { tick: () => Promise<void> }).tick();
+
+    expect(enqueueInbound).not.toHaveBeenCalled();
+  });
+
+  it("dispatches enqueue when triage returns dispatch", async () => {
+    fsReadFileMock.mockResolvedValueOnce("# HEARTBEAT.md\n- follow up on inbox");
+
+    const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+    const handler = {
+      getLastRoute: vi.fn(() => ({
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      })),
+      resolveSessionContext: vi.fn(() => ({ sessionKey: "agent:mozi:telegram:dm:chat-1" })),
+      isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({ createdAt: Date.now() })),
+    };
+    const agentManager = { getHomeDir: vi.fn(() => "/tmp/home") };
+    const runner = new HeartbeatRunner(
+      handler as never,
+      agentManager as never,
+      enqueueInbound as never,
+    );
+    runner.updateConfig(makeConfig());
+
+    const stateMap = (runner as unknown as { states: Map<string, { nextRunAt: number }> }).states;
+    const moziState = stateMap.get("mozi");
+    if (moziState) {
+      moziState.nextRunAt = Date.now() - 1;
+    }
+
+    await (runner as unknown as { tick: () => Promise<void> }).tick();
+
+    expect(enqueueInbound).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to dispatch when triage throws", async () => {
+    fsReadFileMock.mockResolvedValueOnce("# HEARTBEAT.md\n- actionable task");
+    promptMock.mockRejectedValueOnce(new Error("triage failed"));
+
+    const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+    const handler = {
+      getLastRoute: vi.fn(() => ({
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      })),
+      resolveSessionContext: vi.fn(() => ({ sessionKey: "agent:mozi:telegram:dm:chat-1" })),
+      isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({ createdAt: Date.now() })),
+    };
+    const agentManager = { getHomeDir: vi.fn(() => "/tmp/home") };
+    const runner = new HeartbeatRunner(
+      handler as never,
+      agentManager as never,
+      enqueueInbound as never,
+    );
+    runner.updateConfig(makeConfig());
+
+    const stateMap = (runner as unknown as { states: Map<string, { nextRunAt: number }> }).states;
+    const moziState = stateMap.get("mozi");
+    if (moziState) {
+      moziState.nextRunAt = Date.now() - 1;
+    }
+
+    await (runner as unknown as { tick: () => Promise<void> }).tick();
+
+    expect(enqueueInbound).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to dispatch when triage times out", async () => {
+    vi.useFakeTimers();
+    fsReadFileMock.mockResolvedValueOnce("# HEARTBEAT.md\n- actionable task");
+    promptMock.mockImplementationOnce(async () => {
+      await new Promise(() => {});
+    });
+
+    const enqueueInbound = vi.fn(async (_message: InboundMessage) => {});
+    const handler = {
+      getLastRoute: vi.fn(() => ({
+        channelId: "telegram",
+        peerId: "chat-1",
+        peerType: "dm",
+      })),
+      resolveSessionContext: vi.fn(() => ({ sessionKey: "agent:mozi:telegram:dm:chat-1" })),
+      isSessionActive: vi.fn(() => false),
+      getSessionTimestamps: vi.fn(() => ({ createdAt: Date.now() })),
+    };
+    const agentManager = { getHomeDir: vi.fn(() => "/tmp/home") };
+    const runner = new HeartbeatRunner(
+      handler as never,
+      agentManager as never,
+      enqueueInbound as never,
+    );
+    runner.updateConfig(makeConfig());
+
+    const stateMap = (runner as unknown as { states: Map<string, { nextRunAt: number }> }).states;
+    const moziState = stateMap.get("mozi");
+    if (moziState) {
+      moziState.nextRunAt = Date.now() - 1;
+    }
+
+    const tickPromise = (runner as unknown as { tick: () => Promise<void> }).tick();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await tickPromise;
+
+    expect(enqueueInbound).toHaveBeenCalledTimes(1);
   });
 });

@@ -130,6 +130,7 @@ function createDeps(): OrchestratorDeps {
     createErrorReplyText: vi.fn(() => "error"),
     setSessionModel: vi.fn(async () => {}),
     stopTypingIndicator: vi.fn(async () => {}),
+    getLatestAssistantText: vi.fn(async () => undefined),
   };
 }
 

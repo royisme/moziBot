@@ -21,6 +21,7 @@ function buildListButtons(runs: TaskRunView[]): InlineButton[][] {
   rows.push([
     { text: "Refresh", callbackData: "/tasks" },
     { text: "Reconcile", callbackData: "/tasks reconcile" },
+    { text: "Clean", callbackData: "/tasks clean" },
   ]);
   return rows;
 }
@@ -118,7 +119,17 @@ export async function handleTasksCommand(params: {
     return;
   }
 
+  if (subcommand === "clean") {
+    const result = controlPlane.clean(sessionKey);
+    const runs = controlPlane.listForParent(sessionKey);
+    await channel.send(peerId, {
+      text: `${result.message}\n\n${renderList(runs)}`,
+      ...(runs.length > 0 ? { buttons: buildListButtons(runs) } : {}),
+    });
+    return;
+  }
+
   await channel.send(peerId, {
-    text: "Usage: /tasks [status <runId>|stop <runId>|reconcile]",
+    text: "Usage: /tasks [status <runId>|stop <runId>|reconcile|clean]",
   });
 }

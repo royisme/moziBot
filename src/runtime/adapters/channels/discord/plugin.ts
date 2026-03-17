@@ -249,6 +249,7 @@ export class DiscordPlugin extends BaseChannelPlugin {
       { name: "compact", description: "Compact session context" },
       { name: "status", description: "View current status" },
       { name: "skills", description: "List available skills" },
+      { name: "tasks", description: "Manage background tasks" },
     ];
 
     for (const def of simpleCommands) {

@@ -1196,6 +1196,57 @@ describe("MessageHandler commands", () => {
     expect(allTexts.includes("(no response)")).toBe(false);
   });
 
+  it("does not emit (no response) for recovered-empty subagent announce turns", async () => {
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        onStream?: (event: {
+          type: "text_delta" | "agent_end";
+          delta?: string;
+          fullText?: string;
+        }) => Promise<void> | void;
+      }) => Promise<void>;
+      agentManager: {
+        getAgent: (
+          sessionKey: string,
+          agentId: string,
+        ) => Promise<{
+          agent: { messages: Array<{ role: string; content: string }> };
+          modelRef: string;
+        }>;
+      };
+    };
+
+    h.runPromptWithFallback = vi.fn(async (params) => {
+      await params.onStream?.({
+        type: "agent_end",
+        fullText: "<think>hidden reasoning only</think>",
+      });
+    });
+    h.agentManager.getAgent = async () => ({
+      modelRef: "quotio/gemini-3-flash-preview",
+      agent: {
+        messages: [{ role: "assistant", content: "<think>hidden reasoning only</think>" }],
+      },
+    });
+
+    const internalMessage = {
+      ...createMessage("hello"),
+      raw: { source: "subagent-announce" },
+    };
+
+    await handler.handle(internalMessage, channel);
+
+    const sentTexts = send.mock.calls.map((call) => (call[1] as { text?: string }).text || "");
+    const editedTexts = editMessageMock.mock.calls.map((call) => {
+      const tuple = call as unknown[];
+      const text = tuple.length > 2 ? tuple[2] : undefined;
+      return typeof text === "string" ? text : "";
+    });
+    const allTexts = [...sentTexts, ...editedTexts];
+
+    expect(allTexts).not.toContain("(no response)");
+  });
+
   it("does not stream partial placeholder when channel has no editMessage capability", async () => {
     const channelWithoutEdit = {
       ...channel,

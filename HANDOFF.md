@@ -2,128 +2,65 @@
 
 ## Current objective
 
-Execute the Two-Tier Watchdog + Unified Event Queue architecture (Phases 1-4).
-Spec: `devDocs/spec/watchdog-event-queue-arch.md`
-Review: `devDocs/spec/watchdog-event-queue-arch-review.md`
-Run: `.claude/selfwork/runs/run-2026-03-15T01-20-37-yzo1kb/`
+Reduce subagent lifecycle notification verbosity sent to the user in Telegram/Discord.
 
-### Active selfwork run — 8 tasks, status: executing
+### Problem
 
-Dependency execution order:
-- Round 1: **task-01** (EventEnqueuer + schema) — no deps
-- Round 2 (parallel): **task-02** (kernel + pump dispatch), **task-06** (spawn backpressure), **task-07** (WatchdogReadFacade + Router + hasActiveRun)
-- Round 3: **task-03** (RuntimeHost wires EnqueuerRef)
-- Round 4: **task-04** (handleInternalMessage enqueues)
-- Round 5 (parallel): **task-05** (subagent result routing), **task-08** (WatchdogService)
+When a subagent runs, the system sends multiple messages to the user:
+1. "accepted" notification (direct delivery)
+2. "started" notification (direct delivery)
+3. Main agent's summarized reply (via LLM fallback, often verbose with prompt details)
+4. "completed" notification (direct delivery)
 
-### Key architectural decisions (do not discard)
+User wants: brief "subagent launched" + "subagent done/failed" only. Full task details should be available via `/tasks status <runId>`, not pushed to chat.
 
-1. **EventEnqueuer interface** — narrow interface extracted from RuntimeKernel; passed via `HostSubagentRuntime` to `SubagentRegistry`; avoids circular deps
-2. **EventEnqueuerRef wrapper** — stable indirection layer; `RuntimeHost.reloadMessageHandler()` calls `ref.setTarget(newKernel)` after recreating kernel
-3. **Queue schema** — adds `event_type`, `event_payload`, `priority`, `scheduled_at` columns to `runtime_queue`; `inbound_json` preserved for user_message events
-4. **pump loop dispatch** — early return in `processQueueItem` before `parseInbound` for non-user_message events
-5. **WatchdogReadFacade** — replaces HeartbeatRunner's 3 couplings to MessageHandler; pure read-only interface
-6. **RuntimeRouter.resolveSessionKeyFromRoute()** — pure method; eliminates fake InboundMessage construction in heartbeat
-7. **RunLifecycleRegistry.hasActiveRun()** — correct home for session-active check
-8. **spawnQueues: Map<sessionKey, PendingSpawnRequest[]>** — per-session backpressure (not global)
-9. **pendingInternalMessages** → SQLite `internal` queue items via EventEnqueuer
-10. **Phase 5 deferred** — legacy path deletion out of scope for this run
+### Key files
+
+- `src/runtime/host/sessions/subagent-announce.ts` — `announceDetachedRun()`, `buildDetachedRunTriggerMessage()`
+- `src/runtime/host/sessions/async-task-delivery.ts` — `deliverGuaranteedLifecycleNotification()`, `buildSimpleAckMessage()`
+- `src/runtime/host/sessions/subagent-registry.ts` — `triggerPhaseAnnounce()` controls which phases trigger announcements
 
 ---
 
-## Previous objective (completed)
+## Previous completions (this session)
 
-Continue OpenClaw alignment beyond the contract layer. The provider/auth/model contract layer is now aligned.
+### NO_REPLY leak fix + heartbeat triage (spec: `devDocs/spec/no-reply-leak-fix.md`)
 
-This file is session-state transfer, not permanent architecture policy.
+- Fix 1: System-internal turns exempt from lifecycle guard (`execution-flow.ts`)
+- Fix 2: Ack delivery retry in reconciliation (`subagent-registry.ts`)
+- Fix 4: Lightweight heartbeat triage subagent (`heartbeat.ts`)
+- All tests pass, check clean
 
-## What already landed
+### /tasks command improvements
 
-### Contract layer alignment (this session)
+- Added `/tasks` to Telegram bot menu (`telegram/plugin.ts`)
+- Added `/tasks` to Discord slash commands (`discord/plugin.ts`)
+- Added `/tasks clean` subcommand to remove terminal tasks (`tasks-command.ts`, `tasks-control-plane.ts`, `subagent-registry.ts`)
+- Added "Clean" button to tasks list UI
 
-Five-phase alignment of provider contracts, auth resolution, credential management, and types:
+### Validation
 
-1. **Centralized provider contract data** — Created `src/runtime/provider-env-vars.ts` (ported `PROVIDER_ENV_API_KEY_CANDIDATES` from upstream) and `src/runtime/provider-normalization.ts` (ported `normalizeProviderId()` with alias table). Refactored `src/runtime/providers/contracts.ts` to be self-contained. Fixed dependency inversion: runtime no longer imports from configure/.
+- `pnpm run check` ✅
+- `pnpm run test` ✅ (1781 tests)
+- `npx tsc --noEmit` ✅
 
-2. **Aligned auth resolution** — Created `src/runtime/provider-auth.ts` with standalone `resolveApiKeyForProvider()` and `resolveProviderAuth()` matching upstream's resolution chain: config apiKey → SecretInput → env candidates → auth profiles → cli-credentials. `ProviderRegistry.resolveApiKey()` remains a thin delegate.
+---
 
-3. **Replaced Codex OAuth with CLI credential reading** — Created `src/runtime/cli-credentials.ts` (ported from upstream `cli-credentials.ts`: reads `~/.codex/auth.json`, macOS keychain fallback, TTL cache). Deleted `src/runtime/providers/auth.ts` (OAuth handler machinery). Updated `codex-oauth.ts` to check CLI credentials instead of running OAuth. Updated `codex-usage.ts` to use `readCodexCliCredentials()`. OAuth auth method now throws with "authenticate via native CLI" message.
+## Previous objectives (older sessions)
 
-4. **Aligned types** — `ProviderConfig` now includes `injectNumCtxForOpenAICompat`. `normalizeProviderId()` applied in `ProviderRegistry`, `ModelRegistry.parseRef()`, and `composeProvider()`. `ProviderContract` defined in `runtime/types.ts` as single source of truth. `ModelDefinition.name` kept optional (>10 call sites affected — TODO to tighten).
+### Two-Tier Watchdog + Unified Event Queue (Phases 1-5)
 
-5. **Validated** — tsc clean, 1739/1739 tests pass, all old OAuth patterns removed, no configure/ imports in runtime/.
+Committed in `d9b44ec`. Spec: `devDocs/spec/watchdog-event-queue-arch.md`
 
-### Previous sessions
+### Contract layer alignment
 
-- Integrated provider onboarding as primary `configure` path.
-- `mozi auth` aligned around shared provider contract.
-- Shared secret loading/deletion fixes landed.
-- Repo-wide TypeScript/test cleanup completed.
+Five-phase provider/auth/model contract alignment. See git history for details.
 
-## Validation state
+---
 
-- `pnpm run check` ✅ (passed via pre-commit for commit `896c757`)
-- `pnpm exec tsc --noEmit --pretty false` ✅ earlier in the session
-- `pnpm run test` ✅ earlier in the session (agent reported full vitest pass: 171 files / 1761 tests)
+## Resume checklist
 
-### Provider transport refactor landed in `896c757`
-
-**Bug / motivation:** runtime behavior was still partially inferred from provider `baseUrl` and mixed contract/runtime state. That let native SDK providers like `google` leak into the Pi OpenAI-compatible registration path, which caused the Google 404 regression.
-
-**What landed:**
-- `src/runtime/types.ts` — introduced `ProviderTransportKind = "openai-compat" | "native-sdk" | "cli-backend"` and `ResolvedProvider`
-- `src/runtime/providers/contracts.ts` — now static contract metadata only; google marked `transportKind: "native-sdk"`
-- `src/runtime/providers/composition.ts` — new contract+config composition pipeline producing `ResolvedProvider`
-- `src/runtime/provider-registry.ts` — now stores resolved providers
-- `src/runtime/providers/pi-registration.ts` — extracted PI registration logic; only registers `transportKind === "openai-compat"`
-- `src/runtime/agent-manager.ts` — now orchestrates registration instead of encoding provider transport rules
-- `src/runtime/cli-backends.ts` — Gemini CLI added as first-class `cli-backend` with `google-gemini-cli`
-
-**Why this works:**
-Transport routing is now explicit. Google keeps canonical metadata like `baseUrl`, but registration/routing decisions use `transportKind` instead of guessing from HTTP-looking config.
-
-**Tests added/updated:**
-- `src/runtime/providers/composition.test.ts`
-- `src/runtime/providers/pi-registration.test.ts`
-- `src/runtime/model-registry.test.ts`
-- `src/runtime/cli-backends.test.ts`
-
-## Intentionally incomplete
-
-- `ModelDefinition.name` is still optional — needs tightening when call sites are updated
-- Auth-profile failure rotation is currently wired only through the Codex default transport wrapper in `src/runtime/agent-manager.ts`; broader provider/runtime failure observation is still deferred
-- `SecretInput` support for `ProviderConfig.headers` deferred — kept as `Record<string, string>` to avoid blast radius
-- Model catalog / model selection alignment with upstream not yet done
-- `configure/` layer still has its own flow abstractions that could be simplified now that runtime owns contract data
-
-## New files created this session
-
-- `src/runtime/provider-env-vars.ts` — centralized API key env var candidates
-- `src/runtime/provider-normalization.ts` — provider ID normalization + alias table
-- `src/runtime/provider-auth.ts` — standalone auth resolution function + source metadata
-- `src/runtime/cli-credentials.ts` — Codex/Claude CLI credential reading
-- `src/runtime/auth-profiles.ts` — auth-profile storage adapter, ordering, cooldown, lastGood/lastUsed tracking
-- `src/runtime/auth-profiles.test.ts` — auth-profile ordering/cooldown tests
-
-## Files deleted this session
-
-- `src/runtime/providers/auth.ts` — OAuth handler machinery (replaced by cli-credentials.ts)
-
-## Known pitfalls
-
-- The pre-existing lint error in `execution-flow.test.ts` blocks `pnpm run check` — fix separately.
-- `@mariozechner/pi-ai` typing is sensitive around `Model<TApi>`; prefer concrete API literals.
-- Tests that replace runtime collaborators with mocks can hide new-method mismatches.
-
-## Resume checklist for a fresh agent
-
-Before changing code:
 - read `CLAUDE.md`
 - read `.claude/rules/workflow.md`
 - read this file
-- compare the local implementation against `../openclaw_source_github`
-
-Then answer:
-1. What is already done? (contract layer aligned)
-2. What TODOs remain? (auth profiles, cli-credentials in resolution chain, ModelDefinition.name, headers SecretInput)
-3. What upstream alignment comes next? (model selection, model catalog, configure simplification)
+- for subagent notification work: read `src/runtime/host/sessions/subagent-announce.ts` and `async-task-delivery.ts`

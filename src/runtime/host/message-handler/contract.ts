@@ -143,6 +143,7 @@ export interface OrchestratorDeps {
     onFallback?: (info: FallbackInfo) => Promise<void> | void;
     abortSignal?: AbortSignal;
   }): Promise<void>;
+  getLatestAssistantText(sessionKey: string, agentId: string): Promise<string | undefined>;
   maybePreFlushBeforePrompt(params: { sessionKey: string; agentId: string }): Promise<void>;
   shouldSuppressSilentReply(text: string | undefined, opts?: { forceReply?: boolean }): boolean;
   shouldSuppressHeartbeatReply(raw: unknown, text: string): boolean;

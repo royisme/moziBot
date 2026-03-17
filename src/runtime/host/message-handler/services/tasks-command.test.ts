@@ -131,4 +131,30 @@ describe("handleTasksCommand", () => {
     expect(payload.text).toContain("Reconciled 1 run(s)");
     expect(payload.text).toContain("run-a");
   });
+
+  it("cleans terminal tasks and refreshes the list", async () => {
+    const send = vi.fn(async () => undefined);
+    const clean = vi.fn(() => ({
+      ok: true as const,
+      cleaned: 2,
+      runIds: ["run-a", "run-b"],
+      message: "Cleaned 2 terminal task(s).",
+    }));
+
+    await handleTasksCommand({
+      sessionKey: "parent-1",
+      args: "clean",
+      peerId: "peer-1",
+      channel: { send },
+      controlPlane: {
+        clean,
+        listForParent: vi.fn(() => []),
+      } as never,
+    });
+
+    expect(clean).toHaveBeenCalledWith("parent-1");
+    const payload = getPayload(send) as { text: string };
+    expect(payload.text).toContain("Cleaned 2 terminal task(s).");
+    expect(payload.text).toContain("No detached tasks");
+  });
 });

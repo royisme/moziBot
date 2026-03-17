@@ -7,8 +7,18 @@ import { isSilentReplyText } from "../../reply-utils";
  * This service only decides whether an already-resolved reply should be suppressed.
  */
 
+// Keep this list aligned to real message-turn sources that reach runExecutionFlow.
+// `subagent-announce` is the current detached-run/subagent inbound source in repo reality;
+// stale `detached-run-announce` wording and queue-side `watchdog` events are excluded because
+// they do not enter execution-flow as `payload.raw.source` message turns.
+const SYSTEM_INTERNAL_TURN_SOURCES = new Set(["heartbeat", "heartbeat-wake", "subagent-announce"]);
+
 export interface MessageRawShape {
   readonly source?: string;
+}
+
+export function isSystemInternalTurnSource(source?: string): boolean {
+  return typeof source === "string" && SYSTEM_INTERNAL_TURN_SOURCES.has(source);
 }
 
 /**

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelActionName } from "../../../adapters/channels/types";
+import { injectPendingAckChecker } from "../../reply-utils";
 import type { MessageTurnContext, OrchestratorDeps, PreparedPromptBundle } from "../contract";
 import { runExecutionFlow } from "./execution-flow";
 
@@ -53,6 +54,7 @@ function createDeps(): OrchestratorDeps & {
   __loggerInfoMock: ReturnType<typeof vi.fn>;
   __runPromptWithFallbackMock: ReturnType<typeof vi.fn>;
   __ensureChannelContextMock: ReturnType<typeof vi.fn>;
+  __getLatestAssistantTextMock: ReturnType<typeof vi.fn>;
 } {
   const loggerInfo = vi.fn();
   const runPromptWithFallbackMock = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
@@ -61,6 +63,7 @@ function createDeps(): OrchestratorDeps & {
     }
   });
   const ensureChannelContextMock = vi.fn(async () => {});
+  const getLatestAssistantTextMock = vi.fn(async () => undefined);
   return {
     config: {} as OrchestratorDeps["config"],
     logger: {
@@ -119,6 +122,7 @@ function createDeps(): OrchestratorDeps & {
         }) as unknown as ReturnType<OrchestratorDeps["createStreamingBuffer"]>,
     ),
     runPromptWithFallback: runPromptWithFallbackMock,
+    getLatestAssistantText: getLatestAssistantTextMock,
     maybePreFlushBeforePrompt: vi.fn(async () => {}),
     shouldSuppressSilentReply: vi.fn(() => false),
     shouldSuppressHeartbeatReply: vi.fn(() => false),
@@ -132,6 +136,7 @@ function createDeps(): OrchestratorDeps & {
     __loggerInfoMock: loggerInfo,
     __runPromptWithFallbackMock: runPromptWithFallbackMock,
     __ensureChannelContextMock: ensureChannelContextMock,
+    __getLatestAssistantTextMock: getLatestAssistantTextMock,
   };
 }
 
@@ -160,6 +165,15 @@ function createBundle(): PreparedPromptBundle {
       ingestPlan: null,
     },
   };
+}
+
+function createNoReplyDeps() {
+  const deps = createDeps();
+  deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+    await onStream?.({ type: "agent_end", fullText: "NO_REPLY" });
+  });
+  deps.shouldSuppressSilentReply = vi.fn(() => true);
+  return deps;
 }
 
 describe("runExecutionFlow", () => {
@@ -292,6 +306,117 @@ describe("runExecutionFlow", () => {
     );
   });
 
+  it("uses latest assistant message fallback when terminal event text is missing", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end" });
+    });
+    vi.spyOn(deps, "getLatestAssistantText").mockResolvedValue("Recovered assistant reply");
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "Recovered assistant reply",
+      }),
+    );
+    expect(deps.__getLatestAssistantTextMock).toHaveBeenCalledWith(
+      "agent:mozi:telegram:dm:chat-1",
+      "mozi",
+    );
+  });
+
+  it("keeps explicit terminal text authoritative over recovered assistant text", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end", fullText: "Authoritative terminal text" });
+    });
+    deps.getLatestAssistantText = vi.fn(async () => "Recovered assistant reply");
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "Authoritative terminal text",
+      }),
+    );
+    expect(deps.__getLatestAssistantTextMock).not.toHaveBeenCalled();
+  });
+
+  it("renders recovered assistant text only once", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end" });
+    });
+    deps.getLatestAssistantText = vi.fn(async () => "<think>hidden</think>Visible reply");
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "Visible reply",
+      }),
+    );
+  });
+
+  it("does not treat thinking-only recovered assistant text as a visible terminal reply", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end" });
+    });
+    deps.getLatestAssistantText = vi.fn(async () => "<think>hidden reasoning only</think>");
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: undefined,
+      }),
+    );
+    expect(dispatchReply).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: expect.stringContaining("hidden reasoning only"),
+      }),
+    );
+  });
+
+  it("prefers recovered assistant text over streamed deltas when final text is absent", async () => {
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.getChannel = vi.fn(() => createBridgeChannel());
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "text_delta", delta: "partial streamed text" });
+      await onStream?.({ type: "agent_end" });
+    });
+    deps.getLatestAssistantText = vi.fn(async () => "Recovered assistant reply");
+
+    await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "Recovered assistant reply",
+      }),
+    );
+  });
+
   it("uses provider/auth unavailable fallback copy", async () => {
     const ctx = createContext();
     const deps = createDeps();
@@ -327,8 +452,126 @@ describe("runExecutionFlow", () => {
       }),
     );
   });
+
+  it("suppresses NO_REPLY for heartbeat turns when ack delivery is pending", async () => {
+    injectPendingAckChecker(() => ({
+      hasPendingUserVisible: true,
+      pendingRunIds: ["run-ack"],
+    }));
+    const ctx = { ...createContext(), payload: { raw: { source: "heartbeat" } } };
+    const deps = createNoReplyDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    const result = await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(result).toBe("handled");
+    expect(dispatchReply).not.toHaveBeenCalled();
+  });
+
+  it("suppresses NO_REPLY for heartbeat turns when terminal delivery is pending", async () => {
+    injectPendingAckChecker(() => ({
+      hasPendingUserVisible: true,
+      pendingRunIds: ["run-terminal"],
+    }));
+    const ctx = { ...createContext(), payload: { raw: { source: "heartbeat" } } };
+    const deps = createNoReplyDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    const result = await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(result).toBe("handled");
+    expect(dispatchReply).not.toHaveBeenCalled();
+  });
+
+  it("keeps lifecycle guard for user turns when ack delivery is pending", async () => {
+    injectPendingAckChecker(() => ({
+      hasPendingUserVisible: true,
+      pendingRunIds: ["run-ack"],
+    }));
+    const ctx = createContext();
+    const deps = createNoReplyDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    const result = await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(result).toBe("continue");
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "NO_REPLY",
+      }),
+    );
+  });
+
+  it.each(["heartbeat", "heartbeat-wake", "subagent-announce"])(
+    "suppresses empty terminal replies for system-internal source %s",
+    async (source) => {
+      const ctx = { ...createContext(), payload: { raw: { source } } };
+      const deps = createDeps();
+      const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+      deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+        await onStream?.({ type: "agent_end" });
+      });
+      deps.getLatestAssistantText = vi.fn(async () => "<think>hidden reasoning only</think>");
+
+      const result = await runExecutionFlow(ctx, deps, createBundle());
+
+      expect(result).toBe("handled");
+      expect(dispatchReply).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not treat non-internal sources as suppressible empty terminal replies", async () => {
+    const ctx = { ...createContext(), payload: { raw: { source: "watchdog" } } };
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end" });
+    });
+    deps.getLatestAssistantText = vi.fn(async () => "<think>hidden reasoning only</think>");
+
+    const result = await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(result).toBe("continue");
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: undefined,
+      }),
+    );
+  });
+
+  it("sends deterministic background-task ack when lifecycle guard forced reply but terminal text is empty", async () => {
+    injectPendingAckChecker(() => ({
+      hasPendingUserVisible: true,
+      pendingRunIds: ["run-ack"],
+    }));
+    const ctx = createContext();
+    const deps = createDeps();
+    const dispatchReply = vi.spyOn(deps, "dispatchReply");
+
+    deps.runPromptWithFallback = vi.fn(async ({ onStream }: RunPromptWithFallbackParams) => {
+      await onStream?.({ type: "agent_end", fullText: "<think>hidden reasoning only</think>" });
+    });
+    deps.shouldSuppressSilentReply = vi.fn(() => true);
+
+    const result = await runExecutionFlow(ctx, deps, createBundle());
+
+    expect(result).toBe("continue");
+    expect(dispatchReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: 'Working on "background task"...',
+      }),
+    );
+    expect(dispatchReply).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyText: "(no response)",
+      }),
+    );
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    injectPendingAckChecker(null);
     hookMocks.runner.hasHooks.mockReturnValue(false);
     multimodalMocks.resolveProviderInputMediaAsImages.mockResolvedValue({
       images: [],
@@ -405,6 +648,7 @@ describe("runExecutionFlow", () => {
   });
   beforeEach(() => {
     vi.clearAllMocks();
+    injectPendingAckChecker(null);
     hookMocks.runner.hasHooks.mockReturnValue(false);
   });
 

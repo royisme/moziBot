@@ -2,13 +2,16 @@ export const SILENT_REPLY_TOKEN = "NO_REPLY";
 
 /**
  * Result of checking if silent reply is allowed given the lifecycle state.
+ *
+ * Note: "pending user-visible" means user-visible lifecycle delivery is still outstanding,
+ * including the initial acknowledgement and terminal delivery for runs that have already ended.
  */
 export type SilentReplyCheckResult = {
-  /** Whether silent reply is allowed (no user-visible pending work) */
+  /** Whether silent reply is allowed (no pending user-visible lifecycle delivery) */
   allowed: boolean;
-  /** Whether there is pending user-visible async work that needs acknowledgement */
+  /** Whether any user-visible lifecycle delivery is still pending */
   hasPendingUserVisible: boolean;
-  /** Run IDs of pending user-visible work */
+  /** Run IDs whose user-visible lifecycle delivery is still pending */
   pendingRunIds: string[];
   /** Human-readable reason if silent reply is not allowed */
   reason?: string;
@@ -17,8 +20,12 @@ export type SilentReplyCheckResult = {
 export type ReplyToolCallMode = "off" | "summary";
 
 /**
- * Function type for checking pending user-visible async work.
+ * Function type for checking whether any user-visible lifecycle delivery is still pending.
  * Used to implement the lifecycle-aware suppression guard.
+ *
+ * Despite the legacy ack-oriented naming, callers may report either:
+ * - runs still awaiting their initial acknowledgement, or
+ * - terminal runs whose terminal delivery has not been delivered yet.
  */
 export type PendingAckChecker = (parentKey: string) => {
   hasPendingUserVisible: boolean;
@@ -28,7 +35,7 @@ export type PendingAckChecker = (parentKey: string) => {
 let pendingAckChecker: PendingAckChecker | null = null;
 
 /**
- * Inject the function to check for pending user-visible async work.
+ * Inject the function to check for pending user-visible lifecycle delivery.
  * This should be set by the runtime when initializing the message handler.
  */
 export function injectPendingAckChecker(checker: PendingAckChecker | null): void {
@@ -38,9 +45,13 @@ export function injectPendingAckChecker(checker: PendingAckChecker | null): void
 /**
  * Check if silent reply (NO_REPLY) is allowed given the current lifecycle state.
  * This enforces the rule that a parent turn cannot silently end with NO_REPLY
- * after accepting user-visible detached work unless acknowledgement is already delivered.
+ * while any user-visible lifecycle delivery is still pending.
  *
- * @param sessionKey - The parent session key to check for pending work
+ * That includes both:
+ * - runs still awaiting their initial acknowledgement, and
+ * - runs already in a terminal state whose terminal lifecycle delivery has not landed yet.
+ *
+ * @param sessionKey - The parent session key to check for pending user-visible lifecycle delivery
  * @returns SilentReplyCheckResult indicating whether silent reply is allowed
  */
 export function checkSilentReplyAllowed(sessionKey: string): SilentReplyCheckResult {

@@ -36,6 +36,13 @@ export interface ReconcileTasksResult {
   message: string;
 }
 
+export interface CleanTasksResult {
+  ok: true;
+  cleaned: number;
+  runIds: string[];
+  message: string;
+}
+
 function toRunView(
   run: DetachedRunRecord,
   runLifecycleRegistry?: RunLifecycleRegistry,
@@ -123,6 +130,18 @@ export class TasksControlPlane {
         ? `Stopped run ${runId}.`
         : `Stopped orphaned run ${runId} via terminal reconciliation.`,
       run: updated ? toRunView(updated, this.runLifecycleRegistry) : undefined,
+    };
+  }
+
+  clean(parentKey: string): CleanTasksResult {
+    const result = this.detachedRunRegistry.cleanTerminal(parentKey);
+    return {
+      ok: true,
+      ...result,
+      message:
+        result.cleaned === 0
+          ? "No terminal tasks to clean."
+          : `Cleaned ${result.cleaned} terminal task(s).`,
     };
   }
 

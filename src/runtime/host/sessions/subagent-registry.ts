@@ -1,9 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { logger } from "../../../logger";
-import { RUN_TERMINAL_STATES } from "../message-handler/services/run-lifecycle-registry";
 import { announceDetachedRun } from "./subagent-announce";
-import type { DetachedRunAnnouncementStatus } from "./subagent-announce";
 
 export type DetachedRunStatus =
   | "accepted"
@@ -355,8 +353,12 @@ export class DetachedRunRegistry {
   }
 
   /**
-   * Check if any user-visible accepted work is pending acknowledgement for a parent session.
+   * Check if any user-visible lifecycle delivery is still pending for a parent session.
    * This is used to determine if NO_REPLY should be suppressed in the parent turn.
+   *
+   * Despite the legacy ack-oriented method name, this includes both:
+   * - active runs whose initial acknowledgement has not been delivered yet, and
+   * - terminal runs whose terminal lifecycle delivery has not been delivered yet.
    *
    * Returns: { hasPendingUserVisible: boolean, pendingRunIds: string[] }
    */

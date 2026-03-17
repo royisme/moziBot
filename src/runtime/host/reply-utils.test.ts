@@ -17,8 +17,9 @@ describe("reply-utils - Lifecycle-aware silent reply guard", () => {
       expect(result.hasPendingUserVisible).toBe(false);
     });
 
-    it("should block silent reply when user-visible work is pending", () => {
-      // Inject a checker that returns pending user-visible work
+    it("should block silent reply when user-visible lifecycle delivery is pending", () => {
+      // The checker abstracts any pending user-visible lifecycle delivery,
+      // not just the initial ack.
       injectPendingAckChecker((parentKey: string) => {
         if (parentKey === "parent-1") {
           return {
@@ -34,6 +35,26 @@ describe("reply-utils - Lifecycle-aware silent reply guard", () => {
       expect(result.hasPendingUserVisible).toBe(true);
       expect(result.pendingRunIds).toEqual(["run-1", "run-2"]);
       expect(result.reason).toContain("Cannot end with NO_REPLY");
+    });
+
+    it("should block silent reply when a terminal run still needs terminal delivery", () => {
+      // This models a run that already ended but whose terminal lifecycle event
+      // has not been delivered yet. The NO_REPLY guard still treats it as pending
+      // user-visible lifecycle work.
+      injectPendingAckChecker(() => {
+        return {
+          hasPendingUserVisible: true,
+          pendingRunIds: ["terminal-run-1"],
+        };
+      });
+
+      const result = checkSilentReplyAllowed("parent-1");
+      expect(result.allowed).toBe(false);
+      expect(result.hasPendingUserVisible).toBe(true);
+      expect(result.pendingRunIds).toEqual(["terminal-run-1"]);
+      expect(result.reason).toBe(
+        "Cannot end with NO_REPLY: 1 user-visible async task(s) pending acknowledgement",
+      );
     });
 
     it("should allow silent reply when no pending user-visible work", () => {

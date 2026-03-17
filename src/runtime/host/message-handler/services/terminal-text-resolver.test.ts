@@ -17,6 +17,23 @@ describe("resolveTerminalReplyText", () => {
     expect(resolveTerminalReplyText({ streamedReplyText: "streamed" })).toBe("streamed");
   });
 
+  it("uses recovered text when final text is missing", () => {
+    expect(resolveTerminalReplyText({ recoveredReplyText: "recovered" })).toBe("recovered");
+    expect(
+      resolveTerminalReplyDecision({
+        recoveredReplyText: "recovered",
+        streamedReplyText: "streamed",
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        text: "recovered",
+        source: "recovered_over_streamed",
+        finalChars: 0,
+        streamedChars: "streamed".length,
+      }),
+    );
+  });
+
   it("prefers final text over streamed text when both exist", () => {
     expect(
       resolveTerminalReplyText({
@@ -29,10 +46,11 @@ describe("resolveTerminalReplyText", () => {
   it("returns detailed source and char metrics for observability", () => {
     const decision = resolveTerminalReplyDecision({
       finalReplyText: "你好！我是 pi 中的一个编码助手，可以帮你处理代码和命令。",
+      recoveredReplyText: "来自会话状态的回复",
       streamedReplyText: "你好！我是 pi 中的",
     });
 
-    expect(decision.source).toBe("final_over_streamed");
+    expect(decision.source).toBe("final_over_recovered_and_streamed");
     expect(decision.finalChars).toBe(
       "你好！我是 pi 中的一个编码助手，可以帮你处理代码和命令。".length,
     );

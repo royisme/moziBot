@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { shouldSuppressHeartbeatReply, shouldSuppressSilentReply } from "./reply-finalizer";
+import {
+  isSystemInternalTurnSource,
+  shouldSuppressHeartbeatReply,
+  shouldSuppressSilentReply,
+} from "./reply-finalizer";
 
 describe("reply-finalizer suppression policy", () => {
   it("suppresses silent token replies", () => {
@@ -18,5 +22,16 @@ describe("reply-finalizer suppression policy", () => {
     expect(shouldSuppressHeartbeatReply({ source: "message" }, "HEARTBEAT_OK")).toBe(false);
     expect(shouldSuppressHeartbeatReply(undefined, "HEARTBEAT_OK")).toBe(false);
     expect(shouldSuppressHeartbeatReply({ source: "heartbeat" }, "all good")).toBe(false);
+  });
+
+  it("classifies only real execution-flow internal sources as system-internal", () => {
+    expect(isSystemInternalTurnSource("heartbeat")).toBe(true);
+    expect(isSystemInternalTurnSource("heartbeat-wake")).toBe(true);
+    expect(isSystemInternalTurnSource("subagent-announce")).toBe(true);
+
+    expect(isSystemInternalTurnSource("detached-run-announce")).toBe(false);
+    expect(isSystemInternalTurnSource("watchdog")).toBe(false);
+    expect(isSystemInternalTurnSource("message")).toBe(false);
+    expect(isSystemInternalTurnSource(undefined)).toBe(false);
   });
 });

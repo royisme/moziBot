@@ -9,6 +9,7 @@ import type { InboundMediaPreprocessor } from "../../../media-understanding/prep
 import type { ModelRegistry } from "../../../model-registry";
 import type { SessionStore } from "../../../session-store";
 import { parseInlineOverrides } from "../../commands/reasoning";
+import { extractAssistantText } from "../../reply-utils";
 import type { LastRouteContext } from "../../routing/types";
 import type { OrchestratorDeps } from "../contract";
 import {
@@ -135,6 +136,7 @@ type PromptDeps = Pick<
   | "emitStatusSafely"
   | "createStreamingBuffer"
   | "runPromptWithFallback"
+  | "getLatestAssistantText"
   | "maybePreFlushBeforePrompt"
 >;
 
@@ -452,6 +454,16 @@ function buildPromptDeps(params: OrchestratorDepsBuilderParams): PromptDeps {
           : undefined,
         abortSignal,
       });
+    },
+    getLatestAssistantText: async (sessionKey, agentId) => {
+      const current = await agentManager.getAgent(sessionKey, agentId);
+      const latestAssistant = [...current.agent.messages]
+        .toReversed()
+        .find((message) => message?.role === "assistant");
+      const assistantText = latestAssistant
+        ? extractAssistantText((latestAssistant as { content?: unknown }).content)
+        : "";
+      return assistantText || undefined;
     },
     maybePreFlushBeforePrompt: async ({ sessionKey, agentId }) => {
       await maybePreFlushBeforePrompt({ sessionKey, agentId });

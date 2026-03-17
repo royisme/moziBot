@@ -4,10 +4,12 @@ import { resolveProviderInputMediaAsImages } from "../../../../multimodal/provid
 import { getRuntimeHookRunner } from "../../../hooks";
 import { checkSilentReplyAllowed, renderAssistantReply } from "../../reply-utils";
 import type { DeliveryContext } from "../../routing/types";
+import { buildSimpleAckMessage } from "../../sessions/async-task-delivery";
 import type { ExecutionFlow } from "../contract";
 import { buildFallbackNotice } from "../services/error-reply";
 import type { FallbackInfo } from "../services/prompt-runner";
 import { resolveCurrentReasoningLevel } from "../services/reasoning-level";
+import { isSystemInternalTurnSource } from "../services/reply-finalizer";
 import { StreamingBuffer } from "../services/streaming";
 import { resolveTerminalReplyDecision } from "../services/terminal-text-resolver";
 
@@ -16,6 +18,20 @@ function hashPreview(text: string | undefined): string {
     return "none";
   }
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
+}
+
+function getTurnSource(payload: unknown): string | undefined {
+  return payload && typeof payload === "object" && "raw" in payload
+    ? ((payload.raw as { source?: unknown } | undefined)?.source as string | undefined)
+    : undefined;
+}
+
+function buildPendingBackgroundTaskAck(pendingRunIds: string[]): string {
+  const taskLabel = pendingRunIds.length > 1 ? "background tasks" : "background task";
+  return buildSimpleAckMessage({
+    taskLabel,
+    phase: "started",
+  });
 }
 
 class StreamingReasoningFilter {
@@ -98,6 +114,8 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       onError: (err: Error) => void;
       traceId?: string;
     }) => deps.createStreamingBuffer(params);
+    const getLatestAssistantText = (sessionKey: string, agentId: string) =>
+      deps.getLatestAssistantText(sessionKey, agentId);
     const runPrompt = (params: {
       sessionKey: string;
       agentId: string;
@@ -118,8 +136,13 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       // Lifecycle-aware guard: enforce runtime-level check for user-visible async work
       // This prevents NO_REPLY from black-holing accepted user-visible detached work
       if (promptAllowsSilent && sessionKey) {
+        if (isSystemInternalTurn) {
+          return promptAllowsSilent;
+        }
+
         const lifecycleCheck = checkSilentReplyAllowed(sessionKey);
         if (!lifecycleCheck.allowed) {
+          blockedSilentReplyCheck = lifecycleCheck;
           logger.info(
             {
               traceId: ctx.traceId,
@@ -145,6 +168,9 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     }) => deps.dispatchReply(params);
     const { logger } = deps;
     const hookRunner = getRuntimeHookRunner();
+    const turnSource = getTurnSource(payload);
+    const isSystemInternalTurn = isSystemInternalTurnSource(turnSource);
+    let blockedSilentReplyCheck: ReturnType<typeof checkSilentReplyAllowed> | undefined;
 
     // 1. Artifact Extraction with narrow guards
     const promptText = typeof bundle.config.promptText === "string" ? bundle.config.promptText : "";
@@ -345,9 +371,18 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
     }
 
     // 4. Finalization & Suppression
+    const recoveredReplyText = terminalEventSeen
+      ? undefined
+      : await getLatestAssistantText(sessionKey, agentId);
     const finalReplyText = streamTerminalText;
+    const terminalDecision = resolveTerminalReplyDecision({
+      finalReplyText,
+      recoveredReplyText,
+      streamedReplyText: streamedDeltaText,
+    });
+    const terminalReplyTextRaw = terminalDecision.text;
 
-    if (isSilent(finalReplyText)) {
+    if (isSilent(terminalReplyTextRaw)) {
       logger.info(
         { traceId: ctx.traceId, sessionKey, agentId },
         "Assistant replied with silent token. Suppression active.",
@@ -358,7 +393,7 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       return "handled";
     }
 
-    if (finalReplyText !== undefined && isHeartbeatOk(payload, finalReplyText)) {
+    if (terminalReplyTextRaw !== undefined && isHeartbeatOk(payload, terminalReplyTextRaw)) {
       logger.info(
         { traceId: ctx.traceId, sessionKey, agentId },
         "Heartbeat acknowledged. Suppressing redundant OK reply.",
@@ -380,15 +415,33 @@ export const runExecutionFlow: ExecutionFlow = async (ctx, deps, bundle) => {
       | "streaming_finalize"
       | "streaming_finalize_then_dispatch"
       | "direct_dispatch" = "direct_dispatch";
-    const terminalDecision = resolveTerminalReplyDecision({
-      finalReplyText,
-      streamedReplyText: streamedDeltaText,
-    });
-    const terminalReplyTextRaw = terminalDecision.text;
     const renderedTerminalText = terminalReplyTextRaw
       ? renderAssistantReply(terminalReplyTextRaw, { showThinking: shouldShowThinking })
       : undefined;
-    let terminalReplyText = renderedTerminalText;
+    let terminalReplyText = renderedTerminalText || undefined;
+
+    if (!terminalReplyText?.trim()) {
+      if (isSystemInternalTurn) {
+        logger.info(
+          {
+            traceId: ctx.traceId,
+            sessionKey,
+            agentId,
+            turnSource,
+            terminalSource: terminalDecision.source,
+          },
+          "Suppressing empty terminal reply for system-internal turn",
+        );
+        if (streamingBuffer) {
+          state.outboundId = await streamingBuffer.finalize();
+        }
+        return "handled";
+      }
+
+      if (blockedSilentReplyCheck?.hasPendingUserVisible) {
+        terminalReplyText = buildPendingBackgroundTaskAck(blockedSilentReplyCheck.pendingRunIds);
+      }
+    }
 
     logger.info(
       {
