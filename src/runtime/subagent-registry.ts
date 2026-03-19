@@ -215,7 +215,7 @@ export class SubagentRegistry {
           agentId: targetAgentId,
           model: params.model,
           task: params.prompt,
-          cleanup: "keep",
+          cleanup: "delete",
           timeoutSeconds: params.timeoutSeconds,
           visibilityPolicy: params.visibilityPolicy ?? "user_visible",
         },

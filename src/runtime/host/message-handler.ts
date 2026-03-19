@@ -346,7 +346,7 @@ export class MessageHandler {
             childKey: sessionKey,
             parentKey,
             task: text,
-            cleanup: "keep",
+            cleanup: "delete",
             timeoutSeconds,
           });
         }
@@ -518,6 +518,7 @@ export class MessageHandler {
               }
               this.detachedTerminalCallbacks.delete(runId);
               this.runLifecycle.dispose(runId);
+              this.agentManager.disposeRuntimeSession(sessionKey);
             }
           })();
         });
@@ -869,6 +870,7 @@ export class MessageHandler {
         } finally {
           this.detachedTerminalCallbacks.delete(runId);
           this.runLifecycle.dispose(runId);
+          this.agentManager.disposeRuntimeSession(route.sessionKey);
         }
       })();
     });
