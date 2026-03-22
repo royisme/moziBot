@@ -515,6 +515,19 @@ export class DetachedRunRegistry {
       return;
     }
 
+    // Subagent lifecycle phases are managed silently; terminal delivery is
+    // handled via the subagent_result event path (handleSubagentResult).
+    if (run.kind === "subagent") {
+      this.markPhaseDelivered(run.runId, phase);
+      // Also mark ack delivery as delivered for accepted phase
+      if (phase === "accepted" && run.ackDelivery) {
+        run.ackDelivery.status = "delivered";
+        run.ackDelivery.deliveredAt = Date.now();
+        this.persist();
+      }
+      return;
+    }
+
     const announced = await announceDetachedRun({
       runId: run.runId,
       childKey: run.childKey,
@@ -634,6 +647,20 @@ export class DetachedRunRegistry {
 
     if (phases?.[terminalStatus]) {
       return; // Already announced
+    }
+
+    // Subagent terminal notifications are handled via subagent_result event;
+    // mark delivered immediately so lifecycle guards see no pending work.
+    if (run.kind === "subagent") {
+      run.terminalDelivery = { status: "delivered", attemptCount: 0, deliveredAt: Date.now() };
+      run.announced = true;
+      run.lastDeliveredPhase = terminalStatus;
+      if (run.announcedPhases) {
+        run.announcedPhases[terminalStatus] = true;
+      }
+      run.pendingDeliveryPhase = undefined;
+      this.persist();
+      return;
     }
 
     try {

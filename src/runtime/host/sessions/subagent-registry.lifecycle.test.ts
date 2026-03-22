@@ -1075,17 +1075,8 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
       expect(run?.ackDelivery?.status).toBe("delivered");
       expect(run?.ackDelivery?.attemptCount).toBe(1);
       expect(run?.ackDelivery?.lastError).toBeUndefined();
-      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
-      expect(handleInternalMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          sessionKey: "parent-ack-reconcile",
-          source: "detached-run-announce",
-          metadata: expect.objectContaining({
-            detachedRunId: "run-ack-1",
-            detachedStatus: "accepted",
-          }),
-        }),
-      );
+      // Subagent lifecycle phases are silent — no handleInternalMessage call expected
+      expect(handleInternalMessage).not.toHaveBeenCalled();
     });
 
     it("continues retrying remaining pending ack deliveries when one throws", async () => {
@@ -1139,7 +1130,8 @@ describe("DetachedRunRegistry - Recovery and Regression Validation", () => {
       );
       const finalRun = registry.get("run-ack-idempotent");
 
-      expect(handleInternalMessage).toHaveBeenCalledTimes(1);
+      // Subagent lifecycle phases are silent — no handleInternalMessage call expected
+      expect(handleInternalMessage).not.toHaveBeenCalled();
       expect(finalRun?.ackDelivery?.status).toBe("delivered");
       expect(finalRun?.ackDelivery?.deliveredAt).toBe(firstDeliveredAt);
       expect(finalRun?.announcedPhases?.accepted).toBe(true);

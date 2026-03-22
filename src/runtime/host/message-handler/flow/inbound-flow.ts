@@ -1,6 +1,7 @@
 import { getRuntimeHookRunner } from "../../../hooks";
 import type { RouteContext } from "../../routing/types";
 import type { InboundFlow } from "../contract";
+import { isSystemInternalTurnSource } from "../services/reply-finalizer";
 
 /**
  * Inbound Flow Implementation
@@ -92,6 +93,22 @@ export const runInboundFlow: InboundFlow = async (ctx, deps) => {
       const replyText = rawText.trim() || "Reminder";
       await sendDirect(context.peerId, replyText);
       logger.info({ sessionKey: context.sessionKey }, "Reminder delivered");
+      return "handled";
+    }
+
+    // 4b. System-Internal Turn Short-Circuit
+    // Turns from sources like "subagent-announce" and "heartbeat" require no LLM execution.
+    // Short-circuit here — before execution-flow — to avoid starting a typing indicator,
+    // making an LLM API call, and then suppressing the reply after the fact.
+    const turnSource =
+      payload && typeof payload === "object" && "raw" in (payload as Record<string, unknown>)
+        ? ((payload as Record<string, unknown>).raw as { source?: unknown } | undefined)?.source
+        : undefined;
+    if (isSystemInternalTurnSource(turnSource as string | undefined)) {
+      logger.info(
+        { sessionKey: context.sessionKey, turnSource },
+        "System-internal turn short-circuited in inbound-flow; skipping execution",
+      );
       return "handled";
     }
 

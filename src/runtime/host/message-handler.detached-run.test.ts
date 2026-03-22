@@ -34,6 +34,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       resolveSessionContext: (message: InboundMessage) => {
         sessionKey: string;
@@ -56,6 +57,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         agent: { messages: [] },
         modelRef: "quotio/gemini-3-flash-preview",
       }),
+      disposeRuntimeSession: () => {},
     };
     h.resolveSessionContext = () => ({
       sessionKey: "agent:mozi:telegram:dm:chat-1",
@@ -126,6 +128,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
           sessionKey: string,
           agentId: string,
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       resolveSessionContext: (message: InboundMessage) => {
         sessionKey: string;
@@ -148,6 +151,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         agent: { messages: [{ role: "assistant", content: "late-success" }] },
         modelRef: "quotio/gemini-3-flash-preview",
       }),
+      disposeRuntimeSession: () => {},
     };
     h.resolveSessionContext = () => ({
       sessionKey: "agent:mozi:telegram:dm:chat-1",
@@ -217,6 +221,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
           ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
           getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
           resolveDefaultAgentId: () => string;
+          disposeRuntimeSession: (sessionKey: string) => void;
         };
         runPromptWithFallback: (params: {
           sessionKey: string;
@@ -253,6 +258,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         }),
         getSessionMetadata: () => ({}),
         resolveDefaultAgentId: () => "mozi",
+        disposeRuntimeSession: () => {},
       };
       h.resolveLatestAssistantText = async () => "late-success";
       h.runPromptWithFallback = vi.fn(
@@ -306,6 +312,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
         resolveDefaultAgentId: () => string;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       createHostSubagentRuntime: (
         sessionManager: unknown,
@@ -335,6 +342,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
       getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
       resolveDefaultAgentId: () => "mozi",
+      disposeRuntimeSession: () => {},
     };
 
     const runTurnMock = vi
@@ -381,6 +389,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         ) => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         getSessionMetadata: (sessionKey: string) => Record<string, unknown>;
         resolveDefaultAgentId: () => string;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       createHostSubagentRuntime: (
         sessionManager: unknown,
@@ -410,6 +419,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
       getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
       resolveDefaultAgentId: () => "mozi",
+      disposeRuntimeSession: () => {},
     };
 
     const runTurnMock = vi
@@ -461,6 +471,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         getSessionMetadata: () => Record<string, unknown>;
         resolveDefaultAgentId: () => string;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       createHostSubagentRuntime: (
         sessionManager: unknown,
@@ -489,6 +500,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
       getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
       resolveDefaultAgentId: () => "mozi",
+      disposeRuntimeSession: () => {},
     };
 
     const register = vi.fn();
@@ -532,6 +544,9 @@ describe("MessageHandler.startDetachedRun observability", () => {
     const h = handler as unknown as {
       agentManager: {
         getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
+        getSessionMetadata: () => Record<string, unknown>;
+        resolveDefaultAgentId: () => string;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       createHostSubagentRuntime: (
         sessionManager: unknown,
@@ -560,6 +575,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
       getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
       resolveDefaultAgentId: () => "mozi",
+      disposeRuntimeSession: () => {},
     } as never;
 
     const onTerminal = vi.fn();
@@ -609,6 +625,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
         getSessionMetadata: () => Record<string, unknown>;
         resolveDefaultAgentId: () => string;
+        disposeRuntimeSession: (sessionKey: string) => void;
       };
       createHostSubagentRuntime: (
         sessionManager: unknown,
@@ -630,6 +647,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
       }),
       getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
       resolveDefaultAgentId: () => "mozi",
+      disposeRuntimeSession: () => {},
     };
 
     const setTerminal = vi.fn(async () => undefined);
@@ -675,6 +693,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
           getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
           getSessionMetadata: () => Record<string, unknown>;
           resolveDefaultAgentId: () => string;
+          disposeRuntimeSession: (sessionKey: string) => void;
         };
         createHostSubagentRuntime: (
           sessionManager: unknown,
@@ -704,6 +723,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         }),
         getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
         resolveDefaultAgentId: () => "mozi",
+        disposeRuntimeSession: () => {},
       };
 
       const setTerminal = vi.fn(async () => undefined);
@@ -768,6 +788,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
           getAgent: () => Promise<{ agent: { messages: unknown[] }; modelRef: string }>;
           getSessionMetadata: () => Record<string, unknown>;
           resolveDefaultAgentId: () => string;
+          disposeRuntimeSession: (sessionKey: string) => void;
         };
         createHostSubagentRuntime: (
           sessionManager: unknown,
@@ -790,6 +811,7 @@ describe("MessageHandler.startDetachedRun observability", () => {
         }),
         getSessionMetadata: () => ({ acp: { backend: "test-backend", mode: "persistent" } }),
         resolveDefaultAgentId: () => "mozi",
+        disposeRuntimeSession: () => {},
       };
 
       const setTerminal = vi.fn(async () => {
@@ -881,5 +903,179 @@ describe("MessageHandler.startDetachedRun observability", () => {
         source: "test",
       }),
     ).rejects.toThrow("enqueuer not wired");
+  });
+});
+
+describe("MessageHandler.handleSubagentResult", () => {
+  function makeHandler() {
+    const handler = new MessageHandler(createConfig());
+    const h = handler as unknown as {
+      runPromptWithFallback: (params: {
+        sessionKey: string;
+        agentId: string;
+        text: string;
+      }) => Promise<void>;
+      hostDetachedRunRegistry: { get: (runId: string) => { label?: string; task?: string } | undefined } | undefined;
+    };
+    const runPromptWithFallback = vi.fn(async () => {});
+    h.runPromptWithFallback = runPromptWithFallback;
+    return { handler, runPromptWithFallback, h };
+  }
+
+  const basePayload = {
+    parentSessionKey: "agent:mozi:telegram:dm:chat-1",
+    parentAgentId: "mozi",
+    runId: "run-test-1",
+    childSessionKey: "agent:worker:subagent:dm:chat-1",
+    visibilityPolicy: "user_visible" as const,
+  };
+
+  it("completed with result — calls runPromptWithFallback with task label and result", async () => {
+    const { handler, runPromptWithFallback, h } = makeHandler();
+    h.hostDetachedRunRegistry = {
+      get: () => ({ label: "Research task", task: "do research" }),
+    };
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "completed",
+      resultText: "Here is the answer",
+    });
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Research task") as string,
+      }),
+    );
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Here is the answer") as string,
+      }),
+    );
+  });
+
+  it("completed with no result — does NOT call runPromptWithFallback", async () => {
+    const { handler, runPromptWithFallback } = makeHandler();
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "completed",
+      resultText: "   ",
+    });
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("completed with undefined result — does NOT call runPromptWithFallback", async () => {
+    const { handler, runPromptWithFallback } = makeHandler();
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "completed",
+    });
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("failed — calls runPromptWithFallback with task label and error detail", async () => {
+    const { handler, runPromptWithFallback, h } = makeHandler();
+    h.hostDetachedRunRegistry = {
+      get: () => ({ task: "write report" }),
+    };
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "failed",
+      error: "Connection refused",
+    });
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("write report") as string,
+      }),
+    );
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Connection refused") as string,
+      }),
+    );
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("retry") as string,
+      }),
+    );
+  });
+
+  it("timeout — calls runPromptWithFallback with task label and timeout message", async () => {
+    const { handler, runPromptWithFallback, h } = makeHandler();
+    h.hostDetachedRunRegistry = {
+      get: () => ({ label: "long task" }),
+    };
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "timeout",
+    });
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("long task") as string,
+      }),
+    );
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("timed out") as string,
+      }),
+    );
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("retry") as string,
+      }),
+    );
+  });
+
+  it("aborted — does NOT call runPromptWithFallback", async () => {
+    const { handler, runPromptWithFallback } = makeHandler();
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "aborted",
+    });
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("internal_silent — does NOT call runPromptWithFallback", async () => {
+    const { handler, runPromptWithFallback } = makeHandler();
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "completed",
+      resultText: "some result",
+      visibilityPolicy: "internal_silent",
+    });
+
+    expect(runPromptWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("falls back to 'subagent task' label when registry has no record", async () => {
+    const { handler, runPromptWithFallback, h } = makeHandler();
+    h.hostDetachedRunRegistry = { get: () => undefined };
+
+    await handler.handleSubagentResult({
+      ...basePayload,
+      terminal: "failed",
+      error: "oops",
+    });
+
+    expect(runPromptWithFallback).toHaveBeenCalledTimes(1);
+    expect(runPromptWithFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("subagent task") as string,
+      }),
+    );
   });
 });

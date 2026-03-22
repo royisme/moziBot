@@ -1003,16 +1003,50 @@ export class MessageHandler {
   }
 
   async handleSubagentResult(payload: SubagentResultPayload): Promise<void> {
-    const { parentSessionKey, parentAgentId, resultText, terminal, visibilityPolicy } = payload;
+    const {
+      parentSessionKey,
+      parentAgentId,
+      runId,
+      resultText,
+      terminal,
+      error,
+      visibilityPolicy,
+    } = payload;
 
-    // Skip if result is not user-visible
     if (visibilityPolicy === "internal_silent") {
       return;
     }
 
-    const summaryText = resultText
-      ? `[Subagent completed (${terminal})]:\n${resultText}`
-      : `[Subagent ${terminal}]`;
+    // completed with no meaningful result — nothing to tell main
+    if (terminal === "completed" && !resultText?.trim()) {
+      return;
+    }
+    // aborted = user-initiated cancel — main already knows
+    if (terminal === "aborted") {
+      return;
+    }
+
+    const record = this.hostDetachedRunRegistry?.get(runId);
+    const taskLabel = record?.label || record?.task || "subagent task";
+
+    let summaryText: string;
+    if (terminal === "completed") {
+      summaryText = `[Subagent task "${taskLabel}" completed]:\n${resultText}`;
+    } else if (terminal === "failed") {
+      const errDetail = error ? error.slice(0, 300) : "unknown error";
+      summaryText = [
+        `[Subagent task "${taskLabel}" failed]`,
+        `Error: ${errDetail}`,
+        `Inform the user and decide if a retry is appropriate.`,
+      ].join("\n");
+    } else {
+      // timeout
+      summaryText = [
+        `[Subagent task "${taskLabel}" timed out]`,
+        `The task did not complete within the allowed time.`,
+        `Inform the user and decide if a retry with a longer timeout is appropriate.`,
+      ].join("\n");
+    }
 
     await this.runPromptWithFallback({
       sessionKey: parentSessionKey,
