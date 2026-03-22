@@ -521,9 +521,7 @@ export class DetachedRunRegistry {
       this.markPhaseDelivered(run.runId, phase);
       // Also mark ack delivery as delivered for accepted phase
       if (phase === "accepted" && run.ackDelivery) {
-        run.ackDelivery.status = "delivered";
-        run.ackDelivery.deliveredAt = Date.now();
-        this.persist();
+        this.updateDeliveryState(run.runId, "ack", { status: "delivered" });
       }
       return;
     }
@@ -652,7 +650,7 @@ export class DetachedRunRegistry {
     // Subagent terminal notifications are handled via subagent_result event;
     // mark delivered immediately so lifecycle guards see no pending work.
     if (run.kind === "subagent") {
-      run.terminalDelivery = { status: "delivered", attemptCount: 0, deliveredAt: Date.now() };
+      this.updateDeliveryState(run.runId, "terminal", { status: "delivered" });
       run.announced = true;
       run.lastDeliveredPhase = terminalStatus;
       if (run.announcedPhases) {

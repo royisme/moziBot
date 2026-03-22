@@ -1039,13 +1039,16 @@ export class MessageHandler {
         `Error: ${errDetail}`,
         `Inform the user and decide if a retry is appropriate.`,
       ].join("\n");
-    } else {
-      // timeout
+    } else if (terminal === "timeout") {
       summaryText = [
         `[Subagent task "${taskLabel}" timed out]`,
         `The task did not complete within the allowed time.`,
         `Inform the user and decide if a retry with a longer timeout is appropriate.`,
       ].join("\n");
+    } else {
+      // Unrecognized terminal state — log and skip to avoid misdirecting main's LLM
+      logger.warn({ runId, terminal }, "handleSubagentResult: unrecognized terminal state, skipping");
+      return;
     }
 
     await this.runPromptWithFallback({
