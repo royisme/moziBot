@@ -128,6 +128,13 @@ Create `~/.mozi/config.jsonc`:
       "botToken": "${TELEGRAM_BOT_TOKEN}",
       "agentId": "mozi",
     },
+    "wechat": {
+      "enabled": true,
+      "token": "${WECHAT_ILINK_TOKEN}",
+      // "allowFrom": ["<wechat-user-id>"],  // optional, leave out to allow all
+      // "baseUrl": "https://ilinkai.weixin.qq.com",  // optional, default shown
+      // "pollingTimeoutSeconds": 35,  // optional
+    },
   },
 }
 ```
@@ -234,12 +241,61 @@ Show eligibility, missing requirements, and install hints:
 mozi skills --status
 ```
 
+## WeChat Channel
+
+Mozi supports WeChat via the ilink bot API (long-poll based, Phase 1: text DMs only, no media).
+
+### Obtain a Token
+
+Run the login command to scan a QR code and get your ilink bot token:
+
+```bash
+mozi wechat login
+```
+
+The command will:
+1. Fetch a QR code and render it in your terminal
+2. Wait for you to scan it with the WeChat bot account
+3. Print the token and a ready-to-paste config snippet
+
+If the QR expires before you scan, it automatically refreshes up to 3 times.
+
+### Configuration
+
+Add the token to your config file:
+
+```jsonc
+"channels": {
+  "wechat": {
+    "enabled": true,
+    "token": "${WECHAT_ILINK_TOKEN}",
+    // "allowFrom": ["<wechat-user-id>"],  // optional allowlist
+    // "baseUrl": "https://ilinkai.weixin.qq.com",  // optional
+    // "pollingTimeoutSeconds": 35  // optional
+  }
+}
+```
+
+Set the token as an environment variable:
+
+```env
+WECHAT_ILINK_TOKEN=your_ilink_bot_token_here
+```
+
+### Capabilities and Limits
+
+- Text DMs only (Phase 1 — no images, files, or voice)
+- Typing indicator while Mozi is composing a response
+- `allowFrom` field restricts incoming messages to specific WeChat user IDs
+- Long-poll cursor is persisted to Mozi's data directory automatically
+- If the session expires (errcode -14), the monitor pauses for 30 minutes before retrying
+
 ## Architecture
 
 Mozi uses a modular architecture with a deliberately compact scope:
 
 - **Runtime Host**: The main process that manages channels, queue scheduling, and session runtime.
-- **Channel Adapters**: Integration with messaging platforms (Telegram, Discord).
+- **Channel Adapters**: Integration with messaging platforms (Telegram, Discord, WeChat).
 - **Agents**: LLM-powered entities that execute tasks.
   - **LLM**: Provider abstraction (OpenAI, Anthropic).
   - **Runner**: Executes agents in isolated environments.
