@@ -1047,7 +1047,10 @@ export class MessageHandler {
       ].join("\n");
     } else {
       // Unrecognized terminal state — log and skip to avoid misdirecting main's LLM
-      logger.warn({ runId, terminal }, "handleSubagentResult: unrecognized terminal state, skipping");
+      logger.warn(
+        { runId, terminal },
+        "handleSubagentResult: unrecognized terminal state, skipping",
+      );
       return;
     }
 

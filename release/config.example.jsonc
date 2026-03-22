@@ -92,5 +92,9 @@
       "botToken": "${DISCORD_BOT_TOKEN}",
       "agentId": "mozi",
     },
+    "wechat": {
+      "enabled": false,
+      "token": "${WECHAT_ILINK_TOKEN}",
+    },
   },
 }

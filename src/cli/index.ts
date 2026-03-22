@@ -303,6 +303,18 @@ skillsCmd
     await listSkills(options);
   });
 
+// WeChat channel management
+const wechatCmd = program.command("wechat").description("Manage WeChat channel");
+
+wechatCmd
+  .command("login")
+  .description("Obtain an ilink bot token by scanning a QR code with WeChat")
+  .option("--base-url <url>", "Override ilink API base URL")
+  .action(async (options) => {
+    const { wechatLogin } = await import("./commands/wechat");
+    await wechatLogin({ baseUrl: options.baseUrl });
+  });
+
 program.parse();
 
 export { program };

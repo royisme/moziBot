@@ -915,7 +915,9 @@ describe("MessageHandler.handleSubagentResult", () => {
         agentId: string;
         text: string;
       }) => Promise<void>;
-      hostDetachedRunRegistry: { get: (runId: string) => { label?: string; task?: string } | undefined } | undefined;
+      hostDetachedRunRegistry:
+        | { get: (runId: string) => { label?: string; task?: string } | undefined }
+        | undefined;
     };
     const runPromptWithFallback = vi.fn(async () => {});
     h.runPromptWithFallback = runPromptWithFallback;

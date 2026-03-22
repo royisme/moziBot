@@ -10,6 +10,7 @@ import { LocalDesktopPlugin } from "../adapters/channels/local-desktop/plugin";
 import { ChannelRegistry } from "../adapters/channels/registry";
 import { TelegramPlugin } from "../adapters/channels/telegram/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
+import { WechatPlugin } from "../adapters/channels/wechat/plugin";
 import {
   ensureChromeExtensionRelayServer,
   stopAllChromeExtensionRelays,
@@ -574,6 +575,38 @@ export class RuntimeHost {
       } catch (error) {
         logger.error(
           `Failed to initialize Discord: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    // Initialize WeChat if configured
+    const wechatConfig = config.channels?.wechat;
+    if (wechatConfig?.enabled === true && !wechatConfig.token) {
+      logger.warn("WeChat channel is enabled but token is missing; skipping initialization.");
+    }
+    if (wechatConfig?.enabled !== false && wechatConfig?.token) {
+      try {
+        const wechat = new WechatPlugin({
+          token: wechatConfig.token,
+          allowFrom: wechatConfig.allowFrom,
+          baseUrl: wechatConfig.baseUrl,
+          pollingTimeoutSeconds: wechatConfig.pollingTimeoutSeconds,
+        });
+
+        wechat.on("message", (msg) => {
+          logger.info(
+            { from: msg.peerId, text: msg.text?.slice(0, 50) },
+            "Received WeChat message",
+          );
+          void this.enqueueInboundMessage(msg);
+        });
+
+        this.channelRegistry.register(wechat);
+        await wechat.connect();
+        logger.info("WeChat channel connected");
+      } catch (error) {
+        logger.error(
+          `Failed to initialize WeChat: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }

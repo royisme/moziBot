@@ -130,6 +130,16 @@ export const LocalDesktopConfigSchema = z
   })
   .strict();
 
+export const WechatConfigSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    token: z.string().optional(),
+    allowFrom: IdListSchema.optional(),
+    baseUrl: z.string().optional(),
+    pollingTimeoutSeconds: z.number().int().positive().max(60).optional(),
+  })
+  .strict();
+
 export const ChannelsSchema = z
   .object({
     dmScope: z
@@ -145,6 +155,7 @@ export const ChannelsSchema = z
       .optional(),
     telegram: TelegramConfigSchema.optional(),
     discord: DiscordConfigSchema.optional(),
+    wechat: WechatConfigSchema.optional(),
     localDesktop: LocalDesktopConfigSchema.optional(),
   })
   .strict();
