@@ -474,6 +474,20 @@ export function buildCommandHandlerMap(params: {
           config,
         });
       },
+      onReload: async ({ sessionKey, agentId, message, channel: msgChannel, peerId }) => {
+        agentManager.invalidateBasePromptCache(sessionKey);
+        await agentManager.ensureChannelContext({
+          sessionKey,
+          agentId,
+          message,
+          channel: msgChannel,
+        });
+        const metadata = agentManager.getPromptMetadata(sessionKey);
+        const loadedNames = metadata?.loadedFiles.map((f) => f.name).join(", ") ?? "none";
+        await msgChannel.send(peerId, {
+          text: `Prompt reloaded. Loaded files: ${loadedNames}`,
+        });
+      },
     },
   });
 }

@@ -202,6 +202,7 @@ export class AgentManager {
   private channelContextSessions = new Set<string>();
   private promptMetadataBySession = new Map<string, PromptBuildMetadata>();
   private promptToolsBySession = new Map<string, string[]>();
+  private basePromptBySession = new Map<string, string>();
   private skillLoadersByWorkspace = new Map<string, SkillLoader>();
   private modelRegistry: ModelRegistry;
   private providerRegistry: ProviderRegistry;
@@ -375,6 +376,7 @@ export class AgentManager {
     });
     this.promptMetadataBySession.clear();
     this.promptToolsBySession.clear();
+    this.basePromptBySession.clear();
   }
 
   setSubagentRegistry(registry: SubagentRegistry) {
@@ -582,31 +584,39 @@ export class AgentManager {
       this.promptMetadataBySession.get(sessionKey)?.mode ??
       requestedPromptMode;
     const tools = this.promptToolsBySession.get(sessionKey);
-    const basePrompt = await buildSystemPrompt({
-      homeDir,
-      workspaceDir,
-      basePrompt: entry?.systemPrompt,
-      skills: entry?.skills,
-      tools,
-      sandboxConfig,
-      skillLoader: this.getSkillLoaderForWorkspace(workspaceDir),
-      skillsIndexSynced: this.skillsIndexSynced,
-      mode: promptMode,
-      onMetadata: (metadata) => {
-        this.promptMetadataBySession.set(sessionKey, metadata);
-        logger.debug(
-          {
-            sessionKey,
-            agentId,
-            promptMode: metadata.mode,
-            promptHash: metadata.promptHash,
-            loadedFiles: metadata.loadedFiles,
-            skippedFiles: metadata.skippedFiles,
-          },
-          "Prompt files resolved",
-        );
-      },
-    });
+    const cachedMode = this.promptMetadataBySession.get(sessionKey)?.mode;
+    const cachedBase = this.basePromptBySession.get(sessionKey);
+    let basePrompt: string;
+    if (cachedBase !== undefined && cachedMode === promptMode) {
+      basePrompt = cachedBase;
+    } else {
+      basePrompt = await buildSystemPrompt({
+        homeDir,
+        workspaceDir,
+        basePrompt: entry?.systemPrompt,
+        skills: entry?.skills,
+        tools,
+        sandboxConfig,
+        skillLoader: this.getSkillLoaderForWorkspace(workspaceDir),
+        skillsIndexSynced: this.skillsIndexSynced,
+        mode: promptMode,
+        onMetadata: (metadata) => {
+          this.promptMetadataBySession.set(sessionKey, metadata);
+          logger.debug(
+            {
+              sessionKey,
+              agentId,
+              promptMode: metadata.mode,
+              promptHash: metadata.promptHash,
+              loadedFiles: metadata.loadedFiles,
+              skippedFiles: metadata.skippedFiles,
+            },
+            "Prompt files resolved",
+          );
+        },
+      });
+      this.basePromptBySession.set(sessionKey, basePrompt);
+    }
 
     const currentChannel = buildCurrentChannelContextFromInbound({
       plugin: channel,
@@ -912,6 +922,7 @@ export class AgentManager {
     });
     this.promptMetadataBySession.delete(sessionKey);
     this.promptToolsBySession.delete(sessionKey);
+    this.basePromptBySession.delete(sessionKey);
     this.sessionContexts.delete(sessionKey);
     this.tapeServices.delete(sessionKey);
   }
@@ -922,6 +933,14 @@ export class AgentManager {
 
   getPromptMetadata(sessionKey: string): PromptBuildMetadata | undefined {
     return this.promptMetadataBySession.get(sessionKey);
+  }
+
+  invalidateBasePromptCache(sessionKey?: string): void {
+    if (sessionKey) {
+      this.basePromptBySession.delete(sessionKey);
+    } else {
+      this.basePromptBySession.clear();
+    }
   }
 
   updateSessionMetadata(sessionKey: string, metadata: Record<string, unknown>): void {
