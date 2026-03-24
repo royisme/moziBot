@@ -23,13 +23,34 @@ export interface CommandDispatchContext {
 
 export type CommandHandler = (ctx: CommandDispatchContext, args: string) => Promise<void> | void;
 
-export type CommandHandlerMap = Partial<Record<ParsedCommandName, CommandHandler>>;
+export interface CommandRegistration {
+  handler: CommandHandler;
+  bypassQueue?: boolean;
+}
+
+/** Input type: accepts raw handlers or full registrations for convenience. */
+export type CommandHandlerInput = Partial<
+  Record<ParsedCommandName, CommandRegistration | CommandHandler>
+>;
+
+/** Normalized output type: all values are CommandRegistration. */
+export type CommandHandlerMap = Partial<Record<ParsedCommandName, CommandRegistration>>;
+
+function normalizeRegistration(entry: CommandRegistration | CommandHandler): CommandRegistration {
+  if (typeof entry === "function") {
+    return { handler: entry };
+  }
+  return entry;
+}
 
 /**
  * Utility to create a command handler map from a set of injected callbacks.
+ * Accepts both raw handler functions and full CommandRegistration objects.
  */
-export function createCommandHandlerMap(handlers: CommandHandlerMap): CommandHandlerMap {
-  return handlers;
+export function createCommandHandlerMap(handlers: CommandHandlerInput): CommandHandlerMap {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([name, entry]) => [name, normalizeRegistration(entry!)]),
+  );
 }
 
 /**
@@ -41,10 +62,11 @@ export async function dispatchParsedCommand(
   handlerMap: CommandHandlerMap,
   context: CommandDispatchContext,
 ): Promise<boolean> {
-  const handler = handlerMap[parsedCommand.name];
+  const registration = handlerMap[parsedCommand.name];
 
-  if (handler) {
-    await handler(context, parsedCommand.args);
+  if (registration) {
+    const normalizedRegistration = normalizeRegistration(registration);
+    await normalizedRegistration.handler(context, parsedCommand.args);
     return true;
   }
 

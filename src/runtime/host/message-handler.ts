@@ -21,6 +21,7 @@ import { MessageTurnOrchestrator } from "./message-handler/orchestrator";
 import { checkInputCapability as _unusedCheckInputCapabilityService } from "./message-handler/services/capability";
 import { type CommandHandlerMap } from "./message-handler/services/command-handlers";
 import { buildCommandHandlerMap as buildCommandHandlerMapService } from "./message-handler/services/command-map-builder";
+import { isBypassCommand as isBypassCommandService } from "./message-handler/services/command-metadata";
 import { createErrorReplyText as _unusedCreateErrorReplyTextService } from "./message-handler/services/error-reply";
 import {
   isAbortError as isAbortErrorService,
@@ -199,6 +200,10 @@ export class MessageHandler {
 
   getRuntimeRouter(): RuntimeRouter {
     return this.router;
+  }
+
+  isBypassCommand(commandName: string): boolean {
+    return isBypassCommandService(commandName);
   }
 
   getSessionTimestamps(sessionKey: string): { createdAt?: number; updatedAt?: number } | null {

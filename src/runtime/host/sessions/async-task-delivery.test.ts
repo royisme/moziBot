@@ -132,7 +132,9 @@ describe("async-task-delivery", () => {
         phase: "failed",
         error: "Something went wrong",
       });
-      expect(msg).toBe('Background task "TestTask" failed: Something went wrong. Use /tasks for details.');
+      expect(msg).toBe(
+        'Background task "TestTask" failed: Something went wrong. Use /tasks for details.',
+      );
     });
 
     it("builds failed message without error", () => {
@@ -155,7 +157,9 @@ describe("async-task-delivery", () => {
         phase: "aborted",
         error: "User cancelled",
       });
-      expect(msg).toBe('Background task "TestTask" was cancelled: User cancelled. Use /tasks for details.');
+      expect(msg).toBe(
+        'Background task "TestTask" was cancelled: User cancelled. Use /tasks for details.',
+      );
     });
   });
 

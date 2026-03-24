@@ -71,3 +71,19 @@ data
 tests/runtime/*
 !tests/runtime/.gitkeep
 .data
+
+# Test temp directories (created by mkdtempSync with os.tmpdir())
+mozi-acp-doctor-*/
+mozi-ext-*/
+mozi-embedded-*/
+mozi-incomplete-*/
+mozi-sandbox-test-*/
+tape-test-*/
+tape-store-test-*/
+tape-service-test-*/
+tape-compaction-test-*/
+tape-dual-write-test-*/
+tape-fork-merge-test-*/
+tape-integration-test-*/
+node-compile-cache/
+tsx-*/

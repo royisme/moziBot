@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
-import type { Session, SessionEvent, SessionFilters } from "./types";
 import { logger } from "../../../logger";
 import { sessions as dbSessions } from "../../../storage/db";
+import type { Session, SessionEvent, SessionFilters } from "./types";
 
 const VALID_SESSION_STATUSES: ReadonlySet<Session["status"]> = new Set([
   "idle",

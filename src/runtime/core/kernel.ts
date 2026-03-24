@@ -124,14 +124,30 @@ export class RuntimeKernel implements RuntimeIngress, EventEnqueuer {
     const text = envelope.inbound.text?.trim() ?? "";
     const commandToken = this.extractCommandToken(text);
 
+    const queueItemId = envelope.id || randomUUID();
+
     if (this.isStopCommand(commandToken)) {
       await handleStopCommand({
         messageHandler: this.messageHandler,
         sessionKey: context.sessionKey,
         inbound: envelope.inbound,
+        channelRegistry: this.channelRegistry,
+        activeSessions: this.pumpState.activeSessions,
       });
+      return {
+        accepted: true,
+        deduplicated: false,
+        queueItemId,
+        sessionKey: context.sessionKey,
+      };
     }
-    const queueItemId = envelope.id || randomUUID();
+
+    if (commandToken) {
+      const bypass = await this.tryBypassCommand(envelope, context, commandToken);
+      if (bypass) {
+        return bypass;
+      }
+    }
 
     if (
       this.queueConfig.mode === QueueMode.STEER ||
@@ -303,6 +319,58 @@ export class RuntimeKernel implements RuntimeIngress, EventEnqueuer {
     return {
       sessionKey: `${inbound.channel}:${inbound.peerType || PeerType.DM}:${inbound.peerId}`,
       agentId: "mozi",
+    };
+  }
+
+  private async tryBypassCommand(
+    envelope: RuntimeInboundEnvelope,
+    context: { sessionKey: string; agentId: string },
+    commandToken: string,
+  ): Promise<RuntimeEnqueueResult | null> {
+    if (!this.messageHandler.isBypassCommand(commandToken)) {
+      return null;
+    }
+
+    const channel = this.channelRegistry.get(envelope.inbound.channel);
+    if (!channel) {
+      logger.warn(
+        {
+          channelId: envelope.inbound.channel,
+          command: commandToken,
+        },
+        "Bypass command: channel not found, falling back to queue",
+      );
+      return null;
+    }
+
+    const queueItemId = envelope.id || randomUUID();
+    logger.info(
+      {
+        queueItemId,
+        sessionKey: context.sessionKey,
+        command: commandToken,
+        channel: envelope.inbound.channel,
+        peerId: envelope.inbound.peerId,
+      },
+      "Command bypassing queue (read-only)",
+    );
+
+    void this.messageHandler.handle(envelope.inbound, channel).catch((err) => {
+      logger.error(
+        {
+          err,
+          command: commandToken,
+          sessionKey: context.sessionKey,
+        },
+        "Bypass command execution failed",
+      );
+    });
+
+    return {
+      accepted: true,
+      deduplicated: false,
+      queueItemId,
+      sessionKey: context.sessionKey,
     };
   }
 

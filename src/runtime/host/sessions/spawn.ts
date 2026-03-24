@@ -30,7 +30,6 @@ export interface SpawnResult {
   ackDelivered: boolean;
 }
 
-
 export async function spawnSubAgent(
   sessionManager: SessionManager,
   registry: DetachedRunRegistry,

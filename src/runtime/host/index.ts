@@ -793,17 +793,29 @@ export class RuntimeHost {
 
     logger.info("Shutting down...");
 
-    // 1. Disconnect channels
-    for (const channel of this.channelRegistry.list()) {
-      try {
-        const plugin = this.channelRegistry.get(channel.id);
-        if (plugin) {
-          await plugin.disconnect();
+    // 1. Disconnect channels (with timeout to avoid blocking on long-poll)
+    const CHANNEL_DISCONNECT_TIMEOUT_MS = 5_000;
+    const channels = this.channelRegistry.list();
+    await Promise.allSettled(
+      channels.map(async (channel) => {
+        try {
+          const plugin = this.channelRegistry.get(channel.id);
+          if (plugin) {
+            await Promise.race([
+              plugin.disconnect(),
+              new Promise<void>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`Timeout disconnecting ${channel.id}`)),
+                  CHANNEL_DISCONNECT_TIMEOUT_MS,
+                ),
+              ),
+            ]);
+          }
+        } catch (error) {
+          logger.warn(`Error disconnecting ${channel.id}: ${String(error)}`);
         }
-      } catch (error) {
-        logger.warn(`Error disconnecting ${channel.id}: ${String(error)}`);
-      }
-    }
+      }),
+    );
 
     // 2. Stop cron scheduler
     if (this.cronScheduler) {

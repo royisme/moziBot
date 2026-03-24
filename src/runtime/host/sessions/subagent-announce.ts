@@ -81,11 +81,7 @@ export function buildDetachedRunTriggerMessage(params: DetachedRunAnnouncementPa
       default:
         message = `Task "${taskLabel}" status: ${params.status}`;
     }
-    return [
-      message,
-      "",
-      "Acknowledge this briefly. You can respond with NO_REPLY.",
-    ].join("\n");
+    return [message, "", "Acknowledge this briefly. You can respond with NO_REPLY."].join("\n");
   }
 
   // Terminal phases: brief message only — details available via /tasks status <runId>
@@ -102,9 +98,7 @@ export function injectMessageHandler(handler: MessageHandler): void {
   messageHandlerRef = handler;
 }
 
-export async function announceDetachedRun(
-  params: DetachedRunAnnouncementParams,
-): Promise<boolean> {
+export async function announceDetachedRun(params: DetachedRunAnnouncementParams): Promise<boolean> {
   if (!messageHandlerRef) {
     logger.warn("MessageHandler not injected, skipping announce");
     return false;

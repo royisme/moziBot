@@ -1,5 +1,6 @@
 import { logger } from "../../../logger";
 import { runtimeQueue } from "../../../storage/db";
+import type { ChannelRegistry } from "../../adapters/channels/registry";
 import type { InboundMessage } from "../../adapters/channels/types";
 import { continuationRegistry } from "../continuation";
 
@@ -7,6 +8,8 @@ export async function handleStopCommand(params: {
   messageHandler: unknown;
   sessionKey: string;
   inbound: InboundMessage;
+  channelRegistry?: ChannelRegistry;
+  activeSessions?: Set<string>;
 }): Promise<void> {
   const interrupted = runtimeQueue.markInterruptedBySession(
     params.sessionKey,
@@ -36,6 +39,21 @@ export async function handleStopCommand(params: {
       },
       "Cancelled queued/running items for session by /stop command",
     );
+  }
+  if (params.channelRegistry) {
+    const channel = params.channelRegistry.get(params.inbound.channel);
+    if (channel) {
+      const hasActiveRun = params.activeSessions?.has(params.sessionKey) ?? false;
+      const text =
+        interrupted > 0
+          ? `Stopped. (cancelled ${interrupted} queued item${interrupted > 1 ? "s" : ""})`
+          : hasActiveRun
+            ? "Stop signal sent."
+            : "No active run to stop.";
+      await channel
+        .send(params.inbound.peerId, { text })
+        .catch((err: unknown) => logger.warn({ err }, "Failed to send /stop confirmation"));
+    }
   }
 }
 

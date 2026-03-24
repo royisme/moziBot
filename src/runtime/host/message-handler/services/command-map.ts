@@ -1,6 +1,7 @@
 import type { ChannelPlugin } from "../../../adapters/channels/plugin";
 import type { InboundMessage } from "../../../adapters/channels/types";
-import type { CommandHandlerMap } from "./command-handlers";
+import type { CommandHandlerMap, CommandRegistration } from "./command-handlers";
+import { isBypassCommand } from "./command-metadata";
 import { buildMessageCommandHandlerMap, type MessageCommandRegistryDeps } from "./command-registry";
 
 export function createMessageCommandHandlerMap(params: {
@@ -212,5 +213,14 @@ export function createMessageCommandHandlerMap(params: {
     },
   };
 
-  return buildMessageCommandHandlerMap(registryDeps);
+  const handlerMap = buildMessageCommandHandlerMap(registryDeps);
+  return Object.fromEntries(
+    Object.entries(handlerMap).map(([name, registration]) => {
+      const normalized =
+        typeof registration === "function"
+          ? { handler: registration }
+          : (registration as CommandRegistration);
+      return [name, isBypassCommand(name) ? { ...normalized, bypassQueue: true } : normalized];
+    }),
+  ) as CommandHandlerMap;
 }

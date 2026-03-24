@@ -9,15 +9,22 @@ import { logger } from "../../../logger";
  */
 
 export interface DirectDeliveryDeps {
-  getChannel: (sessionKey: string) => {
-    send: (peerId: string, message: { text: string; threadId?: string; replyToId?: string }) => Promise<string>;
-    getCapabilities: () => unknown;
-  } | undefined;
+  getChannel: (sessionKey: string) =>
+    | {
+        send: (
+          peerId: string,
+          message: { text: string; threadId?: string; replyToId?: string },
+        ) => Promise<string>;
+        getCapabilities: () => unknown;
+      }
+    | undefined;
   getPeerId: (sessionKey: string) => string | undefined;
-  getRoute?: (sessionKey: string) => {
-    threadId?: string;
-    replyToId?: string;
-  } | undefined;
+  getRoute?: (sessionKey: string) =>
+    | {
+        threadId?: string;
+        replyToId?: string;
+      }
+    | undefined;
 }
 
 let deliveryDeps: DirectDeliveryDeps | null = null;

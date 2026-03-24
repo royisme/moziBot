@@ -6,6 +6,7 @@ loadDotEnv({ path: resolve(process.cwd(), ".env.local"), override: false });
 
 export default defineConfig({
   test: {
+    globalSetup: ["./vitest.global-setup.ts"],
     testTimeout: 120_000,
     hookTimeout: 120_000,
     include: ["src/**/*.test.ts"],

@@ -2,8 +2,8 @@ import { existsSync, unlinkSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { closeDb, initDb } from "../../../storage/db";
 import { SessionManager } from "./manager";
-import { DetachedRunRegistry } from "./subagent-registry";
 import { spawnSubAgent } from "./spawn";
+import { DetachedRunRegistry } from "./subagent-registry";
 
 const TEST_DB = "data/test-spawn.db";
 
