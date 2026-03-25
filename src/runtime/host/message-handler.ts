@@ -5,6 +5,7 @@ import { AcpSessionManager } from "../../acp/control-plane";
 import type { MoziConfig } from "../../config";
 import { logger } from "../../logger";
 import { type ResolvedMemoryPersistenceConfig } from "../../memory/backend-config";
+import { APP_VERSION } from "../../version";
 import type { ChannelPlugin } from "../adapters/channels/plugin";
 import type { InboundMessage } from "../adapters/channels/types";
 import type { PromptMode } from "../agent-manager/prompt-builder";
@@ -559,7 +560,7 @@ export class MessageHandler {
   }
 
   private getVersion(): string {
-    return "1.0.2";
+    return APP_VERSION;
   }
 
   private async runPromptWithFallback(params: {
